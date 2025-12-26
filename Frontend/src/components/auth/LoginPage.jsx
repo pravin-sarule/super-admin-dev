@@ -248,7 +248,7 @@ const LoginPage = ({ setAuthStatus }) => {
     setSuccess('');
 
     try {
-      const response = await axios.post('https://super-admin-backend-120280829617.asia-south1.run.app/api/auth/login',
+      const response = await axios.post('http://localhost:4000/api/auth/login',
         { email, password },
         {
           headers: { 'Content-Type': 'application/json' },

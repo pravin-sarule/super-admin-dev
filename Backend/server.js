@@ -26,6 +26,7 @@ const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const customQueryRoutes = require('./routes/customQueryRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
+const llmUsageRoutes = require('./routes/llmUsageRoutes');
 
 const app = express();
 
@@ -107,6 +108,9 @@ app.use('/api/chunking-methods', chunkingMethodRoutes);
 
 console.log('📌 /api/custom-query → Using docDB (docPool) ✨');
 app.use('/api/custom-query', customQueryRoutes);
+
+console.log('📌 /api/llm-usage → Using Payment DB (paymentPool) ✨');
+app.use('/api/llm-usage', llmUsageRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 

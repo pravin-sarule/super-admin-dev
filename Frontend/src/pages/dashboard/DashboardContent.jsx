@@ -1,303 +1,842 @@
-// import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { TrendingUp, Users, CreditCard, DollarSign, Calendar, Activity, Database, Zap, RefreshCw, AlertCircle, BarChart3, PieChart as PieChartIcon, ChevronLeft, ChevronRight, X, User } from 'lucide-react';
+import axios from 'axios';
 
-// const DashboardContent = () => {
-//   console.log('DashboardContent is rendering');
-//   return (
-//     <div className="p-6 bg-white rounded-lg shadow-md">
-//       <h2 className="text-3xl font-bold text-gray-800 mb-6">Dashboard Overview</h2>
-//       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-//         {/* Card 1 */}
-//         <div className="bg-blue-100 p-4 rounded-lg shadow">
-//           <h3 className="text-xl font-semibold text-blue-800 mb-2">Total Cases</h3>
-//           <p className="text-3xl font-bold text-blue-900">1,234</p>
-//         </div>
-//         {/* Card 2 */}
-//         <div className="bg-green-100 p-4 rounded-lg shadow">
-//           <h3 className="text-xl font-semibold text-green-800 mb-2">Active Clients</h3>
-//           <p className="text-3xl font-bold text-green-900">567</p>
-//         </div>
-//         {/* Card 3 */}
-//         <div className="bg-yellow-100 p-4 rounded-lg shadow">
-//           <h3 className="text-xl font-semibold text-yellow-800 mb-2">Pending Tasks</h3>
-//           <p className="text-3xl font-bold text-yellow-900">89</p>
-//         </div>
-//       </div>
-//       <div className="mt-8">
-//         <h3 className="text-2xl font-bold text-gray-800 mb-4">Recent Activity</h3>
-//         <ul className="list-disc list-inside text-gray-700">
-//           <li>Case #1234 updated by John Doe.</li>
-//           <li>New client "ABC Corp" added.</li>
-//           <li>Document "Contract_v2.pdf" uploaded.</li>
-//         </ul>
-//       </div>
-//     </div>
-//   );
-// };
+const DashboardContent = () => {
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState(null);
+  const [usageLogs, setUsageLogs] = useState([]);
+  const [error, setError] = useState(null);
+  const [selectedPeriod, setSelectedPeriod] = useState('30');
+  const [refreshing, setRefreshing] = useState(false);
+  
+  // Pagination and filters for logs table
+  const [currentPage, setCurrentPage] = useState(1);
+  const [logsPerPage] = useState(10);
+  const [filterUsername, setFilterUsername] = useState('');
+  const [filterModel, setFilterModel] = useState('');
+  const [totalLogsCount, setTotalLogsCount] = useState(0);
+  const API_BASE_URL = 'http://localhost:4000/api/llm-usage';
 
-// export default DashboardContent;
+  useEffect(() => {
+    fetchDashboardData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPeriod, filterUsername, filterModel]);
+  
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterUsername, filterModel]);
 
+  const fetchDashboardData = async (showRefresh = false) => {
+    if (showRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        setError('No authentication token found. Please login again.');
+        setLoading(false);
+        setRefreshing(false);
+        return;
+      }
 
-import React, { useState } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { TrendingUp, Users, CreditCard, DollarSign, Calendar, UserCheck, AlertCircle, Eye } from 'lucide-react';
+      const headers = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      };
 
-const SubscriptionDashboard = () => {
-  const [selectedPeriod, setSelectedPeriod] = useState('monthly');
+      // Calculate date range based on selected period
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - parseInt(selectedPeriod));
+      
+      // Set time to start of day for startDate and end of day for endDate
+      startDate.setHours(0, 0, 0, 0);
+      endDate.setHours(23, 59, 59, 999);
 
-  // Sample data - in real app, this would come from your API
-  const monthlyRevenue = [
-    { month: 'Jan', revenue: 12500, subscribers: 250 },
-    { month: 'Feb', revenue: 15800, subscribers: 316 },
-    { month: 'Mar', revenue: 18200, subscribers: 364 },
-    { month: 'Apr', revenue: 22100, subscribers: 442 },
-    { month: 'May', revenue: 25400, subscribers: 508 },
-    { month: 'Jun', revenue: 28900, subscribers: 578 },
-    { month: 'Jul', revenue: 32100, subscribers: 642 },
-    { month: 'Aug', revenue: 35600, subscribers: 712 }
-  ];
+      const dateParams = {
+        startDate: startDate.toISOString().split('T')[0],
+        endDate: endDate.toISOString().split('T')[0],
+      };
+      
+      console.log('📅 Date range:', {
+        start: dateParams.startDate,
+        end: dateParams.endDate,
+        startDateObj: startDate,
+        endDateObj: endDate
+      });
 
-  const subscriptionTiers = [
-    { name: 'Basic', value: 45, color: '#3B82F6' },
-    { name: 'Pro', value: 35, color: '#10B981' },
-    { name: 'Enterprise', value: 20, color: '#F59E0B' }
-  ];
+      console.log('📊 Fetching dashboard data with params:', dateParams);
 
-  const recentActivities = [
-    { id: 1, user: 'Alice Johnson', action: 'Upgraded to Pro', time: '2 hours ago', type: 'upgrade' },
-    { id: 2, user: 'Tech Corp Ltd', action: 'New Enterprise subscription', time: '4 hours ago', type: 'new' },
-    { id: 3, user: 'Mike Chen', action: 'Payment processed', time: '6 hours ago', type: 'payment' },
-    { id: 4, user: 'Sarah Wilson', action: 'Subscription renewed', time: '1 day ago', type: 'renewal' },
-    { id: 5, user: 'David Brown', action: 'Canceled subscription', time: '2 days ago', type: 'cancel' }
-  ];
+      // Fetch statistics - try with date filter first, if empty try without
+      let statsResponse;
+      try {
+        statsResponse = await axios.get(`${API_BASE_URL}/stats`, {
+          headers,
+          params: dateParams,
+        });
+        console.log('📊 Stats response:', statsResponse.data);
+        
+        // If no data with date filter, try without date filter
+        if (statsResponse.data?.data?.totals?.total_requests === '0' || 
+            statsResponse.data?.data?.totals?.total_requests === 0 ||
+            !statsResponse.data?.data?.totals) {
+          console.log('📊 No data with date filter, trying without date filter...');
+          statsResponse = await axios.get(`${API_BASE_URL}/stats`, {
+            headers,
+            params: {},
+          });
+          console.log('📊 Stats response (no date filter):', statsResponse.data);
+        }
+      } catch (err) {
+        console.error('Error fetching stats:', err);
+        throw err;
+      }
 
-  const getActivityIcon = (type) => {
-    switch(type) {
-      case 'upgrade': return <TrendingUp className="w-4 h-4 text-green-500" />;
-      case 'new': return <UserCheck className="w-4 h-4 text-blue-500" />;
-      case 'payment': return <CreditCard className="w-4 h-4 text-green-500" />;
-      case 'renewal': return <Calendar className="w-4 h-4 text-blue-500" />;
-      case 'cancel': return <AlertCircle className="w-4 h-4 text-red-500" />;
-      default: return <Eye className="w-4 h-4 text-gray-500" />;
+      // Fetch usage logs with filters and pagination
+      let logsResponse;
+      try {
+        const logsParams = {
+          limit: 1000, // Fetch enough for client-side pagination and filtering
+          offset: 0,
+          ...dateParams
+        };
+        
+        if (filterUsername) {
+          logsParams.userName = filterUsername;
+        }
+        if (filterModel) {
+          logsParams.modelName = filterModel;
+        }
+        
+        logsResponse = await axios.get(`${API_BASE_URL}`, {
+          headers,
+          params: logsParams,
+        });
+        console.log('📊 Logs response:', logsResponse.data);
+        
+        // If no data with date filter, try without date filter
+        if (!logsResponse.data?.data || logsResponse.data.data.length === 0) {
+          console.log('📊 No logs with date filter, trying without date filter...');
+          const fallbackParams = {
+            limit: 1000,
+            offset: 0,
+            all: true
+          };
+          if (filterUsername) fallbackParams.userName = filterUsername;
+          if (filterModel) fallbackParams.modelName = filterModel;
+          
+          logsResponse = await axios.get(`${API_BASE_URL}`, {
+            headers,
+            params: fallbackParams,
+          });
+          console.log('📊 Logs response (no date filter):', logsResponse.data);
+        }
+      } catch (err) {
+        console.error('Error fetching logs:', err);
+        throw err;
+      }
+
+      // Check if response has the expected structure
+      if (statsResponse.data && statsResponse.data.success && statsResponse.data.data) {
+        setStats(statsResponse.data.data);
+      } else {
+        console.error('Unexpected stats response structure:', statsResponse.data);
+        setStats(null);
+      }
+
+      if (logsResponse.data && logsResponse.data.success && logsResponse.data.data) {
+        setUsageLogs(logsResponse.data.data || []);
+      } else if (Array.isArray(logsResponse.data)) {
+        // Handle case where API returns array directly
+        setUsageLogs(logsResponse.data || []);
+      } else {
+        console.error('Unexpected logs response structure:', logsResponse.data);
+        setUsageLogs([]);
+      }
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      console.error('Error response:', err.response?.data);
+      setError(err.response?.data?.error || err.response?.data?.message || 'Failed to fetch dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const StatCard = ({ title, value, change, icon: Icon, color, subtitle }) => (
-    <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-xl transition-shadow duration-300">
-      <div className="flex items-center justify-between">
+  const StatCard = ({ title, value, icon: Icon, color, gradient, subtitle, formatValue, trend }) => (
+    <div className="group relative bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 overflow-hidden border border-gray-100">
+      {/* Gradient Background */}
+      <div className={`absolute inset-0 bg-gradient-to-br ${gradient} opacity-5 group-hover:opacity-10 transition-opacity duration-300`}></div>
+      
+      <div className="relative p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className={`p-3 rounded-xl ${color} shadow-lg transform group-hover:scale-110 transition-transform duration-300`}>
+            <Icon className="w-6 h-6 text-white" />
+          </div>
+          {trend && (
+            <div className={`flex items-center text-xs font-semibold px-2 py-1 rounded-full ${trend > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              <TrendingUp className={`w-3 h-3 mr-1 ${trend > 0 ? '' : 'rotate-180'}`} />
+              {Math.abs(trend)}%
+            </div>
+          )}
+        </div>
         <div>
           <p className="text-sm font-medium text-gray-600 mb-1">{title}</p>
-          <p className="text-3xl font-bold text-gray-900">{value}</p>
-          {subtitle && <p className="text-sm text-gray-500 mt-1">{subtitle}</p>}
-        </div>
-        <div className={`p-3 rounded-full ${color}`}>
-          <Icon className="w-6 h-6 text-white" />
+          <p className="text-3xl font-bold text-gray-900 mb-1">
+            {formatValue ? formatValue(value) : value || '0'}
+          </p>
+          {subtitle && (
+            <p className="text-xs text-gray-500 flex items-center mt-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-gray-400 mr-2"></span>
+              {subtitle}
+            </p>
+          )}
         </div>
       </div>
-      {change && (
-        <div className="mt-4 flex items-center">
-          <span className={`text-sm font-medium ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {change > 0 ? '+' : ''}{change}%
-          </span>
-          <span className="text-sm text-gray-500 ml-2">vs last month</span>
-        </div>
-      )}
     </div>
   );
 
+  const formatCurrency = (value) => {
+    if (!value) return '₹0.00';
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(parseFloat(value));
+  };
+
+  const formatNumber = (value) => {
+    if (!value) return '0';
+    return new Intl.NumberFormat('en-IN').format(parseInt(value));
+  };
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  };
+
+  const formatDateTime = (dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  // Prepare chart data
+  const dailyTrendData = stats?.dailyTrend?.length > 0 
+    ? stats.dailyTrend.map((item) => ({
+        date: new Date(item.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        cost: parseFloat(item.total_cost) || 0,
+        tokens: parseInt(item.total_tokens) || 0,
+        requests: parseInt(item.request_count) || 0,
+      }))
+    : [];
+
+  const modelDistributionData = stats?.byModel?.length > 0
+    ? stats.byModel.slice(0, 10).map((item) => ({
+        name: item.model_name.length > 15 ? item.model_name.substring(0, 15) + '...' : item.model_name,
+        fullName: item.model_name,
+        value: parseFloat(item.total_cost) || 0,
+        requests: parseInt(item.request_count) || 0,
+      }))
+    : [];
+
+  const COLORS = [
+    'rgba(59, 130, 246, 0.8)',   // Blue
+    'rgba(16, 185, 129, 0.8)',   // Green
+    'rgba(245, 158, 11, 0.8)',   // Amber
+    'rgba(239, 68, 68, 0.8)',    // Red
+    'rgba(139, 92, 246, 0.8)',   // Purple
+    'rgba(236, 72, 153, 0.8)',   // Pink
+    'rgba(6, 182, 212, 0.8)',    // Cyan
+    'rgba(249, 115, 22, 0.8)',   // Orange
+  ];
+
+  const COLORS_SOLID = [
+    '#3B82F6', '#10B981', '#F59E0B', '#EF4444', 
+    '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'
+  ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6 flex items-center justify-center">
+        <div className="text-center">
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Activity className="w-6 h-6 text-blue-600 animate-pulse" />
+            </div>
+          </div>
+          <p className="text-gray-600 font-medium mt-4">Loading dashboard data...</p>
+          <p className="text-sm text-gray-400 mt-2">Please wait while we fetch your analytics</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-6 flex items-center justify-center">
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-red-100 max-w-md w-full">
+          <div className="flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mx-auto mb-4">
+            <AlertCircle className="w-8 h-8 text-red-600" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 text-center mb-2">Error Loading Dashboard</h3>
+          <p className="text-red-600 text-center mb-6">{error}</p>
+          <button
+            onClick={() => fetchDashboardData()}
+            className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 font-semibold transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+          >
+            <RefreshCw className="w-4 h-4 inline mr-2" />
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 p-4 md:p-6 lg:p-8">
+      <div className="max-w-7xl mx-auto space-y-6">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Subscription Dashboard</h1>
-          <p className="text-gray-600">Track your subscription metrics and revenue performance</p>
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+          <div>
+            <h1 className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent mb-2">
+              LLM Usage Dashboard
+            </h1>
+            <p className="text-gray-600 text-sm md:text-base">Track model usage, tokens, and costs across all users</p>
+          </div>
+          <button
+            onClick={() => fetchDashboardData(true)}
+            disabled={refreshing}
+            className="mt-4 md:mt-0 px-6 py-3 bg-white rounded-xl shadow-md hover:shadow-lg border border-gray-200 text-gray-700 font-medium transition-all duration-300 hover:bg-gray-50 flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
 
         {/* Key Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
           <StatCard
-            title="Total Subscribers"
-            value="712"
-            change={12.5}
-            icon={Users}
-            color="bg-blue-500"
-            subtitle="Active users"
+            title="Total Requests"
+            value={stats?.totals?.total_requests || 0}
+            icon={Activity}
+            color="bg-gradient-to-br from-blue-500 to-blue-600"
+            gradient="from-blue-500 to-blue-600"
+            subtitle="API calls processed"
+            formatValue={formatNumber}
           />
           <StatCard
-            title="Monthly Revenue"
-            value="$35,600"
-            change={8.3}
+            title="Total Cost"
+            value={stats?.totals?.total_cost || 0}
             icon={DollarSign}
-            color="bg-green-500"
-            subtitle="Recurring revenue"
+            color="bg-gradient-to-br from-green-500 to-emerald-600"
+            gradient="from-green-500 to-emerald-600"
+            subtitle="All models combined"
+            formatValue={formatCurrency}
           />
           <StatCard
-            title="Active Subscriptions"
-            value="698"
-            change={5.2}
-            icon={CreditCard}
-            color="bg-purple-500"
-            subtitle="98% retention rate"
+            title="Total Tokens"
+            value={stats?.totals?.total_tokens || 0}
+            icon={Zap}
+            color="bg-gradient-to-br from-purple-500 to-purple-600"
+            gradient="from-purple-500 to-purple-600"
+            subtitle="Input + Output tokens"
+            formatValue={formatNumber}
           />
           <StatCard
-            title="Churn Rate"
-            value="2.1%"
-            change={-0.4}
-            icon={TrendingUp}
-            color="bg-orange-500"
-            subtitle="Industry avg: 5.6%"
+            title="Unique Users"
+            value={stats?.totals?.unique_users || 0}
+            icon={Users}
+            color="bg-gradient-to-br from-orange-500 to-orange-600"
+            gradient="from-orange-500 to-orange-600"
+            subtitle={`${stats?.totals?.total_users || 0} total users`}
+            formatValue={formatNumber}
           />
         </div>
 
         {/* Charts Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Revenue Trend */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-lg p-6 border border-gray-100">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+          {/* Daily Usage Trend */}
+          <div className="lg:col-span-2 bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100">
             <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-900">Revenue & Subscriber Growth</h3>
-              <select 
-                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              <div className="flex items-center">
+                <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                  <BarChart3 className="w-5 h-5 text-blue-600" />
+                </div>
+                <h3 className="text-xl font-bold text-gray-900">Usage Trend</h3>
+              </div>
+              <select
+                className="px-4 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white font-medium transition-all duration-200 hover:border-gray-400"
                 value={selectedPeriod}
                 onChange={(e) => setSelectedPeriod(e.target.value)}
               >
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="yearly">Yearly</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
               </select>
             </div>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={monthlyRevenue}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="month" stroke="#6b7280" />
-                <YAxis stroke="#6b7280" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#fff', 
-                    border: '1px solid #e5e7eb', 
-                    borderRadius: '8px',
-                    boxShadow: '0 10px 25px rgba(0,0,0,0.1)'
-                  }}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="revenue" 
-                  stroke="#3B82F6" 
-                  strokeWidth={3}
-                  dot={{ fill: '#3B82F6', strokeWidth: 2, r: 5 }}
-                  activeDot={{ r: 7, stroke: '#3B82F6', strokeWidth: 2, fill: '#fff' }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            {dailyTrendData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={320}>
+                <LineChart data={dailyTrendData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#6b7280" 
+                    style={{ fontSize: '12px' }}
+                    tick={{ fill: '#6b7280' }}
+                  />
+                  <YAxis 
+                    yAxisId="left" 
+                    stroke="#6b7280" 
+                    style={{ fontSize: '12px' }}
+                    tick={{ fill: '#6b7280' }}
+                  />
+                  <YAxis 
+                    yAxisId="right" 
+                    orientation="right" 
+                    stroke="#6b7280" 
+                    style={{ fontSize: '12px' }}
+                    tick={{ fill: '#6b7280' }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#fff',
+                      border: '1px solid #e5e7eb',
+                      borderRadius: '12px',
+                      boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                      padding: '12px',
+                    }}
+                    formatter={(value, name) => {
+                      if (name === 'Cost (₹)') {
+                        return formatCurrency(value);
+                      }
+                      return formatNumber(value);
+                    }}
+                  />
+                  <Legend 
+                    wrapperStyle={{ paddingTop: '20px' }}
+                    iconType="line"
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey="cost"
+                    stroke="#3B82F6"
+                    strokeWidth={3}
+                    name="Cost (₹)"
+                    dot={{ fill: '#3B82F6', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6, stroke: '#3B82F6', strokeWidth: 2, fill: '#fff' }}
+                  />
+                  <Line
+                    yAxisId="right"
+                    type="monotone"
+                    dataKey="tokens"
+                    stroke="#10B981"
+                    strokeWidth={3}
+                    name="Tokens"
+                    dot={{ fill: '#10B981', strokeWidth: 2, r: 4 }}
+                    activeDot={{ r: 6, stroke: '#10B981', strokeWidth: 2, fill: '#fff' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[320px] text-gray-400">
+                <BarChart3 className="w-16 h-16 mb-4 opacity-50" />
+                <p className="text-lg font-medium">No data available</p>
+                <p className="text-sm mt-1">for the selected period</p>
+              </div>
+            )}
           </div>
 
-          {/* Subscription Tiers */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h3 className="text-xl font-bold text-gray-900 mb-6">Subscription Distribution</h3>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie
-                  data={subscriptionTiers}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {subscriptionTiers.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+          {/* Model Distribution */}
+          <div className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-6">
+              <div className="p-2 bg-purple-100 rounded-lg mr-3">
+                <PieChartIcon className="w-5 h-5 text-purple-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Cost by Model</h3>
+            </div>
+            {modelDistributionData.length > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height={200}>
+                  <PieChart>
+                    <Pie
+                      data={modelDistributionData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={80}
+                      paddingAngle={3}
+                      dataKey="value"
+                    >
+                      {modelDistributionData.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value) => formatCurrency(value)}
+                      contentStyle={{
+                        backgroundColor: '#fff',
+                        border: '1px solid #e5e7eb',
+                        borderRadius: '12px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.1)',
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="mt-4 max-h-48 overflow-y-auto custom-scrollbar space-y-2">
+                  {modelDistributionData.map((model, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50 transition-colors duration-200">
+                      <div className="flex items-center flex-1 min-w-0">
+                        <div
+                          className="w-3 h-3 rounded-full mr-3 flex-shrink-0"
+                          style={{ backgroundColor: COLORS_SOLID[index % COLORS_SOLID.length] }}
+                        ></div>
+                        <span className="text-sm font-medium text-gray-700 truncate" title={model.fullName}>
+                          {model.name}
+                        </span>
+                      </div>
+                      <span className="text-sm font-bold text-gray-900 ml-2">
+                        {formatCurrency(model.value)}
+                      </span>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="mt-4">
-              {subscriptionTiers.map((tier, index) => (
-                <div key={index} className="flex items-center justify-between py-2">
-                  <div className="flex items-center">
-                    <div 
-                      className="w-3 h-3 rounded-full mr-3"
-                      style={{ backgroundColor: tier.color }}
-                    ></div>
-                    <span className="text-sm font-medium text-gray-700">{tier.name}</span>
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[200px] text-gray-400">
+                <PieChartIcon className="w-16 h-16 mb-4 opacity-50" />
+                <p className="text-sm font-medium">No model data</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Top Users and Models Table */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
+          {/* Top Users */}
+          <div className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-6">
+              <div className="p-2 bg-blue-100 rounded-lg mr-3">
+                <Users className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Top Users by Cost</h3>
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
+              {stats?.byUser?.slice(0, 10).map((user, index) => (
+                <div key={index} className="flex items-center justify-between p-4 rounded-xl hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-200 border border-transparent hover:border-blue-100">
+                  <div className="flex items-center flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center mr-3 shadow-md flex-shrink-0">
+                      <span className="text-white font-bold text-sm">{index + 1}</span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {user.user_name || `User #${user.user_id}`}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {formatNumber(user.request_count)} requests • {formatNumber(user.total_tokens)} tokens
+                      </p>
+                    </div>
                   </div>
-                  <span className="text-sm font-bold text-gray-900">{tier.value}%</span>
+                  <div className="text-right ml-4">
+                    <p className="text-sm font-bold text-gray-900">{formatCurrency(user.total_cost)}</p>
+                    <p className="text-xs text-gray-500">{user.model_count} models</p>
+                  </div>
                 </div>
               ))}
+              {(!stats?.byUser || stats.byUser.length === 0) && (
+                <div className="text-center py-12 text-gray-400">
+                  <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">No user data available</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Top Models */}
+          <div className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100">
+            <div className="flex items-center mb-6">
+              <div className="p-2 bg-green-100 rounded-lg mr-3">
+                <Database className="w-5 h-5 text-green-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Top Models by Cost</h3>
+            </div>
+            <div className="space-y-2 max-h-96 overflow-y-auto custom-scrollbar">
+              {stats?.byModel?.slice(0, 10).map((model, index) => (
+                <div key={index} className="flex items-center justify-between p-4 rounded-xl hover:bg-gradient-to-r hover:from-green-50 hover:to-emerald-50 transition-all duration-200 border border-transparent hover:border-green-100">
+                  <div className="flex items-center flex-1 min-w-0">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-green-600 flex items-center justify-center mr-3 shadow-md flex-shrink-0">
+                      <Database className="w-5 h-5 text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-gray-900 truncate" title={model.model_name}>
+                        {model.model_name}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {formatNumber(model.request_count)} requests • {formatNumber(model.user_count)} users
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right ml-4">
+                    <p className="text-sm font-bold text-gray-900">{formatCurrency(model.total_cost)}</p>
+                    <p className="text-xs text-gray-500">{formatNumber(model.total_tokens)} tokens</p>
+                  </div>
+                </div>
+              ))}
+              {(!stats?.byModel || stats.byModel.length === 0) && (
+                <div className="text-center py-12 text-gray-400">
+                  <Database className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-sm">No model data available</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Recent Activities & Top Performers */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Activities */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h3 className="text-xl font-bold text-gray-900 mb-6">Recent Activities</h3>
-            <div className="space-y-4">
-              {recentActivities.map((activity) => (
-                <div key={activity.id} className="flex items-center p-3 rounded-lg hover:bg-gray-50 transition-colors duration-200">
-                  <div className="mr-3">
-                    {getActivityIcon(activity.type)}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-gray-900">{activity.user}</p>
-                    <p className="text-sm text-gray-600">{activity.action}</p>
-                  </div>
-                  <span className="text-xs text-gray-500">{activity.time}</span>
-                </div>
-              ))}
+        {/* Detailed Usage Logs Table */}
+        <div className="bg-white rounded-2xl shadow-sm hover:shadow-xl transition-all duration-300 p-6 border border-gray-100">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
+            <div className="flex items-center">
+              <div className="p-2 bg-indigo-100 rounded-lg mr-3">
+                <Activity className="w-5 h-5 text-indigo-600" />
+              </div>
+              <h3 className="text-xl font-bold text-gray-900">Recent Usage Logs</h3>
+            </div>
+            
+            {/* Filters */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter by username..."
+                  value={filterUsername}
+                  onChange={(e) => {
+                    setFilterUsername(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-10 pr-4 py-2 w-48 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                />
+                <User className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+              </div>
+              
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Filter by model..."
+                  value={filterModel}
+                  onChange={(e) => {
+                    setFilterModel(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-10 pr-4 py-2 w-48 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                />
+                <Database className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+              </div>
+              
+              {(filterUsername || filterModel) && (
+                <button
+                  onClick={() => {
+                    setFilterUsername('');
+                    setFilterModel('');
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-all duration-200 flex items-center"
+                >
+                  <X className="w-4 h-4 mr-1" />
+                  Clear
+                </button>
+              )}
+              
+              <button
+                onClick={() => fetchDashboardData(true)}
+                disabled={refreshing}
+                className="px-4 py-2 text-sm bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 font-medium transition-all duration-300 shadow-md hover:shadow-lg flex items-center disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+                Refresh
+              </button>
             </div>
           </div>
 
-          {/* Performance Metrics */}
-          <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-            <h3 className="text-xl font-bold text-gray-900 mb-6">Performance Metrics</h3>
-            <div className="space-y-6">
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">Customer Lifetime Value</span>
-                  <span className="text-sm font-bold text-gray-900">$2,840</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-blue-500 h-2 rounded-full" style={{ width: '85%' }}></div>
-                </div>
+          <div className="overflow-x-auto rounded-xl border border-gray-200">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gradient-to-r from-gray-50 to-gray-100">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    User
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Model
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Input Tokens
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Output Tokens
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Total Tokens
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Input Cost
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Output Cost
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Total Cost
+                  </th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
+                    Used At
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {usageLogs.length > 0 ? (
+                  usageLogs
+                    .slice((currentPage - 1) * logsPerPage, currentPage * logsPerPage)
+                    .map((log, index) => (
+                    <tr 
+                      key={log.id} 
+                      className="hover:bg-gradient-to-r hover:from-blue-50 hover:to-indigo-50 transition-all duration-200"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div>
+                          <span className="text-sm font-semibold text-gray-900 block">
+                            {log.user_name || `User #${log.user_id}`}
+                          </span>
+                          {log.user_email && (
+                            <span className="text-xs text-gray-500">{log.user_email}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm text-gray-900 font-medium">{log.model_name}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatNumber(log.input_tokens)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatNumber(log.output_tokens)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-semibold text-gray-900">
+                          {formatNumber(log.total_tokens)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatCurrency(log.input_cost)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
+                        {formatCurrency(log.output_cost)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-sm font-bold text-green-600">
+                          {formatCurrency(log.total_cost)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {formatDateTime(log.used_at)}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan="9" className="px-6 py-16 text-center">
+                      <div className="flex flex-col items-center">
+                        <Activity className="w-12 h-12 text-gray-300 mb-3" />
+                        <p className="text-gray-500 font-medium">No usage logs found</p>
+                        <p className="text-sm text-gray-400 mt-1">Try adjusting the date range or refresh the data</p>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+          
+          {/* Pagination */}
+          {usageLogs.length > 0 && (
+            <div className="mt-6 flex items-center justify-between">
+              <div className="text-sm text-gray-600">
+                Showing <span className="font-semibold">{(currentPage - 1) * logsPerPage + 1}</span> to{' '}
+                <span className="font-semibold">
+                  {Math.min(currentPage * logsPerPage, usageLogs.length)}
+                </span>{' '}
+                of <span className="font-semibold">{usageLogs.length}</span> results
               </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">Monthly Growth Rate</span>
-                  <span className="text-sm font-bold text-green-600">+12.3%</span>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center"
+                >
+                  <ChevronLeft className="w-4 h-4 mr-1" />
+                  Previous
+                </button>
+                <div className="flex items-center space-x-1">
+                  {Array.from({ length: Math.ceil(usageLogs.length / logsPerPage) }, (_, i) => i + 1)
+                    .filter(page => {
+                      // Show first page, last page, current page, and pages around current
+                      return (
+                        page === 1 ||
+                        page === Math.ceil(usageLogs.length / logsPerPage) ||
+                        Math.abs(page - currentPage) <= 1
+                      );
+                    })
+                    .map((page, index, array) => {
+                      // Add ellipsis if there's a gap
+                      const prevPage = array[index - 1];
+                      const showEllipsis = prevPage && page - prevPage > 1;
+                      
+                      return (
+                        <React.Fragment key={page}>
+                          {showEllipsis && (
+                            <span className="px-2 text-gray-500">...</span>
+                          )}
+                          <button
+                            onClick={() => setCurrentPage(page)}
+                            className={`px-3 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                              currentPage === page
+                                ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md'
+                                : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        </React.Fragment>
+                      );
+                    })}
                 </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-green-500 h-2 rounded-full" style={{ width: '70%' }}></div>
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">Payment Success Rate</span>
-                  <span className="text-sm font-bold text-gray-900">97.8%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-purple-500 h-2 rounded-full" style={{ width: '98%' }}></div>
-                </div>
-              </div>
-              
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium text-gray-700">User Engagement</span>
-                  <span className="text-sm font-bold text-gray-900">89.2%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div className="bg-orange-500 h-2 rounded-full" style={{ width: '89%' }}></div>
-                </div>
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(Math.ceil(usageLogs.length / logsPerPage), prev + 1))}
+                  disabled={currentPage >= Math.ceil(usageLogs.length / logsPerPage)}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 flex items-center"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4 ml-1" />
+                </button>
               </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
 
-export default SubscriptionDashboard;
+export default DashboardContent;
