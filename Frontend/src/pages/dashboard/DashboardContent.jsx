@@ -17,7 +17,7 @@ const DashboardContent = () => {
   const [filterUsername, setFilterUsername] = useState('');
   const [filterModel, setFilterModel] = useState('');
   const [totalLogsCount, setTotalLogsCount] = useState(0);
-  const API_BASE_URL = 'http://localhost:4000/api/llm-usage';
+  const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/llm-usage';
 
   useEffect(() => {
     fetchDashboardData();

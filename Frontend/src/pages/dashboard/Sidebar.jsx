@@ -13,7 +13,10 @@ import {
   Bot,
   MessageSquare,
   Edit,
-  X
+  X,
+  Gavel, // Added for Case Type
+  Building2, // Added for Court
+  UserCheck // Added for Judge
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -65,11 +68,34 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       icon: Bot,
       roles: ['super-admin']
     },
+    // {
+    //   name: 'Content Management',
+    //   path: '/dashboard/content', // Assuming a path for content management
+    //   icon: FileText,
+    //   roles: ['super-admin', 'user-admin']
+    // },
     {
       name: 'Content Management',
-      path: '/dashboard/content', // Assuming a path for content management
+      key: 'content',
       icon: FileText,
-      roles: ['super-admin', 'user-admin']
+      roles: ['super-admin', 'user-admin'],
+      subItems: [
+        {
+          name: 'Add Case Type',
+          path: '/dashboard/content/case-type',
+          icon: Gavel
+        },
+        {
+          name: 'Add Court',
+          path: '/dashboard/content/court',
+          icon: Building2
+        },
+        {
+          name: 'Add Judge',
+          path: '/dashboard/content/judge',
+          icon: UserCheck
+        }
+      ]
     },
     {
       name: 'Subscription Management',

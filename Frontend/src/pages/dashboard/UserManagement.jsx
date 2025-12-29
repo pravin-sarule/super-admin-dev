@@ -4,7 +4,7 @@ import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 
 // API base URL - adjust this to your backend URL
-const API_BASE_URL = 'http://localhost:4000/api';
+const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
 
 const MySwal = withReactContent(Swal);
 
