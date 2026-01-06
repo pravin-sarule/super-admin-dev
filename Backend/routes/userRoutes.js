@@ -33,5 +33,15 @@ module.exports = (pool) => {
   // Get user statistics (optional - for dashboard)
   router.get('/stats/overview', protect(pool), authorize(['user-admin','super-admin']), userController.getUserStats);
 
+  // 📌 Solo Users Management
+  router.get('/solo/all', protect(pool), authorize(['user-admin','super-admin']), userController.getSoloUsers);
+
+  // 📌 Firm Management
+  router.get('/firms/all', protect(pool), authorize(['user-admin','super-admin']), userController.getAllFirms);
+  router.get('/firms/:firmId', protect(pool), authorize(['user-admin','super-admin']), userController.getFirmById);
+  router.put('/firms/:firmId/approval', protect(pool), authorize(['user-admin','super-admin']), userController.updateFirmApproval);
+  router.delete('/firms/:firmId', protect(pool), authorize(['user-admin','super-admin']), userController.deleteFirm);
+  router.get('/firms/:firmId/certificate', protect(pool), authorize(['user-admin','super-admin']), userController.getFirmCertificate);
+
   return router;
 };
