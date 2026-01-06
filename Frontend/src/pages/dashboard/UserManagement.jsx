@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, Lock, Unlock, Edit, Save, User, Mail, Shield, Hash, Filter, ChevronLeft, ChevronRight, Clock, RefreshCw, X, AlertTriangle, CheckCircle, AlertCircle } from 'lucide-react';
+import { Eye, Lock, Unlock, Edit, Save, User, Mail, Shield, Hash, Filter, ChevronLeft, ChevronRight, Clock, RefreshCw, X, AlertTriangle, CheckCircle, AlertCircle, Building2, Users, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 
@@ -70,11 +70,16 @@ const Toast = ({ isVisible, message, type = 'info', onClose, duration = 3000 }) 
 
 const UserManagement = () => {
   // State management
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'solo', 'firms'
   const [users, setUsers] = useState([]);
+  const [soloUsers, setSoloUsers] = useState([]);
+  const [firms, setFirms] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedFirm, setSelectedFirm] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editedUser, setEditedUser] = useState(null);
   const [showUserTable, setShowUserTable] = useState(true);
+  const [showFirmDetails, setShowFirmDetails] = useState(false);
   const [loading, setLoading] = useState(false);
   const [userSessions, setUserSessions] = useState([]);
   
@@ -171,6 +176,150 @@ const UserManagement = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Fetch solo users
+  const fetchSoloUsers = async () => {
+    setLoading(true);
+    try {
+      const data = await apiCall('/users/solo/all');
+      console.log('Fetched solo users:', data);
+      
+      const transformedUsers = data.map(user => ({
+        ...user,
+        last_login_at: user.login_time,
+        auth_type: user.auth_type || 'manual',
+        is_blocked: user.is_blocked || false
+      }));
+      
+      setSoloUsers(transformedUsers);
+      showToast('Solo users loaded successfully', 'success');
+    } catch (error) {
+      console.error('Fetch solo users error:', error);
+      MySwal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: `Failed to fetch solo users: ${error.message}`,
+        confirmButtonColor: '#3085d6',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch all firms
+  const fetchFirms = async () => {
+    setLoading(true);
+    try {
+      const data = await apiCall('/users/firms/all');
+      console.log('Fetched firms:', data);
+      setFirms(data);
+      showToast('Firms loaded successfully', 'success');
+    } catch (error) {
+      console.error('Fetch firms error:', error);
+      MySwal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: `Failed to fetch firms: ${error.message}`,
+        confirmButtonColor: '#3085d6',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Fetch firm details by ID
+  const fetchFirmDetails = async (firmId) => {
+    setLoading(true);
+    try {
+      const data = await apiCall(`/users/firms/${firmId}`);
+      console.log('Fetched firm details:', data);
+      setSelectedFirm(data);
+      setShowFirmDetails(true);
+    } catch (error) {
+      console.error('Fetch firm details error:', error);
+      MySwal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: `Failed to fetch firm details: ${error.message}`,
+        confirmButtonColor: '#3085d6',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Approve firm
+  const handleApproveFirm = async (firmId) => {
+    MySwal.fire({
+      title: 'Approve Firm',
+      text: 'Are you sure you want to approve this firm?',
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#3085d6',
+      cancelButtonColor: '#d33',
+      confirmButtonText: 'Yes, approve!',
+      cancelButtonText: 'Cancel'
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          await apiCall(`/users/firms/${firmId}/approval`, {
+            method: 'PUT',
+            body: JSON.stringify({ approval_status: 'APPROVED' })
+          });
+          showToast('Firm approved successfully!', 'success');
+          fetchFirms();
+          if (selectedFirm && selectedFirm.id === firmId) {
+            setSelectedFirm({ ...selectedFirm, approval_status: 'APPROVED' });
+          }
+        } catch (error) {
+          console.error('Approve firm error:', error);
+          MySwal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: `Failed to approve firm: ${error.message}`,
+            confirmButtonColor: '#3085d6',
+          });
+        }
+      }
+    });
+  };
+
+  // Delete firm
+  const handleDeleteFirm = async (firmId) => {
+    const firm = firms.find(f => f.id === firmId);
+    MySwal.fire({
+      title: 'Delete Firm',
+      text: `Are you sure you want to delete "${firm?.firm_name}"? This action cannot be undone.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete!',
+      cancelButtonText: 'Cancel'
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          await apiCall(`/users/firms/${firmId}`, {
+            method: 'DELETE'
+          });
+          showToast('Firm deleted successfully!', 'success');
+          fetchFirms();
+          if (selectedFirm && selectedFirm.id === firmId) {
+            setShowFirmDetails(false);
+            setSelectedFirm(null);
+          }
+        } catch (error) {
+          console.error('Delete firm error:', error);
+          MySwal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: `Failed to delete firm: ${error.message}`,
+            confirmButtonColor: '#3085d6',
+          });
+        }
+      }
+    });
   };
 
   // Fetch specific user sessions
@@ -330,10 +479,16 @@ const UserManagement = () => {
     });
   };
 
-  // Load users on component mount
+  // Load data based on active tab
   useEffect(() => {
-    fetchUsersWithSessions();
-  }, []);
+    if (activeTab === 'all') {
+      fetchUsersWithSessions();
+    } else if (activeTab === 'solo') {
+      fetchSoloUsers();
+    } else if (activeTab === 'firms') {
+      fetchFirms();
+    }
+  }, [activeTab]);
 
   const handleViewUser = async (user) => {
     setSelectedUser(user);
@@ -397,8 +552,57 @@ const UserManagement = () => {
     return new Date(dateString).toLocaleString();
   };
 
+  // Filter firms
+  const filteredFirms = useMemo(() => {
+    if (!searchValue.trim()) {
+      return firms;
+    }
+    const searchTerm = searchValue.toLowerCase().trim();
+    return firms.filter(firm => {
+      return (
+        firm.firm_name?.toLowerCase().includes(searchTerm) ||
+        firm.email?.toLowerCase().includes(searchTerm) ||
+        firm.admin_email?.toLowerCase().includes(searchTerm) ||
+        firm.approval_status?.toLowerCase().includes(searchTerm)
+      );
+    });
+  }, [firms, searchValue]);
+
+  const firmsTotalPages = Math.ceil(filteredFirms.length / itemsPerPage);
+  const firmsStartIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedFirms = filteredFirms.slice(firmsStartIndex, firmsStartIndex + itemsPerPage);
+
+  // Filter solo users
+  const filteredSoloUsers = useMemo(() => {
+    if (!searchValue.trim()) {
+      return soloUsers;
+    }
+    const searchTerm = searchValue.toLowerCase().trim();
+    return soloUsers.filter(user => {
+      return (
+        user.id.toString().includes(searchTerm) ||
+        (user.username && user.username.toLowerCase().includes(searchTerm)) ||
+        (user.email && user.email.toLowerCase().includes(searchTerm)) ||
+        (user.full_name && user.full_name.toLowerCase().includes(searchTerm))
+      );
+    });
+  }, [soloUsers, searchValue]);
+
+  const soloTotalPages = Math.ceil(filteredSoloUsers.length / itemsPerPage);
+  const soloStartIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedSoloUsers = filteredSoloUsers.slice(soloStartIndex, soloStartIndex + itemsPerPage);
+
+  const getApprovalStatusBadge = (status) => {
+    const statusMap = {
+      'PENDING': 'bg-yellow-100 text-yellow-800',
+      'APPROVED': 'bg-green-100 text-green-800',
+      'REJECTED': 'bg-red-100 text-red-800'
+    };
+    return statusMap[status] || 'bg-gray-100 text-gray-800';
+  };
+
   return (
-    <div className="relative p-6 bg-white rounded-xl shadow-lg">
+    <div className="relative p-6 bg-white rounded-xl shadow-lg w-full">
       {/* Toast Notification */}
       <Toast
         isVisible={toast.isVisible}
@@ -407,7 +611,197 @@ const UserManagement = () => {
         onClose={closeToast}
       />
 
-      {showUserTable ? (
+      {/* Tabs */}
+      <div className="mb-6 border-b border-gray-200">
+        <nav className="flex space-x-8">
+          <button
+            onClick={() => {
+              setActiveTab('all');
+              setShowUserTable(true);
+              setShowFirmDetails(false);
+              setSelectedUser(null);
+              setSelectedFirm(null);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'all'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <User className="w-5 h-5 inline mr-2" />
+            All Users
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('solo');
+              setShowUserTable(true);
+              setShowFirmDetails(false);
+              setSelectedUser(null);
+              setSelectedFirm(null);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'solo'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Users className="w-5 h-5 inline mr-2" />
+            Solo Users
+          </button>
+          <button
+            onClick={() => {
+              setActiveTab('firms');
+              setShowUserTable(true);
+              setShowFirmDetails(false);
+              setSelectedUser(null);
+              setSelectedFirm(null);
+            }}
+            className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              activeTab === 'firms'
+                ? 'border-blue-500 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Building2 className="w-5 h-5 inline mr-2" />
+            Firm Management
+          </button>
+        </nav>
+      </div>
+
+      {/* Firm Details View */}
+      {showFirmDetails && selectedFirm ? (
+        <div className="bg-white">
+          <div className="flex items-center justify-between mb-6 pb-4 border-b border-gray-200">
+            <h2 className="text-3xl font-semibold text-gray-800 flex items-center">
+              <Building2 className="mr-3" />
+              Firm Details
+            </h2>
+            <button
+              onClick={() => {
+                setShowFirmDetails(false);
+                setSelectedFirm(null);
+              }}
+              className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50"
+            >
+              Back to List
+            </button>
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h4 className="text-lg font-medium text-gray-900 border-b pb-2">Firm Information</h4>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Firm Name</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.firm_name}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Firm Type</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.firm_type}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Establishment Date</label>
+                  <p className="text-sm text-gray-900">{new Date(selectedFirm.establishment_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Approval Status</label>
+                  <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getApprovalStatusBadge(selectedFirm.approval_status)}`}>
+                    {selectedFirm.approval_status}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Admin User</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.admin_username || selectedFirm.admin_email || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h4 className="text-lg font-medium text-gray-900 border-b pb-2">Contact Information</h4>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.email}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Mobile</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.mobile}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Landline</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.landline || 'N/A'}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Office Address</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.office_address}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">City, State, PIN</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.city}, {selectedFirm.state} - {selectedFirm.pin_code}</p>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <h4 className="text-lg font-medium text-gray-900 border-b pb-2">Legal Information</h4>
+              <div className="grid grid-cols-1 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Registering Advocate</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.registering_advocate_name}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Bar Enrollment Number</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.bar_enrollment_number}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Enrollment Date</label>
+                  <p className="text-sm text-gray-900">{new Date(selectedFirm.enrollment_date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">State Bar Council</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.state_bar_council}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">PAN Number</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.pan_number}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">GST Number</label>
+                  <p className="text-sm text-gray-900">{selectedFirm.gst_number || 'N/A'}</p>
+                </div>
+              </div>
+            </div>
+            {selectedFirm.users && selectedFirm.users.length > 0 && (
+              <div className="space-y-4">
+                <h4 className="text-lg font-medium text-gray-900 border-b pb-2">Firm Users ({selectedFirm.users.length})</h4>
+                <div className="max-h-64 overflow-y-auto space-y-2">
+                  {selectedFirm.users.map((user) => (
+                    <div key={user.id} className="bg-gray-50 rounded-lg p-3 text-sm">
+                      <div className="font-medium text-gray-900">{user.username || user.email}</div>
+                      <div className="text-gray-600 mt-1">Role: {user.role} | Status: {user.is_blocked ? 'Blocked' : 'Active'}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+          {selectedFirm.approval_status === 'PENDING' && (
+            <div className="mt-6 pt-6 border-t flex justify-end space-x-3">
+              <button
+                onClick={() => handleApproveFirm(selectedFirm.id)}
+                className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Approve Firm
+              </button>
+              <button
+                onClick={() => handleDeleteFirm(selectedFirm.id)}
+                className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Firm
+              </button>
+            </div>
+          )}
+        </div>
+      ) : showUserTable ? (
         <>
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-3xl font-semibold text-gray-800 flex items-center">
@@ -417,7 +811,11 @@ const UserManagement = () => {
             
             <div className="flex items-center space-x-3">
               <button
-                onClick={handleRefresh}
+                onClick={() => {
+                  if (activeTab === 'all') fetchUsersWithSessions();
+                  else if (activeTab === 'solo') fetchSoloUsers();
+                  else if (activeTab === 'firms') fetchFirms();
+                }}
                 disabled={loading}
                 className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50"
               >
@@ -448,9 +846,98 @@ const UserManagement = () => {
           {loading ? (
             <div className="flex items-center justify-center py-12">
               <RefreshCw className="w-8 h-8 animate-spin text-blue-500" />
-              <span className="ml-2 text-gray-600">Loading users...</span>
+              <span className="ml-2 text-gray-600">Loading...</span>
+            </div>
+          ) : activeTab === 'firms' ? (
+            // Firms Table
+            <div className="overflow-x-auto">
+              <table className="min-w-full bg-white border border-gray-200 rounded-xl overflow-hidden">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">S.No</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Firm Name</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Firm Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Admin</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Users</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Created</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {paginatedFirms.length > 0 ? (
+                    paginatedFirms.map((firm, index) => (
+                      <tr key={firm.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {firmsStartIndex + index + 1}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {firm.firm_name}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                          {firm.firm_type}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                          {firm.email}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                          {firm.admin_username || firm.admin_email || 'N/A'}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                          {firm.total_users || 0}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm font-semibold">
+                          <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getApprovalStatusBadge(firm.approval_status)}`}>
+                            {firm.approval_status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                          {formatDate(firm.created_at)}
+                        </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium">
+                          <div className="flex space-x-2">
+                            <button
+                              onClick={() => fetchFirmDetails(firm.id)}
+                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs leading-4 font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50"
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              View
+                            </button>
+                            {firm.approval_status === 'PENDING' && (
+                              <>
+                                <button
+                                  onClick={() => handleApproveFirm(firm.id)}
+                                  className="inline-flex items-center px-3 py-1.5 border border-green-300 text-xs leading-4 font-semibold rounded-lg text-green-700 bg-green-50 hover:bg-green-100"
+                                >
+                                  <CheckCircle2 className="w-4 h-4 mr-1" />
+                                  Approve
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteFirm(firm.id)}
+                                  className="inline-flex items-center px-3 py-1.5 border border-red-300 text-xs leading-4 font-semibold rounded-lg text-red-700 bg-red-50 hover:bg-red-100"
+                                >
+                                  <Trash2 className="w-4 h-4 mr-1" />
+                                  Delete
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan="9" className="px-4 py-8 text-center text-gray-500">
+                        No firms found matching your filter criteria.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           ) : (
+            // Users Table (All Users or Solo Users)
             <div className="overflow-x-auto">
               <table className="min-w-full bg-white border border-gray-200 rounded-xl overflow-hidden">
                 <thead>
@@ -459,6 +946,7 @@ const UserManagement = () => {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">ID</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Username</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
+                    {activeTab === 'solo' && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Full Name</th>}
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Auth Type</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Last Login</th>
@@ -466,11 +954,11 @@ const UserManagement = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
-                  {paginatedUsers.length > 0 ? (
-                    paginatedUsers.map((user, index) => (
+                  {(activeTab === 'all' ? paginatedUsers : paginatedSoloUsers).length > 0 ? (
+                    (activeTab === 'all' ? paginatedUsers : paginatedSoloUsers).map((user, index) => (
                       <tr key={user.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium text-gray-900">
-                          {startIndex + index + 1}
+                          {(activeTab === 'all' ? startIndex : soloStartIndex) + index + 1}
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium text-gray-900">
                           <div className="flex items-center">
@@ -487,6 +975,11 @@ const UserManagement = () => {
                             {user.email || 'N/A'}
                           </div>
                         </td>
+                        {activeTab === 'solo' && (
+                          <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-600">
+                            {user.full_name || 'N/A'}
+                          </td>
+                        )}
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm">
                           {user.auth_type || 'manual'}
                         </td>
@@ -528,7 +1021,7 @@ const UserManagement = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan={activeTab === 'solo' ? 9 : 8} className="px-4 py-8 text-center text-gray-500">
                         No users found matching your filter criteria.
                       </td>
                     </tr>
@@ -538,12 +1031,26 @@ const UserManagement = () => {
             </div>
           )}
           
-          {filteredUsers.length > 0 && (
+          {((activeTab === 'firms' && filteredFirms.length > 0) || 
+            (activeTab === 'solo' && filteredSoloUsers.length > 0) || 
+            (activeTab === 'all' && filteredUsers.length > 0)) && (
             <div className="flex items-center justify-between mt-6 px-2">
               <div className="text-sm text-gray-700">
-                Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredUsers.length)} of {filteredUsers.length} entries
-                {searchValue && (
-                  <span className="text-gray-500"> (filtered from {users.length} total entries)</span>
+                {activeTab === 'firms' ? (
+                  <>
+                    Showing {firmsStartIndex + 1} to {Math.min(firmsStartIndex + itemsPerPage, filteredFirms.length)} of {filteredFirms.length} entries
+                    {searchValue && <span className="text-gray-500"> (filtered from {firms.length} total entries)</span>}
+                  </>
+                ) : activeTab === 'solo' ? (
+                  <>
+                    Showing {soloStartIndex + 1} to {Math.min(soloStartIndex + itemsPerPage, filteredSoloUsers.length)} of {filteredSoloUsers.length} entries
+                    {searchValue && <span className="text-gray-500"> (filtered from {soloUsers.length} total entries)</span>}
+                  </>
+                ) : (
+                  <>
+                    Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredUsers.length)} of {filteredUsers.length} entries
+                    {searchValue && <span className="text-gray-500"> (filtered from {users.length} total entries)</span>}
+                  </>
                 )}
               </div>
               
@@ -562,7 +1069,7 @@ const UserManagement = () => {
                 </button>
                 
                 <div className="flex space-x-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  {Array.from({ length: activeTab === 'firms' ? firmsTotalPages : activeTab === 'solo' ? soloTotalPages : totalPages }, (_, i) => i + 1).map(page => (
                     <button
                       key={page}
                       onClick={() => handlePageChange(page)}
@@ -579,9 +1086,9 @@ const UserManagement = () => {
                 
                 <button
                   onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
+                  disabled={currentPage === (activeTab === 'firms' ? firmsTotalPages : activeTab === 'solo' ? soloTotalPages : totalPages)}
                   className={`inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border transition-colors ${
-                    currentPage === totalPages
+                    currentPage === (activeTab === 'firms' ? firmsTotalPages : activeTab === 'solo' ? soloTotalPages : totalPages)
                       ? 'border-gray-300 text-gray-400 bg-white cursor-not-allowed'
                       : 'border-gray-300 text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500'
                   }`}
