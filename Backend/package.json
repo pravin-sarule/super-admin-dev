@@ -18,6 +18,7 @@
     "@google-cloud/secret-manager": "^6.1.0",
     "@google-cloud/storage": "^7.16.0",
     "@grpc/grpc-js": "^1.14.0",
+    "axios": "^1.13.2",
     "bcrypt": "^6.0.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
@@ -28,8 +29,10 @@
     "nodemailer": "^7.0.5",
     "pdf-parse": "^2.4.5",
     "pg": "^8.16.3",
+    "puppeteer": "^23.11.1",
     "sequelize": "^6.37.7",
-    "sequelize-cli": "^6.6.3"
+    "sequelize-cli": "^6.6.3",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

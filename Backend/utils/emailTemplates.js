@@ -1,960 +1,171 @@
-// const getQueryStatusUpdateEmailTemplate = (userName, querySubject, newStatus, message) => {
-//   return `
-//     <!DOCTYPE html>
-//     <html lang="en">
-//     <head>
-//         <meta charset="UTF-8">
-//         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-//         <title>Support Query Status Update</title>
-//         <style>
-//             body {
-//                 font-family: Arial, sans-serif;
-//                 line-height: 1.6;
-//                 color: #333;
-//             }
-//             .container {
-//                 max-width: 600px;
-//                 margin: 20px auto;
-//                 padding: 20px;
-//                 border: 1px solid #ddd;
-//                 border-radius: 8px;
-//                 background-color: #f9f9f9;
-//             }
-//             .header {
-//                 background-color: #4CAF50;
-//                 color: white;
-//                 padding: 10px 0;
-//                 text-align: center;
-//                 border-radius: 8px 8px 0 0;
-//             }
-//             .content {
-//                 padding: 20px;
-//             }
-//             .footer {
-//                 text-align: center;
-//                 margin-top: 20px;
-//                 font-size: 0.9em;
-//                 color: #777;
-//             }
-//             .status-badge {
-//                 display: inline-block;
-//                 padding: 5px 10px;
-//                 border-radius: 5px;
-//                 font-weight: bold;
-//                 color: white;
-//             }
-//             .status-open { background-color: #007bff; }
-//             .status-in_progress { background-color: #ffc107; }
-//             .status-resolved { background-color: #28a745; }
-//             .status-closed { background-color: #6c757d; }
-//         </style>
-//     </head>
-//     <body>
-//         <div class="container">
-//             <div class="header">
-//                 <h2>Support Query Status Update</h2>
-//             </div>
-//             <div class="content">
-//                 <p>Dear ${userName},</p>
-//                 <p>This is an automated notification to inform you that the status of your support query has been updated.</p>
-//                 <p><strong>Subject:</strong> ${querySubject}</p>
-//                 <p><strong>New Status:</strong> <span class="status-badge status-${newStatus.toLowerCase().replace(' ', '_')}">${newStatus}</span></p>
-//                 <p><strong>Admin Message:</strong></p>
-//                 <p style="border-left: 4px solid #ccc; padding-left: 10px; margin-left: 10px; font-style: italic;">${message}</p>
-//                 <p>If you have any further questions, please reply to this email or log in to your account.</p>
-//                 <p>Thank you for your patience.</p>
-//                 <p>Sincerely,<br>Nexintel Support Team</p>
-//             </div>
-//             <div class="footer">
-//                 <p>&copy; ${new Date().getFullYear()} Nexintel. All rights reserved.</p>
-//             </div>
-//         </div>
-//     </body>
-//     </html>
-//   `;
-// };
+const fs = require('fs');
+const path = require('path');
 
-// module.exports = {
-//   getQueryStatusUpdateEmailTemplate,
-// };
+/**
+ * Get firm approval email template
+ * @param {Object} firmData - Firm data
+ * @param {string} certificateUrl - Certificate signed URL (valid for 30 days)
+ * @returns {string} - HTML email content
+ */
+const getFirmApprovalEmailTemplate = (firmData, certificateUrl) => {
+  const issueDate = new Date().toLocaleDateString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric'
+  });
 
-const getQueryStatusUpdateEmailTemplate = (userName, querySubject, newStatus, message) => {
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Support Query Status Update - Nexintel</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #2c3e50;
-                margin: 0;
-                padding: 0;
-                background-color: #f8fafc;
-            }
-            .container {
-                max-width: 600px;
-                margin: 30px auto;
-                background-color: #ffffff;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-                overflow: hidden;
-            }
-            .header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 30px 40px;
-                text-align: center;
-                color: white;
-            }
-            .logo {
-                max-width: 120px;
-                height: auto;
-                margin-bottom: 15px;
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 24px;
-                font-weight: 300;
-                letter-spacing: 0.5px;
-            }
-            .content {
-                padding: 40px;
-                background-color: #ffffff;
-            }
-            .greeting {
-                font-size: 18px;
-                color: #2c3e50;
-                margin-bottom: 25px;
-                font-weight: 500;
-            }
-            .intro-text {
-                color: #5a6c7d;
-                margin-bottom: 30px;
-                font-size: 16px;
-            }
-            .info-section {
-                background-color: #f8fafc;
-                border-left: 4px solid #667eea;
-                padding: 25px;
-                margin: 25px 0;
-                border-radius: 0 8px 8px 0;
-            }
-            .info-item {
-                margin-bottom: 15px;
-            }
-            .info-label {
-                font-weight: 600;
-                color: #2c3e50;
-                display: inline-block;
-                min-width: 80px;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .info-value {
-                color: #5a6c7d;
-                font-size: 16px;
-            }
-            .status-badge {
-                display: inline-block;
-                padding: 8px 16px;
-                border-radius: 20px;
-                font-weight: 600;
-                font-size: 13px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-                border: 2px solid;
-            }
-            .status-open { 
-                color: #3498db; 
-                background-color: #ebf3fd; 
-                border-color: #3498db; 
-            }
-            .status-in_progress { 
-                color: #f39c12; 
-                background-color: #fef9e7; 
-                border-color: #f39c12; 
-            }
-            .status-resolved { 
-                color: #27ae60; 
-                background-color: #eafaf1; 
-                border-color: #27ae60; 
-            }
-            .status-closed { 
-                color: #7f8c8d; 
-                background-color: #f8f9fa; 
-                border-color: #7f8c8d; 
-            }
-            .message-section {
-                background-color: #f8fafc;
-                border-radius: 8px;
-                padding: 20px;
-                margin: 25px 0;
-                border-left: 4px solid #95a5a6;
-            }
-            .message-label {
-                font-weight: 600;
-                color: #2c3e50;
-                margin-bottom: 10px;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .message-content {
-                color: #5a6c7d;
-                font-size: 16px;
-                line-height: 1.7;
-                font-style: italic;
-            }
-            .action-section {
-                background-color: #f1f3f4;
-                padding: 20px;
-                border-radius: 8px;
-                margin: 30px 0;
-                text-align: center;
-            }
-            .action-text {
-                color: #5a6c7d;
-                margin-bottom: 15px;
-                font-size: 15px;
-            }
-            .contact-link {
-                color: #667eea;
-                text-decoration: none;
-                font-weight: 500;
-            }
-            .contact-link:hover {
-                text-decoration: underline;
-            }
-            .closing {
-                margin-top: 35px;
-                color: #5a6c7d;
-                line-height: 1.8;
-            }
-            .signature {
-                font-weight: 600;
-                color: #2c3e50;
-                margin-top: 20px;
-            }
-            .footer {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-                text-align: center;
-                padding: 25px;
-                font-size: 14px;
-            }
-            .footer-links {
-                margin-bottom: 15px;
-            }
-            .footer-link {
-                color: #bdc3c7;
-                text-decoration: none;
-                margin: 0 15px;
-                font-size: 13px;
-            }
-            .footer-link:hover {
-                color: #ecf0f1;
-            }
-            .copyright {
-                color: #95a5a6;
-                font-size: 12px;
-                margin-top: 15px;
-            }
-            
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 600px) {
-                .container {
-                    margin: 10px;
-                    border-radius: 8px;
-                }
-                .header, .content {
-                    padding: 25px 20px;
-                }
-                .info-section, .message-section {
-                    padding: 20px 15px;
-                }
-                .logo {
-                    max-width: 100px;
-                }
-                .header h1 {
-                    font-size: 20px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="https://www.nexintelai.com/assets/img/Ai%20logo-01.png" alt="Nexintel Logo" class="logo" />
-                <h1>Support Query Status Update</h1>
-            </div>
-            
-            <div class="content">
-                <div class="greeting">Hello ${userName},</div>
-                
-                <div class="intro-text">
-                    We're writing to update you on the status of your recent support request. 
-                    Our team has been working on your query and wanted to keep you informed of our progress.
-                </div>
-                
-                <div class="info-section">
-                    <div class="info-item">
-                        <span class="info-label">Subject:</span>
-                        <div class="info-value">${querySubject}</div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Status:</span>
-                        <div class="info-value">
-                            <span class="status-badge status-${newStatus.toLowerCase().replace(' ', '_')}">${newStatus}</span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="message-section">
-                    <div class="message-label">Update from our team:</div>
-                    <div class="message-content">${message}</div>
-                </div>
-                
-                <div class="action-section">
-                    <div class="action-text">
-                        Have questions or need additional assistance?
-                    </div>
-                    <div>
-                        Reply to this email or <a href="mailto:support@nexintelai.com" class="contact-link">contact our support team</a>
-                    </div>
-                </div>
-                
-                <div class="closing">
-                    Thank you for choosing Nexintel. We appreciate your patience as we work to provide you with the best possible service.
-                </div>
-                
-                <div class="signature">
-                    Best regards,<br>
-                    The Nexintel Support Team
-                </div>
-            </div>
-            
-            <div class="footer">
-                <div class="footer-links">
-                    <a href="https://www.nexintelai.com" class="footer-link">Visit Our Website</a>
-                    <a href="#" class="footer-link">Help Center</a>
-                    <a href="#" class="footer-link">Privacy Policy</a>
-                </div>
-                <div class="copyright">
-                    &copy; ${new Date().getFullYear()} Nexintel AI. All rights reserved.
-                </div>
-            </div>
+  // Get frontend URL from environment or use default
+  const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://jurinex-dev.netlify.app';
+  
+  // Encode email for URL
+  const encodedEmail = encodeURIComponent(firmData.email);
+  const setPasswordUrl = `${frontendUrl}/set-password?email=${encodedEmail}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+    <title>Firm Registration Approved</title>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      @keyframes float {
+        0%, 100% { transform: translateY(0px); }
+        50% { transform: translateY(-8px); }
+      }
+      
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 0 0 0 rgba(33, 193, 182, 0.4); }
+        50% { box-shadow: 0 0 0 10px rgba(33, 193, 182, 0); }
+      }
+      
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      
+      @keyframes gradient-shift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+      }
+      
+      body { margin: 0; padding: 0; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+      table, td { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    </style>
+  </head>
+  <body style="margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: #f5f7fa;">
+    <div style="padding: 25px 15px;">
+      <div style="max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 15px 50px rgba(33, 193, 182, 0.12), 0 5px 15px rgba(0, 0, 0, 0.08);">
+        
+        <div style="background: linear-gradient(90deg, #21C1B6 0%, #1AA49B 50%, #21C1B6 100%); background-size: 200% 100%; height: 6px; animation: gradient-shift 3s ease infinite;"></div>
+
+        <div style="padding: 30px 35px 20px; text-align: center; background: linear-gradient(180deg, #fafbfc 0%, #ffffff 100%);">
+          <div style="display: inline-block; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); width: 50px; height: 50px; border-radius: 14px; margin-bottom: 15px; box-shadow: 0 8px 20px rgba(33, 193, 182, 0.35), inset 0 -3px 8px rgba(0, 0, 0, 0.15); position: relative;">
+            <svg width="50" height="50" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style="position: relative; z-index: 1; transform: scale(0.6); top: 1px;">
+              <path d="M9 11H15M9 15H13M19 10L19 20C19 21.1046 18.1046 22 17 22L7 22C5.89543 22 5 21.1046 5 20L5 4C5 2.89543 5.89543 2 7 2L13 2L19 8L19 10Z" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="18" cy="18" r="5" fill="#1AA49B" stroke="white" stroke-width="2"/>
+              <path d="M16 18L17.5 19.5L20 16.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h1 style="margin: 0 0 6px; font-size: 22px; font-weight: 700; color: #1a1a1a; letter-spacing: -0.5px;">Registration Approved</h1>
+          <p style="margin: 0; font-size: 13px; color: #6b7280; font-weight: 500;">Jurinex Legal AI Assistant</p>
         </div>
-    </body>
-    </html>
-  `;
-};
 
-const getAdminCreationEmailTemplate = (adminName, username, password) => {
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Account Created - Nexintel</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #2c3e50;
-                margin: 0;
-                padding: 0;
-                background-color: #f8fafc;
-            }
-            .container {
-                max-width: 600px;
-                margin: 30px auto;
-                background-color: #ffffff;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-                overflow: hidden;
-            }
-            .header {
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 30px 40px;
-                text-align: center;
-                color: white;
-            }
-            .logo {
-                max-width: 120px;
-                height: auto;
-                margin-bottom: 15px;
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 24px;
-                font-weight: 300;
-                letter-spacing: 0.5px;
-            }
-            .content {
-                padding: 40px;
-                background-color: #ffffff;
-            }
-            .greeting {
-                font-size: 18px;
-                color: #2c3e50;
-                margin-bottom: 25px;
-                font-weight: 500;
-            }
-            .intro-text {
-                color: #5a6c7d;
-                margin-bottom: 30px;
-                font-size: 16px;
-            }
-            .info-section {
-                background-color: #f8fafc;
-                border-left: 4px solid #667eea;
-                padding: 25px;
-                margin: 25px 0;
-                border-radius: 0 8px 8px 0;
-            }
-            .info-item {
-                margin-bottom: 15px;
-            }
-            .info-label {
-                font-weight: 600;
-                color: #2c3e50;
-                display: inline-block;
-                min-width: 80px;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .info-value {
-                color: #5a6c7d;
-                font-size: 16px;
-            }
-            .action-section {
-                background-color: #f1f3f4;
-                padding: 20px;
-                border-radius: 8px;
-                margin: 30px 0;
-                text-align: center;
-            }
-            .action-text {
-                color: #5a6c7d;
-                margin-bottom: 15px;
-                font-size: 15px;
-            }
-            .contact-link {
-                color: #667eea;
-                text-decoration: none;
-                font-weight: 500;
-            }
-            .contact-link:hover {
-                text-decoration: underline;
-            }
-            .closing {
-                margin-top: 35px;
-                color: #5a6c7d;
-                line-height: 1.8;
-            }
-            .signature {
-                font-weight: 600;
-                color: #2c3e50;
-                margin-top: 20px;
-            }
-            .footer {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-                text-align: center;
-                padding: 25px;
-                font-size: 14px;
-            }
-            .footer-links {
-                margin-bottom: 15px;
-            }
-            .footer-link {
-                color: #bdc3c7;
-                text-decoration: none;
-                margin: 0 15px;
-                font-size: 13px;
-            }
-            .footer-link:hover {
-                color: #ecf0f1;
-            }
-            .copyright {
-                color: #95a5a6;
-                font-size: 12px;
-                margin-top: 15px;
-            }
-            
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 600px) {
-                .container {
-                    margin: 10px;
-                    border-radius: 8px;
-                }
-                .header, .content {
-                    padding: 25px 20px;
-                }
-                .info-section {
-                    padding: 20px 15px;
-                }
-                .logo {
-                    max-width: 100px;
-                }
-                .header h1 {
-                    font-size: 20px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="https://www.nexintelai.com/assets/img/Ai%20logo-01.png" alt="Nexintel Logo" class="logo" />
-                <h1>Welcome to Nexintel Admin!</h1>
-            </div>
-            
-            <div class="content">
-                <div class="greeting">Hello ${adminName},</div>
-                
-                <div class="intro-text">
-                    Your administrator account for Nexintel has been successfully created.
-                    You can now log in using the credentials provided below.
-                </div>
-                
-                <div class="info-section">
-                    <div class="info-item">
-                        <span class="info-label">Username:</span>
-                        <div class="info-value">${username}</div>
-                    </div>
-                    <div class="info-item">
-                        <span class="info-label">Password:</span>
-                        <div class="info-value">${password}</div>
-                    </div>
-                </div>
-                
-                <div class="action-section">
-                    <div class="action-text">
-                        Click the button below to log in to your admin panel:
-                    </div>
-                    <div>
-                        <a href="https://nexintel-super-admin.netlify.app" style="background-color: #667eea; color: white; padding: 12px 25px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 16px; display: inline-block;">Log In to Admin Panel</a>
-                    </div>
-                </div>
-                
-                <div class="closing">
-                    For security reasons, we recommend changing your password after your first login.
-                    If you have any questions or encounter any issues, please do not hesitate to contact our support team.
-                </div>
-                
-                <div class="signature">
-                    Best regards,<br>
-                    The Nexintel Team
-                </div>
-            </div>
-            
-            <div class="footer">
-                <div class="footer-links">
-                    <a href="https://www.nexintelai.com" class="footer-link">Visit Our Website</a>
-                    <a href="#" class="footer-link">Help Center</a>
-                    <a href="#" class="footer-link">Privacy Policy</a>
-                </div>
-                <div class="copyright">
-                    &copy; ${new Date().getFullYear()} Nexintel AI. All rights reserved.
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-  `;
-};
+        <div style="padding: 15px 35px 25px;">
+          <p style="margin: 0 0 18px; font-size: 14px; color: #4b5563; line-height: 1.6; text-align: center;">
+            Congratulations! Your firm has been officially approved. You can now access our AI services to get case summaries and key insights within minutes.
+          </p>
 
-const getAdminDeletionEmailTemplate = (adminName, username) => {
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Account Deleted - Nexintel</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #2c3e50;
-                margin: 0;
-                padding: 0;
-                background-color: #f8fafc;
-            }
-            .container {
-                max-width: 600px;
-                margin: 30px auto;
-                background-color: #ffffff;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-                overflow: hidden;
-            }
-            .header {
-                background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
-                padding: 30px 40px;
-                text-align: center;
-                color: white;
-            }
-            .logo {
-                max-width: 120px;
-                height: auto;
-                margin-bottom: 15px;
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 24px;
-                font-weight: 300;
-                letter-spacing: 0.5px;
-            }
-            .content {
-                padding: 40px;
-                background-color: #ffffff;
-            }
-            .greeting {
-                font-size: 18px;
-                color: #2c3e50;
-                margin-bottom: 25px;
-                font-weight: 500;
-            }
-            .intro-text {
-                color: #5a6c7d;
-                margin-bottom: 30px;
-                font-size: 16px;
-            }
-            .info-section {
-                background-color: #f8fafc;
-                border-left: 4px solid #e74c3c;
-                padding: 25px;
-                margin: 25px 0;
-                border-radius: 0 8px 8px 0;
-            }
-            .info-item {
-                margin-bottom: 15px;
-            }
-            .info-label {
-                font-weight: 600;
-                color: #2c3e50;
-                display: inline-block;
-                min-width: 80px;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .info-value {
-                color: #5a6c7d;
-                font-size: 16px;
-            }
-            .closing {
-                margin-top: 35px;
-                color: #5a6c7d;
-                line-height: 1.8;
-            }
-            .signature {
-                font-weight: 600;
-                color: #2c3e50;
-                margin-top: 20px;
-            }
-            .footer {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-                text-align: center;
-                padding: 25px;
-                font-size: 14px;
-            }
-            .footer-links {
-                margin-bottom: 15px;
-            }
-            .footer-link {
-                color: #bdc3c7;
-                text-decoration: none;
-                margin: 0 15px;
-                font-size: 13px;
-            }
-            .footer-link:hover {
-                color: #ecf0f1;
-            }
-            .copyright {
-                color: #95a5a6;
-                font-size: 12px;
-                margin-top: 15px;
-            }
+          <div style="background: linear-gradient(145deg, #ffffff 0%, #f9fafb 100%); border-radius: 14px; padding: 22px; margin: 0 auto 20px; text-align: left; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 1px 3px rgba(0, 0, 0, 0.04); border: 1px solid rgba(33, 193, 182, 0.15); position: relative;">
+            <div style="position: absolute; top: 0; left: 0; right: 0; height: 2.5px; background: linear-gradient(90deg, #21C1B6, #1AA49B, #21C1B6); border-radius: 14px 14px 0 0;"></div>
             
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 600px) {
-                .container {
-                    margin: 10px;
-                    border-radius: 8px;
-                }
-                .header, .content {
-                    padding: 25px 20px;
-                }
-                .info-section {
-                    padding: 20px 15px;
-                }
-                .logo {
-                    max-width: 100px;
-                }
-                .header h1 {
-                    font-size: 20px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="https://www.nexintelai.com/assets/img/Ai%20logo-01.png" alt="Nexintel Logo" class="logo" />
-                <h1>Admin Account Deleted</h1>
-            </div>
+            <p style="margin: 0 0 15px; font-size: 11px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.3px; text-align: center; border-bottom: 1px dashed #e5e7eb; padding-bottom: 10px;">Official Credentials</p>
             
-            <div class="content">
-                <div class="greeting">Hello ${adminName},</div>
-                
-                <div class="intro-text">
-                    This is to confirm that your administrator account with username <strong>${username}</strong> has been successfully deleted from the Nexintel system.
-                </div>
-                
-                <div class="info-section">
-                    <div class="info-item">
-                        <span class="info-label">Username:</span>
-                        <div class="info-value">${username}</div>
-                    </div>
-                </div>
-                
-                <div class="closing">
-                    If you believe this was done in error or have any questions, please contact our support team immediately.
-                </div>
-                
-                <div class="signature">
-                    Best regards,<br>
-                    The Nexintel Team
-                </div>
-            </div>
-            
-            <div class="footer">
-                <div class="footer-links">
-                    <a href="https://www.nexintelai.com" class="footer-link">Visit Our Website</a>
-                    <a href="#" class="footer-link">Help Center</a>
-                    <a href="#" class="footer-link">Privacy Policy</a>
-                </div>
-                <div class="copyright">
-                    &copy; ${new Date().getFullYear()} Nexintel AI. All rights reserved.
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-  `;
-};
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding-bottom: 12px; font-size: 12px; color: #6b7280; width: 40%;">Firm Name:</td>
+                <td style="padding-bottom: 12px; font-size: 13px; font-weight: 600; color: #1a1a1a; text-align: right;">${escapeHtml(firmData.firm_name)}</td>
+              </tr>
+              <tr>
+                <td style="padding-bottom: 12px; font-size: 12px; color: #6b7280;">PAN Number:</td>
+                <td style="padding-bottom: 12px; font-size: 13px; font-weight: 600; color: #1a1a1a; text-align: right; letter-spacing: 0.5px;">${escapeHtml(firmData.pan_number || 'N/A')}</td>
+              </tr>
+              <tr>
+                <td style="padding-bottom: 0; font-size: 12px; color: #6b7280;">Member Since:</td>
+                <td style="padding-bottom: 0; font-size: 13px; font-weight: 600; color: #1a1a1a; text-align: right;">${issueDate}</td>
+              </tr>
+            </table>
+          </div>
 
-const getAdminUpdateEmailTemplate = (adminName, username, updatedFields) => {
-  let fieldsList = Object.entries(updatedFields).map(([key, value]) => {
-    if (key === 'password') {
-      return `
-        <div class="info-item">
-            <span class="info-label">Password:</span>
-            <div class="info-value">New password set (not displayed for security)</div>
+          <div style="text-align: center; margin-bottom: 25px;">
+            <a href="${setPasswordUrl}" style="display: block; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); color: white; padding: 16px 32px; border-radius: 10px; text-decoration: none; font-size: 15px; font-weight: 700; box-shadow: 0 4px 14px rgba(33, 193, 182, 0.3); transition: all 0.3s ease; margin-bottom: 12px;">
+              Generate Login Password
+            </a>
+            
+            <a href="${certificateUrl}" style="display: inline-block; background: transparent; color: #4b5563; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid #e5e7eb; transition: all 0.2s ease;">
+              📥 Download Certificate (PDF)
+            </a>
+            <p style="margin: 8px 0 0; font-size: 11px; color: #9ca3af; text-align: center;">
+              Certificate link valid for 24 hours
+            </p>
+          </div>
+
+          <div style="background: #f0fdf9; border-left: 3px solid #1AA49B; border-radius: 6px; padding: 12px 14px;">
+            <p style="margin: 0 0 4px; font-size: 11px; font-weight: 700; color: #0f766e;">LEGAL NOTICE</p>
+            <p style="margin: 0; font-size: 11px; color: #374151; line-height: 1.4;">
+              This email is an official confirmation of your registration with Jurinex. Your access to AI summary services is subject to the terms agreed upon during registration.
+            </p>
+          </div>
         </div>
-      `;
-    }
-    return `
-      <div class="info-item">
-          <span class="info-label">${key.charAt(0).toUpperCase() + key.slice(1)}:</span>
-          <div class="info-value">${value}</div>
+
+        <div style="background: #f9fafb; padding: 20px 35px; text-align: center; border-top: 1px solid #e5e7eb;">
+          <div style="margin-bottom: 14px;">
+            <a href="#" style="display: inline-block; width: 34px; height: 34px; line-height: 34px; margin: 0 5px; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); border-radius: 50%; color: #ffffff; text-decoration: none; font-size: 16px; font-weight: 700; box-shadow: 0 4px 12px rgba(33, 193, 182, 0.35), inset 0 -2px 4px rgba(0, 0, 0, 0.15);">f</a>
+            <a href="#" style="display: inline-block; width: 34px; height: 34px; line-height: 34px; margin: 0 5px; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); border-radius: 50%; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; box-shadow: 0 4px 12px rgba(33, 193, 182, 0.35), inset 0 -2px 4px rgba(0, 0, 0, 0.15);">in</a>
+            <a href="#" style="display: inline-block; width: 34px; height: 34px; line-height: 34px; margin: 0 5px; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); border-radius: 50%; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 700; box-shadow: 0 4px 12px rgba(33, 193, 182, 0.35), inset 0 -2px 4px rgba(0, 0, 0, 0.15);">X</a>
+          </div>
+          
+          <p style="margin: 0 0 8px; font-size: 12px; color: #6b7280;">
+            Need support? <a href="mailto:support@jurinex.ai" style="color: #21C1B6; text-decoration: none; font-weight: 600;">support@jurinex.ai</a>
+          </p>
+          <p style="margin: 0; font-size: 11px; color: #9ca3af;">© 2026 Jurinex AI Assistant · All rights reserved</p>
+        </div>
       </div>
-    `;
-  }).join('');
 
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Account Updated - Nexintel</title>
-        <style>
-            body {
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                line-height: 1.6;
-                color: #2c3e50;
-                margin: 0;
-                padding: 0;
-                background-color: #f8fafc;
-            }
-            .container {
-                max-width: 600px;
-                margin: 30px auto;
-                background-color: #ffffff;
-                border-radius: 12px;
-                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
-                overflow: hidden;
-            }
-            .header {
-                background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
-                padding: 30px 40px;
-                text-align: center;
-                color: white;
-            }
-            .logo {
-                max-width: 120px;
-                height: auto;
-                margin-bottom: 15px;
-            }
-            .header h1 {
-                margin: 0;
-                font-size: 24px;
-                font-weight: 300;
-                letter-spacing: 0.5px;
-            }
-            .content {
-                padding: 40px;
-                background-color: #ffffff;
-            }
-            .greeting {
-                font-size: 18px;
-                color: #2c3e50;
-                margin-bottom: 25px;
-                font-weight: 500;
-            }
-            .intro-text {
-                color: #5a6c7d;
-                margin-bottom: 30px;
-                font-size: 16px;
-            }
-            .info-section {
-                background-color: #f8fafc;
-                border-left: 4px solid #3498db;
-                padding: 25px;
-                margin: 25px 0;
-                border-radius: 0 8px 8px 0;
-            }
-            .info-item {
-                margin-bottom: 15px;
-            }
-            .info-label {
-                font-weight: 600;
-                color: #2c3e50;
-                display: inline-block;
-                min-width: 120px;
-                font-size: 14px;
-                text-transform: uppercase;
-                letter-spacing: 0.5px;
-            }
-            .info-value {
-                color: #5a6c7d;
-                font-size: 16px;
-            }
-            .closing {
-                margin-top: 35px;
-                color: #5a6c7d;
-                line-height: 1.8;
-            }
-            .signature {
-                font-weight: 600;
-                color: #2c3e50;
-                margin-top: 20px;
-            }
-            .footer {
-                background-color: #2c3e50;
-                color: #ecf0f1;
-                text-align: center;
-                padding: 25px;
-                font-size: 14px;
-            }
-            .footer-links {
-                margin-bottom: 15px;
-            }
-            .footer-link {
-                color: #bdc3c7;
-                text-decoration: none;
-                margin: 0 15px;
-                font-size: 13px;
-            }
-            .footer-link:hover {
-                color: #ecf0f1;
-            }
-            .copyright {
-                color: #95a5a6;
-                font-size: 12px;
-                margin-top: 15px;
-            }
-            
-            /* Mobile responsiveness */
-            @media only screen and (max-width: 600px) {
-                .container {
-                    margin: 10px;
-                    border-radius: 8px;
-                }
-                .header, .content {
-                    padding: 25px 20px;
-                }
-                .info-section {
-                    padding: 20px 15px;
-                }
-                .logo {
-                    max-width: 100px;
-                }
-                .header h1 {
-                    font-size: 20px;
-                }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="https://www.nexintelai.com/assets/img/Ai%20logo-01.png" alt="Nexintel Logo" class="logo" />
-                <h1>Admin Account Updated</h1>
-            </div>
-            
-            <div class="content">
-                <div class="greeting">Hello ${adminName},</div>
-                
-                <div class="intro-text">
-                    This is to confirm that your administrator account with username <strong>${username}</strong> has been updated.
-                    Below are the details of the changes made:
-                </div>
-                
-                <div class="info-section">
-                    ${fieldsList}
-                </div>
-                
-                <div class="closing">
-                    If you did not authorize these changes or have any questions, please contact our support team immediately.
-                </div>
-                
-                <div class="signature">
-                    Best regards,<br>
-                    The Nexintel Team
-                </div>
-            </div>
-            
-            <div class="footer">
-                <div class="footer-links">
-                    <a href="https://www.nexintelai.com" class="footer-link">Visit Our Website</a>
-                    <a href="#" class="footer-link">Help Center</a>
-                    <a href="#" class="footer-link">Privacy Policy</a>
-                </div>
-                <div class="copyright">
-                    &copy; ${new Date().getFullYear()} Nexintel AI. All rights reserved.
-                </div>
-            </div>
-        </div>
-    </body>
-    </html>
-  `;
+      <p style="max-width: 520px; margin: 15px auto 0; text-align: center; font-size: 10px; color: #9ca3af; line-height: 1.4;">
+        This is an automated message. Please do not reply. The information provided is confidential.
+      </p>
+    </div>
+  </body>
+</html>`;
+};
+
+/**
+ * Escape HTML to prevent XSS
+ */
+const escapeHtml = (text) => {
+  if (!text) return '';
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
 };
 
 module.exports = {
-  getQueryStatusUpdateEmailTemplate,
-  getAdminCreationEmailTemplate,
-  getAdminDeletionEmailTemplate,
-  getAdminUpdateEmailTemplate,
+  getFirmApprovalEmailTemplate
 };
