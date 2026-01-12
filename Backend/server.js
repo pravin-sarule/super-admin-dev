@@ -27,7 +27,8 @@ const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const customQueryRoutes = require('./routes/customQueryRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
-
+const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
+const fileRoutes = require('./routes/fileRoutes');
 const app = express();
 
 // // --- CORS ---
@@ -111,6 +112,12 @@ app.use('/api/custom-query', customQueryRoutes);
 
 console.log('📌 /api/llm-usage → Using Payment DB (paymentPool) ✨');
 app.use('/api/llm-usage', llmUsageRoutes(pool));
+
+console.log('📌 /api/token-usage → Using Payment DB (paymentPool) ✨');
+app.use('/api/token-usage', tokenUsageRoutes(pool));
+
+console.log('📌 /api/file → Using Main DB (pool) ✨');
+app.use('/api/file', fileRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 
