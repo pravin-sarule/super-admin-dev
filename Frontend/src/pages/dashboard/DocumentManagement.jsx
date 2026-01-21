@@ -34,7 +34,7 @@ const DocumentManagement = () => {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
-  const documentService = new AdminDocumentService('http://localhost:5000');
+  const documentService = new AdminDocumentService('https://gateway-service-120280829617.asia-south1.run.app');
 
   // Fetch all documents
   const fetchDocuments = async () => {
