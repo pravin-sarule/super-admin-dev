@@ -16,7 +16,8 @@ import {
   X,
   Gavel, // Added for Case Type
   Building2, // Added for Court
-  UserCheck // Added for Judge
+  UserCheck, // Added for Judge
+  FileCheck // Added for Document Management
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -66,6 +67,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'LLM Management',
       path: '/dashboard/llm-management',
       icon: Bot,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Document Management',
+      path: '/dashboard/documents',
+      icon: FileCheck,
       roles: ['super-admin']
     },
     // {

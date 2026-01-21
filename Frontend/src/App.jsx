@@ -14,6 +14,7 @@ import SupportHelp from './pages/dashboard/SupportHelp';
 import PromptManagement from './pages/dashboard/PromptManagement';
 import SystemPromptManagement from './pages/dashboard/SystemPromptManagement';
 import LLMManagement from './pages/dashboard/LLMManagement';
+import DocumentManagement from './pages/dashboard/DocumentManagement';
 import AddCaseType from './pages/dashboard/content/AddCaseType';
 import AddCourt from './pages/dashboard/content/AddCourt';
 import AddJudge from './pages/dashboard/content/AddJudge';
@@ -75,6 +76,7 @@ function App() {
             <Route path="prompts" element={<PromptManagement />} />
             <Route path="system-prompts" element={<SystemPromptManagement />} />
             <Route path="llm-management" element={<LLMManagement />} />
+            <Route path="documents" element={<DocumentManagement />} />
             <Route path="support" element={<SupportHelp />} />
           </Route>
         </Route>
