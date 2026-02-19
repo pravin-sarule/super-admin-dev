@@ -58,6 +58,18 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       roles: ['super-admin']
     },
     {
+      name: 'Agent Prompt Management',
+      path: '/dashboard/agent-prompts',
+      icon: Bot,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Template Management',
+      path: '/dashboard/templates',
+      icon: FileText,
+      roles: ['super-admin']
+    },
+    {
       name: 'System Prompt Management',
       path: '/dashboard/system-prompts',
       icon: MessageSquare,
@@ -136,34 +148,33 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - dark theme matching reference */}
       <div
-        className={`bg-gradient-to-b from-slate-50 to-white text-gray-700 h-screen transition-all duration-300 ease-in-out ${
-          isOpen ? 'w-72' : 'w-20'
-        } flex flex-col shadow-2xl border-r border-gray-200/50 fixed md:relative z-40`}
+        className={`bg-slate-800 text-slate-200 h-screen transition-all duration-300 ease-in-out ${isOpen ? 'w-72' : 'w-20'
+          } flex flex-col shadow-2xl border-r border-slate-700/50 fixed md:relative z-40`}
       >
         {/* Sidebar Header */}
-        <div className="p-5 border-b border-gray-200/50 bg-white/50 backdrop-blur-sm">
+        <div className="p-5 border-b border-slate-700/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center flex-1 min-w-0">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center mr-3 flex-shrink-0 shadow-lg">
+              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
                 <span className="text-white font-bold text-sm">SA</span>
               </div>
               {isOpen && (
                 <div className="flex-1 min-w-0">
-                  <h2 className="text-gray-800 font-bold text-lg whitespace-nowrap overflow-hidden truncate">
-                    {userRole ? userRole.replace('-', ' ').split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') : 'Super Admin'}
+                  <h2 className="text-white font-bold text-base whitespace-nowrap overflow-hidden truncate">
+                    Super Admin
                   </h2>
-                  <p className="text-xs text-gray-500 truncate">Admin Portal</p>
+                  <p className="text-xs text-slate-400 truncate">Admin Portal</p>
                 </div>
               )}
             </div>
             {isOpen && (
               <button
                 onClick={toggleSidebar}
-                className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="md:hidden p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400"
               >
-                <X className="w-5 h-5 text-gray-600" />
+                <X className="w-5 h-5" />
               </button>
             )}
           </div>
@@ -172,57 +183,46 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
         {/* Navigation */}
         <nav className="flex-grow py-4 overflow-y-auto custom-scrollbar px-3">
           {menuItems.map((item, index) => {
-            const active = isActive(item.path);
+            const active = item.path ? isActive(item.path) : false;
             return (
               <div key={index} className="mb-1">
                 {item.path ? (
                   <Link
                     to={item.path}
-                    className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-xl transition-all duration-200 group relative ${
-                      active
-                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30'
-                        : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/50'
-                    }`}
+                    className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-lg transition-all duration-200 group relative ${active
+                        ? 'bg-blue-600 text-white'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                      }`}
                     title={!isOpen ? item.name : ''}
                   >
-                    {active && (
-                      <div className="absolute left-0 top-0 bottom-0 w-1 bg-white rounded-r-full" />
-                    )}
                     <item.icon
-                      className={`w-5 h-5 flex-shrink-0 transition-transform duration-200 ${
-                        active
+                      className={`w-5 h-5 flex-shrink-0 ${active
                           ? 'text-white'
-                          : 'text-gray-500 group-hover:text-gray-700'
-                      } ${isOpen ? 'mr-3' : 'mx-auto'}`}
+                          : 'text-slate-400 group-hover:text-slate-200'
+                        } ${isOpen ? 'mr-3' : 'mx-auto'}`}
                     />
                     {isOpen && (
-                      <span
-                        className={`font-medium whitespace-nowrap overflow-hidden ${
-                          active ? 'text-white' : 'text-gray-700'
-                        }`}
-                      >
+                      <span className="font-medium whitespace-nowrap overflow-hidden flex-1">
                         {item.name}
                       </span>
                     )}
                     {active && isOpen && (
-                      <div className="ml-auto w-2 h-2 bg-white rounded-full animate-pulse" />
+                      <div className="w-2 h-2 bg-white rounded-full flex-shrink-0" />
                     )}
                   </Link>
                 ) : (
                   <>
                     <button
-                      className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-xl transition-all duration-200 group ${
-                        openMenu === item.key
-                          ? 'bg-gray-100 text-gray-900'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100/50'
-                      }`}
+                      className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-lg transition-all duration-200 group ${openMenu === item.key
+                          ? 'bg-slate-700 text-white'
+                          : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                        }`}
                       onClick={() => isOpen && handleMenuToggle(item.key)}
                       title={!isOpen ? item.name : ''}
                     >
                       <item.icon
-                        className={`w-5 h-5 flex-shrink-0 ${
-                          isOpen ? 'mr-3' : 'mx-auto'
-                        } text-gray-500 group-hover:text-gray-700`}
+                        className={`w-5 h-5 flex-shrink-0 ${isOpen ? 'mr-3' : 'mx-auto'
+                          } text-slate-400 group-hover:text-slate-200`}
                       />
                       {isOpen && (
                         <>
@@ -231,9 +231,9 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
                           </span>
                           <div className="transition-transform duration-200 flex-shrink-0">
                             {openMenu === item.key ? (
-                              <ChevronDown className="w-4 h-4 text-gray-400" />
+                              <ChevronDown className="w-4 h-4 text-slate-400" />
                             ) : (
-                              <ChevronRight className="w-4 h-4 text-gray-400" />
+                              <ChevronRight className="w-4 h-4 text-slate-400" />
                             )}
                           </div>
                         </>
@@ -242,14 +242,14 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
 
                     {/* Submenu */}
                     {isOpen && openMenu === item.key && item.subItems && (
-                      <div className="ml-6 mb-2 border-l-2 border-gray-200 pl-4 space-y-1 animate-fadeIn">
+                      <div className="ml-6 mb-2 border-l-2 border-slate-600 pl-4 space-y-1 animate-fadeIn">
                         {item.subItems.map((subItem, subIndex) => (
                           <Link
                             key={subIndex}
                             to={subItem.path}
-                            className="flex items-center w-full px-3 py-2 text-sm text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-lg transition-all duration-200"
+                            className="flex items-center w-full px-3 py-2 text-sm text-slate-400 hover:text-white hover:bg-slate-700/40 rounded-lg transition-all duration-200"
                           >
-                            <subItem.icon className="w-4 h-4 mr-2 text-gray-400 flex-shrink-0" />
+                            <subItem.icon className="w-4 h-4 mr-2 text-slate-500 flex-shrink-0" />
                             <span className="whitespace-nowrap overflow-hidden">
                               {subItem.name}
                             </span>
@@ -265,19 +265,16 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
         </nav>
 
         {/* Footer */}
-        <div className="p-4 border-t border-gray-200/50 bg-white/50 backdrop-blur-sm">
+        <div className="p-4 border-t border-slate-700/50">
           {isOpen ? (
             <div className="text-center">
-              <div className="text-xs text-gray-500 font-medium">
-                © 2025 Nexintel Admin
-              </div>
-              <div className="text-xs text-gray-400 mt-1">
-                v1.0.0
+              <div className="text-xs text-slate-500">
+                © 2025 Nexintel Admin v1.0.0
               </div>
             </div>
           ) : (
             <div className="flex justify-center">
-              <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
                 <span className="text-white font-bold text-xs">N</span>
               </div>
             </div>

@@ -2,9 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Eye, Lock, Unlock, Edit, Save, User, Mail, Shield, Hash, Filter, ChevronLeft, ChevronRight, Clock, RefreshCw, X, AlertTriangle, CheckCircle, AlertCircle, Building2, Users, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
-
-// API base URL - adjust this to your backend URL
-const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+import { API_BASE_URL } from '../../config';
 
 const MySwal = withReactContent(Swal);
 
@@ -119,7 +117,8 @@ const UserManagement = () => {
 
   // API helper function
   const apiCall = async (endpoint, options = {}) => {
-    const token = getAuthToken();
+    const rawToken = getAuthToken();
+    const token = rawToken ? String(rawToken).trim() : null;
     
     const defaultHeaders = {
       'Content-Type': 'application/json',
@@ -139,7 +138,7 @@ const UserManagement = () => {
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+        throw new Error(errorData.message || errorData.error || `HTTP error! status: ${response.status}`);
       }
       
       return await response.json();

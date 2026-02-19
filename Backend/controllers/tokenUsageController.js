@@ -26,13 +26,13 @@
 //       FROM token_usage_logs t
 //       WHERE 1=1
 //     `;
-    
+
 //     const queryParams = [];
 //     let paramCount = 0;
-    
+
 //     // If 'all' is true, skip date filtering
 //     const shouldFilterByDate = !all && (startDate || endDate);
-    
+
 //     // If userName filter is provided, first get matching user IDs from auth DB
 //     let filteredUserIds = null;
 //     if (userName) {
@@ -44,7 +44,7 @@
 //         `;
 //         const userNameResult = await authPool.query(userNameQuery, [`%${userName}%`]);
 //         filteredUserIds = userNameResult.rows.map(row => row.id);
-        
+
 //         if (filteredUserIds.length === 0) {
 //           return res.status(200).json({
 //             success: true,
@@ -52,7 +52,7 @@
 //             count: 0
 //           });
 //         }
-        
+
 //         const userIdPlaceholders = filteredUserIds.map((_, index) => `$${paramCount + index + 1}`).join(',');
 //         query += ` AND t.user_id IN (${userIdPlaceholders})`;
 //         queryParams.push(...filteredUserIds);
@@ -61,19 +61,19 @@
 //         console.error('Error fetching users by name:', userErr.message);
 //       }
 //     }
-    
+
 //     if (userId) {
 //       paramCount++;
 //       query += ` AND t.user_id = $${paramCount}`;
 //       queryParams.push(parseInt(userId));
 //     }
-    
+
 //     if (modelName) {
 //       paramCount++;
 //       query += ` AND t.model_name ILIKE $${paramCount}`;
 //       queryParams.push(`%${modelName}%`);
 //     }
-    
+
 //     if (shouldFilterByDate) {
 //       if (startDate) {
 //         paramCount++;
@@ -86,21 +86,21 @@
 //         queryParams.push(endDate);
 //       }
 //     }
-    
+
 //     query += ` ORDER BY t.used_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
 //     queryParams.push(parseInt(limit), parseInt(offset));
 
 //     console.log('📊 Query:', query);
 //     console.log('📊 Query params:', queryParams);
-    
+
 //     const result = await paymentPool.query(query, queryParams);
-    
+
 //     console.log('📊 Query result count:', result.rows.length);
-    
+
 //     // Fetch user names from auth database
 //     const userIds = [...new Set(result.rows.map(row => row.user_id).filter(id => id))];
 //     const userMap = {};
-    
+
 //     if (userIds.length > 0) {
 //       try {
 //         const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
@@ -110,7 +110,7 @@
 //           WHERE id IN (${placeholders})
 //         `;
 //         const userResult = await authPool.query(userQuery, userIds);
-        
+
 //         userResult.rows.forEach(user => {
 //           userMap[user.id] = {
 //             username: user.username || `User ${user.id}`,
@@ -121,7 +121,7 @@
 //         console.error('Error fetching user names:', userErr.message);
 //       }
 //     }
-    
+
 //     // Enrich the results with user names
 //     const enrichedData = result.rows.map(row => ({
 //       ...row,
@@ -130,7 +130,7 @@
 //       // Add a unique ID for frontend key prop
 //       id: `${row.user_id}-${row.session_id || ''}-${new Date(row.used_at).getTime()}`
 //     }));
-    
+
 //     res.status(200).json({
 //       success: true,
 //       data: enrichedData,
@@ -153,7 +153,7 @@
 //     const { startDate, endDate } = req.query;
 //     let dateFilter = '';
 //     const queryParams = [];
-    
+
 //     if (startDate && endDate) {
 //       dateFilter = 'WHERE used_at >= $1::timestamp AND used_at < ($2::timestamp + INTERVAL \'1 day\')';
 //       queryParams.push(startDate, endDate);
@@ -164,10 +164,10 @@
 //       dateFilter = 'WHERE used_at < ($1::timestamp + INTERVAL \'1 day\')';
 //       queryParams.push(endDate);
 //     }
-    
+
 //     console.log('📊 Stats query date filter:', dateFilter);
 //     console.log('📊 Stats query params:', queryParams);
-    
+
 //     // Total statistics
 //     const totalStatsQuery = `
 //       SELECT 
@@ -184,7 +184,7 @@
 //       ${dateFilter}
 //     `;
 //     const totalStats = await paymentPool.query(totalStatsQuery, queryParams);
-    
+
 //     // Get total users from auth database
 //     let totalUsersCount = 0;
 //     try {
@@ -194,7 +194,7 @@
 //     } catch (userErr) {
 //       console.error('Error fetching total users count:', userErr.message);
 //     }
-    
+
 //     // Statistics by model
 //     const modelStatsQuery = `
 //       SELECT 
@@ -212,7 +212,7 @@
 //       ORDER BY total_cost DESC
 //     `;
 //     const modelStats = await paymentPool.query(modelStatsQuery, queryParams);
-    
+
 //     // Statistics by user
 //     const userStatsQuery = `
 //       SELECT 
@@ -232,11 +232,11 @@
 //       LIMIT 20
 //     `;
 //     const userStats = await paymentPool.query(userStatsQuery, queryParams);
-    
+
 //     // Fetch user names for statistics
 //     const statsUserIds = userStats.rows.map(row => row.user_id).filter(id => id);
 //     const statsUserMap = {};
-    
+
 //     if (statsUserIds.length > 0) {
 //       try {
 //         const placeholders = statsUserIds.map((_, index) => `$${index + 1}`).join(',');
@@ -246,7 +246,7 @@
 //           WHERE id IN (${placeholders})
 //         `;
 //         const statsUserResult = await authPool.query(statsUserQuery, statsUserIds);
-        
+
 //         statsUserResult.rows.forEach(user => {
 //           statsUserMap[user.id] = {
 //             username: user.username || `User ${user.id}`,
@@ -257,18 +257,18 @@
 //         console.error('Error fetching user names for stats:', userErr.message);
 //       }
 //     }
-    
+
 //     // Enrich user stats with names
 //     const enrichedUserStats = userStats.rows.map(row => ({
 //       ...row,
 //       user_name: statsUserMap[row.user_id]?.username || `User ${row.user_id}`,
 //       user_email: statsUserMap[row.user_id]?.email || null
 //     }));
-    
+
 //     // Daily usage trend (last 30 days or within date range)
 //     let dailyTrendFilter = '';
 //     let dailyTrendParams = [];
-    
+
 //     if (dateFilter) {
 //       dailyTrendFilter = dateFilter;
 //       dailyTrendParams = [...queryParams];
@@ -276,7 +276,7 @@
 //       dailyTrendFilter = 'WHERE used_at >= CURRENT_TIMESTAMP - INTERVAL \'30 days\'';
 //       dailyTrendParams = [];
 //     }
-    
+
 //     const dailyTrendQuery = `
 //       SELECT 
 //         DATE(used_at) as date,
@@ -367,7 +367,7 @@
 //   try {
 //     const { userId } = req.params;
 //     const { limit = 100, offset = 0 } = req.query;
-    
+
 //     const query = `
 //       SELECT 
 //         user_id,
@@ -389,7 +389,7 @@
 //       LIMIT $2 OFFSET $3
 //     `;
 //     const result = await paymentPool.query(query, [parseInt(userId), parseInt(limit), parseInt(offset)]);
-    
+
 //     // Fetch user name
 //     let userName = `User ${userId}`;
 //     let userEmail = null;
@@ -402,7 +402,7 @@
 //     } catch (userErr) {
 //       console.error('Error fetching user name:', userErr.message);
 //     }
-    
+
 //     // Enrich results
 //     const enrichedData = result.rows.map(row => ({
 //       ...row,
@@ -410,7 +410,7 @@
 //       user_email: userEmail,
 //       id: `${row.user_id}-${row.session_id || ''}-${new Date(row.used_at).getTime()}`
 //     }));
-    
+
 //     res.status(200).json({
 //       success: true,
 //       data: enrichedData,
@@ -464,13 +464,13 @@
 //       FROM token_usage_logs t
 //       WHERE 1=1
 //     `;
-    
+
 //     const queryParams = [];
 //     let paramCount = 0;
-    
+
 //     // If 'all' is true, skip date filtering
 //     const shouldFilterByDate = !all && (startDate || endDate);
-    
+
 //     // If userName filter is provided, first get matching user IDs from auth DB
 //     let filteredUserIds = null;
 //     if (userName) {
@@ -482,7 +482,7 @@
 //         `;
 //         const userNameResult = await authPool.query(userNameQuery, [`%${userName}%`]);
 //         filteredUserIds = userNameResult.rows.map(row => row.id);
-        
+
 //         if (filteredUserIds.length === 0) {
 //           return res.status(200).json({
 //             success: true,
@@ -490,7 +490,7 @@
 //             count: 0
 //           });
 //         }
-        
+
 //         const userIdPlaceholders = filteredUserIds.map((_, index) => `$${paramCount + index + 1}`).join(',');
 //         query += ` AND t.user_id IN (${userIdPlaceholders})`;
 //         queryParams.push(...filteredUserIds);
@@ -499,19 +499,19 @@
 //         console.error('Error fetching users by name:', userErr.message);
 //       }
 //     }
-    
+
 //     if (userId) {
 //       paramCount++;
 //       query += ` AND t.user_id = $${paramCount}`;
 //       queryParams.push(parseInt(userId));
 //     }
-    
+
 //     if (modelName) {
 //       paramCount++;
 //       query += ` AND t.model_name ILIKE $${paramCount}`;
 //       queryParams.push(`%${modelName}%`);
 //     }
-    
+
 //     if (shouldFilterByDate) {
 //       if (startDate) {
 //         paramCount++;
@@ -524,21 +524,21 @@
 //         queryParams.push(endDate);
 //       }
 //     }
-    
+
 //     query += ` ORDER BY t.used_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
 //     queryParams.push(parseInt(limit), parseInt(offset));
 
 //     console.log('📊 Query:', query);
 //     console.log('📊 Query params:', queryParams);
-    
+
 //     const result = await paymentPool.query(query, queryParams);
-    
+
 //     console.log('📊 Query result count:', result.rows.length);
-    
+
 //     // Fetch user names from auth database
 //     const userIds = [...new Set(result.rows.map(row => row.user_id).filter(id => id))];
 //     const userMap = {};
-    
+
 //     if (userIds.length > 0) {
 //       try {
 //         const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
@@ -548,7 +548,7 @@
 //           WHERE id IN (${placeholders})
 //         `;
 //         const userResult = await authPool.query(userQuery, userIds);
-        
+
 //         userResult.rows.forEach(user => {
 //           userMap[user.id] = {
 //             username: user.username || `User ${user.id}`,
@@ -559,11 +559,11 @@
 //         console.error('Error fetching user names:', userErr.message);
 //       }
 //     }
-    
+
 //     // Fetch session information
 //     const sessionIds = [...new Set(result.rows.map(row => row.session_id).filter(id => id))];
 //     const sessionMap = {};
-    
+
 //     if (sessionIds.length > 0) {
 //       try {
 //         const sessionPlaceholders = sessionIds.map((_, index) => `$${index + 1}`).join(',');
@@ -579,7 +579,7 @@
 //           WHERE id IN (${sessionPlaceholders})
 //         `;
 //         const sessionResult = await authPool.query(sessionQuery, sessionIds);
-        
+
 //         sessionResult.rows.forEach(session => {
 //           sessionMap[session.id] = {
 //             login_time: session.login_time,
@@ -596,7 +596,7 @@
 //         console.error('Error fetching session info:', sessionErr.message);
 //       }
 //     }
-    
+
 //     // Enrich the results with user names and session info
 //     const enrichedData = result.rows.map(row => ({
 //       ...row,
@@ -605,7 +605,7 @@
 //       session_info: row.session_id ? sessionMap[row.session_id] : null,
 //       id: `${row.user_id}-${row.session_id || ''}-${new Date(row.used_at).getTime()}`
 //     }));
-    
+
 //     res.status(200).json({
 //       success: true,
 //       data: enrichedData,
@@ -628,7 +628,7 @@
 //     const { startDate, endDate } = req.query;
 //     let dateFilter = '';
 //     const queryParams = [];
-    
+
 //     if (startDate && endDate) {
 //       dateFilter = 'WHERE used_at >= $1::timestamp AND used_at < ($2::timestamp + INTERVAL \'1 day\')';
 //       queryParams.push(startDate, endDate);
@@ -639,10 +639,10 @@
 //       dateFilter = 'WHERE used_at < ($1::timestamp + INTERVAL \'1 day\')';
 //       queryParams.push(endDate);
 //     }
-    
+
 //     console.log('📊 Stats query date filter:', dateFilter);
 //     console.log('📊 Stats query params:', queryParams);
-    
+
 //     // Total statistics
 //     const totalStatsQuery = `
 //       SELECT 
@@ -660,7 +660,7 @@
 //       ${dateFilter}
 //     `;
 //     const totalStats = await paymentPool.query(totalStatsQuery, queryParams);
-    
+
 //     // Get total users from auth database
 //     let totalUsersCount = 0;
 //     try {
@@ -670,7 +670,7 @@
 //     } catch (userErr) {
 //       console.error('Error fetching total users count:', userErr.message);
 //     }
-    
+
 //     // Get session statistics
 //     let sessionStats = {
 //       total_sessions: 0,
@@ -679,11 +679,11 @@
 //       recent_users: 0,
 //       avg_session_duration: 0
 //     };
-    
+
 //     try {
 //       let sessionDateFilter = '';
 //       let sessionParams = [];
-      
+
 //       if (startDate && endDate) {
 //         sessionDateFilter = 'WHERE login_time >= $1::timestamp AND login_time < ($2::timestamp + INTERVAL \'1 day\')';
 //         sessionParams = [startDate, endDate];
@@ -694,7 +694,7 @@
 //         sessionDateFilter = 'WHERE login_time < ($1::timestamp + INTERVAL \'1 day\')';
 //         sessionParams = [endDate];
 //       }
-      
+
 //       // Get session stats
 //       const sessionStatsQuery = `
 //         SELECT 
@@ -712,7 +712,7 @@
 //         ${sessionDateFilter}
 //       `;
 //       const sessionStatsResult = await authPool.query(sessionStatsQuery, sessionParams);
-      
+
 //       if (sessionStatsResult.rows.length > 0) {
 //         sessionStats = {
 //           total_sessions: parseInt(sessionStatsResult.rows[0].total_sessions) || 0,
@@ -725,7 +725,7 @@
 //     } catch (sessionErr) {
 //       console.error('Error fetching session stats:', sessionErr.message);
 //     }
-    
+
 //     // Statistics by model
 //     const modelStatsQuery = `
 //       SELECT 
@@ -744,7 +744,7 @@
 //       ORDER BY total_cost DESC
 //     `;
 //     const modelStats = await paymentPool.query(modelStatsQuery, queryParams);
-    
+
 //     // Statistics by user
 //     const userStatsQuery = `
 //       SELECT 
@@ -765,11 +765,11 @@
 //       LIMIT 20
 //     `;
 //     const userStats = await paymentPool.query(userStatsQuery, queryParams);
-    
+
 //     // Fetch user names for statistics
 //     const statsUserIds = userStats.rows.map(row => row.user_id).filter(id => id);
 //     const statsUserMap = {};
-    
+
 //     if (statsUserIds.length > 0) {
 //       try {
 //         const placeholders = statsUserIds.map((_, index) => `$${index + 1}`).join(',');
@@ -779,7 +779,7 @@
 //           WHERE id IN (${placeholders})
 //         `;
 //         const statsUserResult = await authPool.query(statsUserQuery, statsUserIds);
-        
+
 //         statsUserResult.rows.forEach(user => {
 //           statsUserMap[user.id] = {
 //             username: user.username || `User ${user.id}`,
@@ -790,18 +790,18 @@
 //         console.error('Error fetching user names for stats:', userErr.message);
 //       }
 //     }
-    
+
 //     // Enrich user stats with names
 //     const enrichedUserStats = userStats.rows.map(row => ({
 //       ...row,
 //       user_name: statsUserMap[row.user_id]?.username || `User ${row.user_id}`,
 //       user_email: statsUserMap[row.user_id]?.email || null
 //     }));
-    
+
 //     // Daily usage trend
 //     let dailyTrendFilter = '';
 //     let dailyTrendParams = [];
-    
+
 //     if (dateFilter) {
 //       dailyTrendFilter = dateFilter;
 //       dailyTrendParams = [...queryParams];
@@ -809,7 +809,7 @@
 //       dailyTrendFilter = 'WHERE used_at >= CURRENT_TIMESTAMP - INTERVAL \'30 days\'';
 //       dailyTrendParams = [];
 //     }
-    
+
 //     const dailyTrendQuery = `
 //       SELECT 
 //         DATE(used_at) as date,
@@ -960,13 +960,13 @@ const getAllTokenUsageLogs = async (req, res) => {
       FROM token_usage_logs t
       WHERE 1=1
     `;
-    
+
     const queryParams = [];
     let paramCount = 0;
-    
+
     // If 'all' is true, skip date filtering
     const shouldFilterByDate = !all && (startDate || endDate);
-    
+
     // If userName filter is provided, first get matching user IDs from auth DB
     let filteredUserIds = null;
     if (userName) {
@@ -978,7 +978,7 @@ const getAllTokenUsageLogs = async (req, res) => {
         `;
         const userNameResult = await authPool.query(userNameQuery, [`%${userName}%`]);
         filteredUserIds = userNameResult.rows.map(row => row.id);
-        
+
         if (filteredUserIds.length === 0) {
           return res.status(200).json({
             success: true,
@@ -990,7 +990,7 @@ const getAllTokenUsageLogs = async (req, res) => {
             }
           });
         }
-        
+
         const userIdPlaceholders = filteredUserIds.map((_, index) => `$${paramCount + index + 1}`).join(',');
         query += ` AND t.user_id IN (${userIdPlaceholders})`;
         queryParams.push(...filteredUserIds);
@@ -999,19 +999,19 @@ const getAllTokenUsageLogs = async (req, res) => {
         console.error('Error fetching users by name:', userErr.message);
       }
     }
-    
+
     if (userId) {
       paramCount++;
       query += ` AND t.user_id = $${paramCount}`;
       queryParams.push(parseInt(userId));
     }
-    
+
     if (modelName) {
       paramCount++;
       query += ` AND t.model_name ILIKE $${paramCount}`;
       queryParams.push(`%${modelName}%`);
     }
-    
+
     if (shouldFilterByDate) {
       if (startDate) {
         paramCount++;
@@ -1024,21 +1024,21 @@ const getAllTokenUsageLogs = async (req, res) => {
         queryParams.push(endDate);
       }
     }
-    
+
     query += ` ORDER BY t.used_at DESC LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`;
     queryParams.push(parseInt(limit), parseInt(offset));
 
     console.log('📊 Query:', query);
     console.log('📊 Query params:', queryParams);
-    
+
     const result = await paymentPool.query(query, queryParams);
-    
+
     console.log('📊 Query result count:', result.rows.length);
-    
+
     // Fetch user names from auth database
     const userIds = [...new Set(result.rows.map(row => row.user_id).filter(id => id))];
     const userMap = {};
-    
+
     if (userIds.length > 0) {
       try {
         const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
@@ -1048,7 +1048,7 @@ const getAllTokenUsageLogs = async (req, res) => {
           WHERE id IN (${placeholders})
         `;
         const userResult = await authPool.query(userQuery, userIds);
-        
+
         userResult.rows.forEach(user => {
           userMap[user.id] = {
             username: user.username || `User ${user.id}`,
@@ -1059,14 +1059,20 @@ const getAllTokenUsageLogs = async (req, res) => {
         console.error('Error fetching user names:', userErr.message);
       }
     }
-    
+
     // Fetch session information
     const sessionIds = [...new Set(result.rows.map(row => row.session_id).filter(id => id))];
     const sessionMap = {};
-    
-    if (sessionIds.length > 0) {
+
+    // Filter only valid integer IDs to avoid Postgres "invalid input syntax for type integer"
+    const validIntegerSessionIds = sessionIds.filter(id => {
+      const num = parseInt(id);
+      return !isNaN(num) && num.toString() === id.toString();
+    });
+
+    if (validIntegerSessionIds.length > 0) {
       try {
-        const sessionPlaceholders = sessionIds.map((_, index) => `$${index + 1}`).join(',');
+        const sessionPlaceholders = validIntegerSessionIds.map((_, index) => `$${index + 1}`).join(',');
         const sessionQuery = `
           SELECT 
             id,
@@ -1078,8 +1084,8 @@ const getAllTokenUsageLogs = async (req, res) => {
           FROM user_sessions
           WHERE id IN (${sessionPlaceholders})
         `;
-        const sessionResult = await authPool.query(sessionQuery, sessionIds);
-        
+        const sessionResult = await authPool.query(sessionQuery, validIntegerSessionIds);
+
         sessionResult.rows.forEach(session => {
           sessionMap[session.id] = {
             login_time: session.login_time,
@@ -1087,7 +1093,7 @@ const getAllTokenUsageLogs = async (req, res) => {
             created_at: session.created_at,
             last_seen_at: session.last_seen_at,
             is_active: !session.logout_time,
-            session_duration: session.logout_time && session.login_time 
+            session_duration: session.logout_time && session.login_time
               ? Math.round((new Date(session.logout_time) - new Date(session.login_time)) / 1000 / 60)
               : null
           };
@@ -1096,7 +1102,7 @@ const getAllTokenUsageLogs = async (req, res) => {
         console.error('Error fetching session info:', sessionErr.message);
       }
     }
-    
+
     // Enrich the results with user names, session info, and INR conversion
     const enrichedData = result.rows.map(row => ({
       ...row,
@@ -1106,7 +1112,7 @@ const getAllTokenUsageLogs = async (req, res) => {
       session_info: row.session_id ? sessionMap[row.session_id] : null,
       id: `${row.user_id}-${row.session_id || ''}-${new Date(row.used_at).getTime()}`
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1118,9 +1124,9 @@ const getAllTokenUsageLogs = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching token usage logs:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch token usage logs: ' + err.message 
+      error: 'Failed to fetch token usage logs: ' + err.message
     });
   }
 };
@@ -1133,7 +1139,7 @@ const getTokenUsageStats = async (req, res) => {
     const { startDate, endDate } = req.query;
     let dateFilter = '';
     const queryParams = [];
-    
+
     if (startDate && endDate) {
       dateFilter = 'WHERE used_at >= $1::timestamp AND used_at < ($2::timestamp + INTERVAL \'1 day\')';
       queryParams.push(startDate, endDate);
@@ -1144,10 +1150,10 @@ const getTokenUsageStats = async (req, res) => {
       dateFilter = 'WHERE used_at < ($1::timestamp + INTERVAL \'1 day\')';
       queryParams.push(endDate);
     }
-    
+
     console.log('📊 Stats query date filter:', dateFilter);
     console.log('📊 Stats query params:', queryParams);
-    
+
     // Total statistics
     const totalStatsQuery = `
       SELECT 
@@ -1165,7 +1171,7 @@ const getTokenUsageStats = async (req, res) => {
       ${dateFilter}
     `;
     const totalStats = await paymentPool.query(totalStatsQuery, queryParams);
-    
+
     // Get total users from auth database
     let totalUsersCount = 0;
     try {
@@ -1175,7 +1181,7 @@ const getTokenUsageStats = async (req, res) => {
     } catch (userErr) {
       console.error('Error fetching total users count:', userErr.message);
     }
-    
+
     // Get session statistics
     let sessionStats = {
       total_sessions: 0,
@@ -1184,11 +1190,11 @@ const getTokenUsageStats = async (req, res) => {
       recent_users: 0,
       avg_session_duration: 0
     };
-    
+
     try {
       let sessionDateFilter = '';
       let sessionParams = [];
-      
+
       if (startDate && endDate) {
         sessionDateFilter = 'WHERE login_time >= $1::timestamp AND login_time < ($2::timestamp + INTERVAL \'1 day\')';
         sessionParams = [startDate, endDate];
@@ -1199,7 +1205,7 @@ const getTokenUsageStats = async (req, res) => {
         sessionDateFilter = 'WHERE login_time < ($1::timestamp + INTERVAL \'1 day\')';
         sessionParams = [endDate];
       }
-      
+
       const sessionStatsQuery = `
         SELECT 
           COUNT(*) as total_sessions,
@@ -1216,7 +1222,7 @@ const getTokenUsageStats = async (req, res) => {
         ${sessionDateFilter}
       `;
       const sessionStatsResult = await authPool.query(sessionStatsQuery, sessionParams);
-      
+
       if (sessionStatsResult.rows.length > 0) {
         sessionStats = {
           total_sessions: parseInt(sessionStatsResult.rows[0].total_sessions) || 0,
@@ -1229,7 +1235,7 @@ const getTokenUsageStats = async (req, res) => {
     } catch (sessionErr) {
       console.error('Error fetching session stats:', sessionErr.message);
     }
-    
+
     // Statistics by model
     const modelStatsQuery = `
       SELECT 
@@ -1248,7 +1254,7 @@ const getTokenUsageStats = async (req, res) => {
       ORDER BY total_cost DESC
     `;
     const modelStats = await paymentPool.query(modelStatsQuery, queryParams);
-    
+
     // Statistics by user
     const userStatsQuery = `
       SELECT 
@@ -1269,11 +1275,11 @@ const getTokenUsageStats = async (req, res) => {
       LIMIT 20
     `;
     const userStats = await paymentPool.query(userStatsQuery, queryParams);
-    
+
     // Fetch user names for statistics
     const statsUserIds = userStats.rows.map(row => row.user_id).filter(id => id);
     const statsUserMap = {};
-    
+
     if (statsUserIds.length > 0) {
       try {
         const placeholders = statsUserIds.map((_, index) => `$${index + 1}`).join(',');
@@ -1283,7 +1289,7 @@ const getTokenUsageStats = async (req, res) => {
           WHERE id IN (${placeholders})
         `;
         const statsUserResult = await authPool.query(statsUserQuery, statsUserIds);
-        
+
         statsUserResult.rows.forEach(user => {
           statsUserMap[user.id] = {
             username: user.username || `User ${user.id}`,
@@ -1294,18 +1300,18 @@ const getTokenUsageStats = async (req, res) => {
         console.error('Error fetching user names for stats:', userErr.message);
       }
     }
-    
+
     // Enrich user stats with names
     const enrichedUserStats = userStats.rows.map(row => ({
       ...row,
       user_name: statsUserMap[row.user_id]?.username || `User ${row.user_id}`,
       user_email: statsUserMap[row.user_id]?.email || null
     }));
-    
+
     // Daily usage trend
     let dailyTrendFilter = '';
     let dailyTrendParams = [];
-    
+
     if (dateFilter) {
       dailyTrendFilter = dateFilter;
       dailyTrendParams = [...queryParams];
@@ -1313,7 +1319,7 @@ const getTokenUsageStats = async (req, res) => {
       dailyTrendFilter = 'WHERE used_at >= CURRENT_TIMESTAMP - INTERVAL \'30 days\'';
       dailyTrendParams = [];
     }
-    
+
     const dailyTrendQuery = `
       SELECT 
         DATE(used_at) as date,
@@ -1400,9 +1406,9 @@ const getTokenUsageStats = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching token usage statistics:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch token usage statistics: ' + err.message 
+      error: 'Failed to fetch token usage statistics: ' + err.message
     });
   }
 };
@@ -1414,7 +1420,7 @@ const getUsageByUserId = async (req, res) => {
   try {
     const { userId } = req.params;
     const { limit = 100, offset = 0 } = req.query;
-    
+
     const query = `
       SELECT 
         user_id,
@@ -1436,7 +1442,7 @@ const getUsageByUserId = async (req, res) => {
       LIMIT $2 OFFSET $3
     `;
     const result = await paymentPool.query(query, [parseInt(userId), parseInt(limit), parseInt(offset)]);
-    
+
     // Fetch user name
     let userName = `User ${userId}`;
     let userEmail = null;
@@ -1449,14 +1455,20 @@ const getUsageByUserId = async (req, res) => {
     } catch (userErr) {
       console.error('Error fetching user name:', userErr.message);
     }
-    
+
     // Fetch session information
     const sessionIds = [...new Set(result.rows.map(row => row.session_id).filter(id => id))];
     const sessionMap = {};
-    
-    if (sessionIds.length > 0) {
+
+    // Filter only valid integer IDs to avoid Postgres "invalid input syntax for type integer"
+    const validIntegerSessionIds = sessionIds.filter(id => {
+      const num = parseInt(id);
+      return !isNaN(num) && num.toString() === id.toString();
+    });
+
+    if (validIntegerSessionIds.length > 0) {
       try {
-        const sessionPlaceholders = sessionIds.map((_, index) => `$${index + 1}`).join(',');
+        const sessionPlaceholders = validIntegerSessionIds.map((_, index) => `$${index + 1}`).join(',');
         const sessionQuery = `
           SELECT 
             id,
@@ -1468,8 +1480,8 @@ const getUsageByUserId = async (req, res) => {
           FROM user_sessions
           WHERE id IN (${sessionPlaceholders})
         `;
-        const sessionResult = await authPool.query(sessionQuery, sessionIds);
-        
+        const sessionResult = await authPool.query(sessionQuery, validIntegerSessionIds);
+
         sessionResult.rows.forEach(session => {
           sessionMap[session.id] = {
             login_time: session.login_time,
@@ -1477,7 +1489,7 @@ const getUsageByUserId = async (req, res) => {
             created_at: session.created_at,
             last_seen_at: session.last_seen_at,
             is_active: !session.logout_time,
-            session_duration: session.logout_time && session.login_time 
+            session_duration: session.logout_time && session.login_time
               ? Math.round((new Date(session.logout_time) - new Date(session.login_time)) / 1000 / 60)
               : null
           };
@@ -1486,7 +1498,7 @@ const getUsageByUserId = async (req, res) => {
         console.error('Error fetching session info:', sessionErr.message);
       }
     }
-    
+
     // Enrich results
     const enrichedData = result.rows.map(row => ({
       ...row,
@@ -1495,7 +1507,7 @@ const getUsageByUserId = async (req, res) => {
       session_info: row.session_id ? sessionMap[row.session_id] : null,
       id: `${row.user_id}-${row.session_id || ''}-${new Date(row.used_at).getTime()}`
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1503,9 +1515,9 @@ const getUsageByUserId = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching usage by user ID:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch usage by user ID: ' + err.message 
+      error: 'Failed to fetch usage by user ID: ' + err.message
     });
   }
 };
@@ -1532,13 +1544,13 @@ const getActiveLoginUsers = async (req, res) => {
       WHERE us.logout_time IS NULL
       ORDER BY us.login_time DESC
     `;
-    
+
     const result = await authPool.query(query);
-    
+
     // Fetch user details
     const userIds = result.rows.map(row => row.user_id);
     const userMap = {};
-    
+
     if (userIds.length > 0) {
       const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
       const userQuery = `
@@ -1547,7 +1559,7 @@ const getActiveLoginUsers = async (req, res) => {
         WHERE id IN (${placeholders})
       `;
       const userResult = await authPool.query(userQuery, userIds);
-      
+
       userResult.rows.forEach(user => {
         userMap[user.id] = {
           username: user.username || `User ${user.id}`,
@@ -1555,14 +1567,14 @@ const getActiveLoginUsers = async (req, res) => {
         };
       });
     }
-    
+
     const enrichedData = result.rows.map(row => ({
       ...row,
       user_name: userMap[row.user_id]?.username || `User ${row.user_id}`,
       user_email: userMap[row.user_id]?.email || null,
       is_active: true
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1570,9 +1582,9 @@ const getActiveLoginUsers = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching active login users:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch active login users: ' + err.message 
+      error: 'Failed to fetch active login users: ' + err.message
     });
   }
 };
@@ -1596,13 +1608,13 @@ const getLiveUsers = async (req, res) => {
       WHERE us.last_seen_at >= NOW() - INTERVAL '15 minutes'
       ORDER BY us.last_seen_at DESC
     `;
-    
+
     const result = await authPool.query(query);
-    
+
     // Fetch user details
     const userIds = [...new Set(result.rows.map(row => row.user_id))];
     const userMap = {};
-    
+
     if (userIds.length > 0) {
       const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
       const userQuery = `
@@ -1611,7 +1623,7 @@ const getLiveUsers = async (req, res) => {
         WHERE id IN (${placeholders})
       `;
       const userResult = await authPool.query(userQuery, userIds);
-      
+
       userResult.rows.forEach(user => {
         userMap[user.id] = {
           username: user.username || `User ${user.id}`,
@@ -1619,14 +1631,14 @@ const getLiveUsers = async (req, res) => {
         };
       });
     }
-    
+
     const enrichedData = result.rows.map(row => ({
       ...row,
       user_name: userMap[row.user_id]?.username || `User ${row.user_id}`,
       user_email: userMap[row.user_id]?.email || null,
       is_active: !row.logout_time
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1634,9 +1646,9 @@ const getLiveUsers = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching live users:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch live users: ' + err.message 
+      error: 'Failed to fetch live users: ' + err.message
     });
   }
 };
@@ -1647,7 +1659,7 @@ const getLiveUsers = async (req, res) => {
 const getAllSessions = async (req, res) => {
   try {
     const { limit = 100, offset = 0 } = req.query;
-    
+
     const query = `
       SELECT 
         us.id as session_id,
@@ -1665,18 +1677,18 @@ const getAllSessions = async (req, res) => {
       ORDER BY us.login_time DESC
       LIMIT $1 OFFSET $2
     `;
-    
+
     const result = await authPool.query(query, [parseInt(limit), parseInt(offset)]);
-    
+
     // Get total count
     const countQuery = `SELECT COUNT(*) as total FROM user_sessions`;
     const countResult = await authPool.query(countQuery);
     const totalCount = parseInt(countResult.rows[0].total);
-    
+
     // Fetch user details
     const userIds = [...new Set(result.rows.map(row => row.user_id))];
     const userMap = {};
-    
+
     if (userIds.length > 0) {
       const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
       const userQuery = `
@@ -1685,7 +1697,7 @@ const getAllSessions = async (req, res) => {
         WHERE id IN (${placeholders})
       `;
       const userResult = await authPool.query(userQuery, userIds);
-      
+
       userResult.rows.forEach(user => {
         userMap[user.id] = {
           username: user.username || `User ${user.id}`,
@@ -1693,14 +1705,14 @@ const getAllSessions = async (req, res) => {
         };
       });
     }
-    
+
     const enrichedData = result.rows.map(row => ({
       ...row,
       user_name: userMap[row.user_id]?.username || `User ${row.user_id}`,
       user_email: userMap[row.user_id]?.email || null,
       is_active: !row.logout_time
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1709,9 +1721,9 @@ const getAllSessions = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching all sessions:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch all sessions: ' + err.message 
+      error: 'Failed to fetch all sessions: ' + err.message
     });
   }
 };
@@ -1734,10 +1746,10 @@ const getAllSessions = async (req, res) => {
 //         ) as avg_session_duration
 //       FROM user_sessions
 //     `;
-    
+
 //     const result = await authPool.query(statsQuery);
 //     const stats = result.rows[0];
-    
+
 //     res.status(200).json({
 //       success: true,
 //       data: {
@@ -1773,13 +1785,13 @@ const getUserSessionDetails = async (req, res) => {
       FROM user_sessions us
       ORDER BY us.active_time_seconds DESC NULLS LAST
     `;
-    
+
     const result = await authPool.query(query);
-    
+
     // Fetch user details
     const userIds = [...new Set(result.rows.map(row => row.user_id))];
     const userMap = {};
-    
+
     if (userIds.length > 0) {
       const placeholders = userIds.map((_, index) => `$${index + 1}`).join(',');
       const userQuery = `
@@ -1788,7 +1800,7 @@ const getUserSessionDetails = async (req, res) => {
         WHERE id IN (${placeholders})
       `;
       const userResult = await authPool.query(userQuery, userIds);
-      
+
       userResult.rows.forEach(user => {
         userMap[user.id] = {
           username: user.username || `User ${user.id}`,
@@ -1796,7 +1808,7 @@ const getUserSessionDetails = async (req, res) => {
         };
       });
     }
-    
+
     const enrichedData = result.rows.map(row => ({
       session_id: row.session_id,
       user_id: row.user_id,
@@ -1809,7 +1821,7 @@ const getUserSessionDetails = async (req, res) => {
       active_time_minutes: parseFloat(row.active_time_minutes) || 0,
       is_active: !row.logout_time
     }));
-    
+
     res.status(200).json({
       success: true,
       data: enrichedData,
@@ -1817,9 +1829,9 @@ const getUserSessionDetails = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching user session details:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch user session details: ' + err.message 
+      error: 'Failed to fetch user session details: ' + err.message
     });
   }
 };
@@ -1841,10 +1853,10 @@ const getSessionStatsSummary = async (req, res) => {
         ), 2) as avg_session_duration_minutes
       FROM user_sessions
     `;
-    
+
     const result = await authPool.query(statsQuery);
     const stats = result.rows[0];
-    
+
     res.status(200).json({
       success: true,
       data: {
@@ -1857,9 +1869,9 @@ const getSessionStatsSummary = async (req, res) => {
     });
   } catch (err) {
     console.error('Error fetching session stats summary:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch session stats summary: ' + err.message 
+      error: 'Failed to fetch session stats summary: ' + err.message
     });
   }
 };
@@ -1870,7 +1882,7 @@ const getSessionStatsSummary = async (req, res) => {
 // const getHeartbeatStats = async (req, res) => {
 //   try {
 //     console.log('💓 Heartbeat request received at:', new Date().toISOString());
-    
+
 //     // Get session stats
 //     const sessionStatsQuery = `
 //       SELECT 
@@ -1886,10 +1898,10 @@ const getSessionStatsSummary = async (req, res) => {
 //         ), 2) as avg_session_duration_minutes
 //       FROM user_sessions
 //     `;
-    
+
 //     const sessionStatsResult = await authPool.query(sessionStatsQuery);
 //     const sessionStats = sessionStatsResult.rows[0];
-    
+
 //     res.status(200).json({
 //       success: true,
 //       timestamp: new Date().toISOString(),
@@ -1915,7 +1927,7 @@ const getSessionStatsSummary = async (req, res) => {
 const getHeartbeatStats = async (req, res) => {
   try {
     console.log('💓 Heartbeat request received at:', new Date().toISOString());
-    
+
     // Get session stats
     const sessionStatsQuery = `
       SELECT 
@@ -1931,10 +1943,10 @@ const getHeartbeatStats = async (req, res) => {
         ), 2) as avg_session_duration_minutes
       FROM user_sessions
     `;
-    
+
     const sessionStatsResult = await authPool.query(sessionStatsQuery);
     const sessionStats = sessionStatsResult.rows[0];
-    
+
     res.status(200).json({
       success: true,
       timestamp: new Date().toISOString(),
@@ -1954,9 +1966,9 @@ const getHeartbeatStats = async (req, res) => {
     });
   } catch (err) {
     console.error('Error in heartbeat endpoint:', err.message);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      error: 'Failed to fetch heartbeat stats: ' + err.message 
+      error: 'Failed to fetch heartbeat stats: ' + err.message
     });
   }
 };

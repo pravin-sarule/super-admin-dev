@@ -141,10 +141,186 @@ const updateMaxTokenEntry = async (req, res) => {
   }
 };
 
+// Get LLM model parameters (creates default row if none)
+const getModelParameters = async (req, res) => {
+  const modelId = parseInt(req.params.id, 10);
+  if (Number.isNaN(modelId) || modelId <= 0) {
+    return res.status(400).json({ message: 'Valid model id is required' });
+  }
+
+  try {
+    const modelResult = await pool.query('SELECT id, name FROM llm_models WHERE id = $1', [modelId]);
+    if (modelResult.rows.length === 0) {
+      return res.status(404).json({ message: 'LLM model not found' });
+    }
+
+    const paramResult = await pool.query(
+      'SELECT * FROM llm_model_parameters WHERE model_id = $1',
+      [modelId]
+    );
+
+    const defaults = {
+      temperature: 1,
+      media_resolution: 'default',
+      thinking_mode: false,
+      thinking_budget: false,
+      thinking_level: 'default',
+      structured_outputs_enabled: false,
+      structured_outputs_config: {},
+      code_execution: false,
+      function_calling_enabled: false,
+      function_calling_config: {},
+      grounding_google_search: false,
+      url_context: false,
+      system_instructions: '',
+      api_key_status: 'none',
+    };
+
+    if (paramResult.rows.length === 0) {
+      return res.status(200).json({
+        model_id: modelId,
+        model_name: modelResult.rows[0].name,
+        ...defaults,
+      });
+    }
+
+    const row = paramResult.rows[0];
+    res.status(200).json({
+      model_id: row.model_id,
+      model_name: modelResult.rows[0].name,
+      id: row.id,
+      temperature: Number(row.temperature) ?? defaults.temperature,
+      media_resolution: row.media_resolution ?? defaults.media_resolution,
+      thinking_mode: !!row.thinking_mode,
+      thinking_budget: !!row.thinking_budget,
+      thinking_level: row.thinking_level ?? defaults.thinking_level,
+      structured_outputs_enabled: !!row.structured_outputs_enabled,
+      structured_outputs_config: row.structured_outputs_config || {},
+      code_execution: !!row.code_execution,
+      function_calling_enabled: !!row.function_calling_enabled,
+      function_calling_config: row.function_calling_config || {},
+      grounding_google_search: !!row.grounding_google_search,
+      url_context: !!row.url_context,
+      system_instructions: row.system_instructions ?? '',
+      api_key_status: row.api_key_status ?? defaults.api_key_status,
+      updated_at: row.updated_at,
+    });
+  } catch (error) {
+    console.error('Error fetching LLM parameters:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Upsert LLM model parameters
+const updateModelParameters = async (req, res) => {
+  const modelId = parseInt(req.params.id, 10);
+  if (Number.isNaN(modelId) || modelId <= 0) {
+    return res.status(400).json({ message: 'Valid model id is required' });
+  }
+
+  const {
+    temperature,
+    media_resolution,
+    thinking_mode,
+    thinking_budget,
+    thinking_level,
+    structured_outputs_enabled,
+    structured_outputs_config,
+    code_execution,
+    function_calling_enabled,
+    function_calling_config,
+    grounding_google_search,
+    url_context,
+    system_instructions,
+    api_key_status,
+  } = req.body;
+
+  try {
+    const modelExists = await pool.query('SELECT id, name FROM llm_models WHERE id = $1', [modelId]);
+    if (modelExists.rows.length === 0) {
+      return res.status(404).json({ message: 'LLM model not found' });
+    }
+
+    const temp = temperature != null ? Math.min(2, Math.max(0, Number(temperature))) : 1;
+    const result = await pool.query(
+      `
+      INSERT INTO llm_model_parameters (
+        model_id, temperature, media_resolution, thinking_mode, thinking_budget, thinking_level,
+        structured_outputs_enabled, structured_outputs_config, code_execution,
+        function_calling_enabled, function_calling_config, grounding_google_search, url_context,
+        system_instructions, api_key_status, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+      ON CONFLICT (model_id) DO UPDATE SET
+        temperature = EXCLUDED.temperature,
+        media_resolution = EXCLUDED.media_resolution,
+        thinking_mode = EXCLUDED.thinking_mode,
+        thinking_budget = EXCLUDED.thinking_budget,
+        thinking_level = EXCLUDED.thinking_level,
+        structured_outputs_enabled = EXCLUDED.structured_outputs_enabled,
+        structured_outputs_config = EXCLUDED.structured_outputs_config,
+        code_execution = EXCLUDED.code_execution,
+        function_calling_enabled = EXCLUDED.function_calling_enabled,
+        function_calling_config = EXCLUDED.function_calling_config,
+        grounding_google_search = EXCLUDED.grounding_google_search,
+        url_context = EXCLUDED.url_context,
+        system_instructions = EXCLUDED.system_instructions,
+        api_key_status = EXCLUDED.api_key_status,
+        updated_at = NOW()
+      RETURNING *
+      `,
+      [
+        modelId,
+        temp,
+        media_resolution || 'default',
+        !!thinking_mode,
+        !!thinking_budget,
+        thinking_level || 'default',
+        !!structured_outputs_enabled,
+        JSON.stringify(structured_outputs_config || {}),
+        !!code_execution,
+        !!function_calling_enabled,
+        JSON.stringify(function_calling_config || {}),
+        !!grounding_google_search,
+        !!url_context,
+        system_instructions ?? '',
+        api_key_status || 'none',
+      ]
+    );
+
+    const row = result.rows[0];
+    res.status(200).json({
+      message: 'Parameters updated successfully',
+      data: {
+        model_id: row.model_id,
+        temperature: Number(row.temperature),
+        media_resolution: row.media_resolution,
+        thinking_mode: !!row.thinking_mode,
+        thinking_budget: !!row.thinking_budget,
+        thinking_level: row.thinking_level,
+        structured_outputs_enabled: !!row.structured_outputs_enabled,
+        structured_outputs_config: row.structured_outputs_config || {},
+        code_execution: !!row.code_execution,
+        function_calling_enabled: !!row.function_calling_enabled,
+        function_calling_config: row.function_calling_config || {},
+        grounding_google_search: !!row.grounding_google_search,
+        url_context: !!row.url_context,
+        system_instructions: row.system_instructions ?? '',
+        api_key_status: row.api_key_status,
+        updated_at: row.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating LLM parameters:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   getAllLLMModels,
   addLLMModel,
   createMaxTokenEntry,
   getAllMaxTokenEntries,
   updateMaxTokenEntry,
+  getModelParameters,
+  updateModelParameters,
 };

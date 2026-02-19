@@ -8,11 +8,12 @@ import DashboardContent from './pages/dashboard/DashboardContent';
 import UserManagement from './pages/dashboard/UserManagement';
 import AdminManagement from './components/auth/Admins/AdminManagement';
 import ContentManagement from './pages/dashboard/ContentManagement';
-// import TemplateManagement from './pages/dashboard/TemplateManagement';
+import TemplateManagement from './pages/dashboard/TemplateManagement/index';
 import SubscriptionManagement from './pages/dashboard/SubscriptionManagement';
 import SupportHelp from './pages/dashboard/SupportHelp';
 import PromptManagement from './pages/dashboard/PromptManagement';
 import SystemPromptManagement from './pages/dashboard/SystemPromptManagement';
+import AgentList from './pages/dashboard/agent-prompt';
 import LLMManagement from './pages/dashboard/LLMManagement';
 import DocumentManagement from './pages/dashboard/DocumentManagement';
 import AddCaseType from './pages/dashboard/content/AddCaseType';
@@ -69,11 +70,12 @@ function App() {
             <Route path="admins" element={<AdminManagement />} />
             <Route path="content" element={<ContentManagement />} />
             <Route path="content/case-type" element={<AddCaseType />} />
-  <Route path="content/court" element={<AddCourt />} />
-  <Route path="content/judge" element={<AddJudge />} />
-            {/* <Route path="templates" element={<TemplateManagement />} /> */}
+            <Route path="content/court" element={<AddCourt />} />
+            <Route path="content/judge" element={<AddJudge />} />
+            <Route path="templates" element={<TemplateManagement />} />
             <Route path="subscriptions" element={<SubscriptionManagement />} />
             <Route path="prompts" element={<PromptManagement />} />
+            <Route path="agent-prompts" element={<AgentList />} />
             <Route path="system-prompts" element={<SystemPromptManagement />} />
             <Route path="llm-management" element={<LLMManagement />} />
             <Route path="documents" element={<DocumentManagement />} />

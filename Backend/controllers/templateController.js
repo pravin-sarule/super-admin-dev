@@ -188,10 +188,10 @@ exports.createTemplate = async (req, res) => {
   }
 };
 
-// GET /admin/templates
+// GET /admin/templates - only admin-added templates (user_id IS NULL)
 exports.getAllTemplates = async (req, res) => {
   try {
-    console.log('📋 Fetching all templates from draftDB...');
+    console.log('📋 Fetching admin templates from draftDB (user_id IS NULL)...');
 
     const result = await draftDB.query(
       `SELECT 
@@ -202,6 +202,7 @@ exports.getAllTemplates = async (req, res) => {
            WHERE u.template_id = t.id), 0
         ) AS "usageCount"
        FROM templates t
+       WHERE t.user_id IS NULL
        ORDER BY t.created_at DESC`
     );
 
@@ -212,12 +213,12 @@ exports.getAllTemplates = async (req, res) => {
   }
 };
 
-// GET /admin/templates/:id
+// GET /admin/templates/:id - only admin-added template (user_id IS NULL)
 exports.getTemplateById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    console.log('📦 Fetching template by ID from draftDB:', id);
+    console.log('📦 Fetching admin template by ID from draftDB:', id);
 
     const result = await draftDB.query(
       `SELECT 
@@ -228,7 +229,7 @@ exports.getTemplateById = async (req, res) => {
            WHERE u.template_id = t.id), 0
         ) AS "usageCount"
        FROM templates t
-       WHERE t.id = $1`,
+       WHERE t.id = $1 AND t.user_id IS NULL`,
       [id]
     );
 
@@ -251,9 +252,9 @@ exports.updateTemplate = async (req, res) => {
 
     console.log('✏️ Updating template in draftDB:', id);
 
-    // First check if template exists
+    // Only allow updating admin-added templates (user_id IS NULL)
     const checkResult = await draftDB.query(
-      'SELECT * FROM templates WHERE id = $1',
+      'SELECT * FROM templates WHERE id = $1 AND user_id IS NULL',
       [id]
     );
 
@@ -289,7 +290,7 @@ exports.updateTemplate = async (req, res) => {
     const updateQuery = `
       UPDATE templates 
       SET ${updates.join(', ')}
-      WHERE id = $${valueIndex}
+      WHERE id = $${valueIndex} AND user_id IS NULL
       RETURNING *
     `;
 
@@ -312,9 +313,9 @@ exports.deleteTemplate = async (req, res) => {
 
     console.log('🗑️ Deleting template from draftDB:', id);
 
-    // First get the template to extract GCS path
+    // Only allow deleting admin-added templates (user_id IS NULL)
     const result = await draftDB.query(
-      'SELECT * FROM templates WHERE id = $1',
+      'SELECT * FROM templates WHERE id = $1 AND user_id IS NULL',
       [id]
     );
 
@@ -336,8 +337,8 @@ exports.deleteTemplate = async (req, res) => {
       console.warn('⚠️ GCS file not found or already deleted:', err.message);
     }
 
-    // Delete from database
-    await draftDB.query('DELETE FROM templates WHERE id = $1', [id]);
+    // Delete from database (only admin template)
+    await draftDB.query('DELETE FROM templates WHERE id = $1 AND user_id IS NULL', [id]);
 
     res.status(200).json({ message: 'Template deleted successfully' });
   } catch (error) {

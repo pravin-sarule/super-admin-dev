@@ -138,7 +138,8 @@ const AdminManagement = () => {
   }, []);
 
   const apiCall = async (endpoint, options = {}) => {
-    const token = getAuthToken();
+    const rawToken = getAuthToken();
+    const token = rawToken ? String(rawToken).trim() : null;
     
     const defaultHeaders = {
       'Content-Type': 'application/json',

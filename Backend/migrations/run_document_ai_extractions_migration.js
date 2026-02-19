@@ -9,8 +9,8 @@
 
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const docDB = require('../config/docDB');
-require('dotenv').config();
 
 async function runMigration() {
   console.log('\n' + '='.repeat(60));

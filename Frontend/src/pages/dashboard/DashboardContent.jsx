@@ -67,8 +67,8 @@
 //   const [filterModel, setFilterModel] = useState('');
   
 //   // API base URLs
-//   const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/token-usage';
-//   const FILE_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/file';
+//   const API_BASE_URL = 'http://localhost:4000/api/token-usage';
+//   const FILE_API_BASE_URL = 'http://localhost:4000/api/file';
 
 //   // ==================== HEARTBEAT FUNCTIONS ====================
   
@@ -1617,6 +1617,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { TrendingUp, Users, CreditCard, DollarSign, Calendar, Activity, Database, Zap, RefreshCw, AlertCircle, BarChart3, PieChart as PieChartIcon, ChevronLeft, ChevronRight, X, User, Clock, LogIn, LogOut, UserCheck, FileText, Timer } from 'lucide-react';
 import axios from 'axios';
+import { API_BASE_URL as CONFIG_API_BASE, getToken, getAuthHeaders } from '../../config';
 
 const DashboardContent = () => {
   const [loading, setLoading] = useState(true);
@@ -1683,9 +1684,9 @@ const DashboardContent = () => {
   const [filterUsername, setFilterUsername] = useState('');
   const [filterModel, setFilterModel] = useState('');
   
-  // API base URLs
-  const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/token-usage';
-  const FILE_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/file';
+  // API base URLs (same config as Prompt Management / Agent Prompt so token works)
+  const API_BASE_URL = `${CONFIG_API_BASE}/token-usage`;
+  const FILE_API_BASE_URL = `${CONFIG_API_BASE}/file`;
   const CURRENCY_API_URL = 'https://api.frankfurter.app/latest?from=USD&to=INR';
 
   // ==================== CURRENCY CONVERSION ====================
@@ -1720,20 +1721,17 @@ const DashboardContent = () => {
   const heartbeat = async () => {
     if (!isHeartbeatActive) return;
     
+    const token = getToken();
+    if (!token) {
+      console.warn('⚠️ No token found, stopping heartbeat');
+      stopHeartbeat();
+      return;
+    }
+
     try {
       console.log('💓 Heartbeat: Fetching real-time updates...', new Date().toLocaleTimeString());
-      
-      const token = localStorage.getItem('token');
-      if (!token) {
-        console.warn('⚠️ No token found, stopping heartbeat');
-        stopHeartbeat();
-        return;
-      }
 
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
+      const headers = getAuthHeaders();
 
       const [sessionResponse, fileResponse, logsResponse] = await Promise.all([
         axios.get(`${API_BASE_URL}/heartbeat`, { headers }),
@@ -1870,14 +1868,10 @@ const DashboardContent = () => {
 
   const fetchSessionStats = async (isSilent = false) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) return;
 
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const headers = getAuthHeaders();
       const response = await axios.get(`${API_BASE_URL}/sessions/stats`, { headers });
       
       if (response.data && response.data.success) {
@@ -1896,14 +1890,10 @@ const DashboardContent = () => {
 
   const fetchFileStats = async (isSilent = false) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) return;
 
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const headers = getAuthHeaders();
       const response = await axios.get(`${FILE_API_BASE_URL}/stats/total`, { headers });
       
       if (response.data && response.data.success) {
@@ -1923,12 +1913,8 @@ const DashboardContent = () => {
   const fetchSessionDetails = async () => {
     setModalLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const token = getToken();
+      const headers = getAuthHeaders();
       const response = await axios.get(`${API_BASE_URL}/sessions/details`, { headers });
       
       if (response.data && response.data.success) {
@@ -1946,12 +1932,8 @@ const DashboardContent = () => {
   const fetchDocumentsByUser = async () => {
     setModalLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const token = getToken();
+      const headers = getAuthHeaders();
       const response = await axios.get(`${FILE_API_BASE_URL}/stats/by-user`, { headers });
       
       if (response.data && response.data.success) {
@@ -1969,12 +1951,8 @@ const DashboardContent = () => {
   const fetchActiveLoginUsers = async () => {
     setModalLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const token = getToken();
+      const headers = getAuthHeaders();
       const response = await axios.get(`${API_BASE_URL}/sessions/active-login`, { headers });
       
       if (response.data && response.data.success) {
@@ -1992,12 +1970,8 @@ const DashboardContent = () => {
   const fetchLiveUsers = async () => {
     setModalLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const token = getToken();
+      const headers = getAuthHeaders();
       const response = await axios.get(`${API_BASE_URL}/sessions/live`, { headers });
       
       if (response.data && response.data.success) {
@@ -2015,12 +1989,8 @@ const DashboardContent = () => {
   const fetchAllSessions = async () => {
     setModalLoading(true);
     try {
-      const token = localStorage.getItem('token');
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
-
+      const token = getToken();
+      const headers = getAuthHeaders();
       const response = await axios.get(`${API_BASE_URL}/sessions/all`, { 
         headers,
         params: { limit: 100, offset: 0 }
@@ -2044,7 +2014,7 @@ const DashboardContent = () => {
     setError(null);
     
     try {
-      const token = localStorage.getItem('token');
+      const token = getToken();
       if (!token) {
         setError('No authentication token found. Please login again.');
         setLoading(false);
@@ -2052,10 +2022,7 @@ const DashboardContent = () => {
         return;
       }
 
-      const headers = {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      };
+      const headers = getAuthHeaders();
 
       const endDate = new Date();
       const startDate = new Date();

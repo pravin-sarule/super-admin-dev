@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const { JWT_SECRET } = require('../config/env');
 
 /**
  * Protect routes: Verify JWT and attach user object from DB
@@ -11,10 +11,26 @@ const protect = (pool) => async (req, res, next) => {
     return res.status(401).json({ message: 'Unauthorized: No token provided' });
   }
 
-  const token = authHeader.split(' ')[1];
+  let rawToken = authHeader.split(' ')[1];
+  if (!rawToken) {
+    return res.status(401).json({ message: 'Unauthorized: No token provided' });
+  }
+  let token = rawToken.trim();
+  // If frontend sent "Bearer <jwt>" in the token value, strip prefix so verify gets raw JWT
+  if (token.toLowerCase().startsWith('bearer ')) {
+    token = token.slice(7).trim();
+  }
+
+  if (!JWT_SECRET) {
+    console.error('JWT Verification Error: JWT_SECRET not configured');
+    return res.status(500).json({ message: 'Server configuration error' });
+  }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+
+    // Ensure id is passed as integer if DB uses integer type
+    const userId = decoded.id != null ? Number(decoded.id) : decoded.id;
 
     // Fetch user from DB to ensure user exists and is active
     const userResult = await pool.query(
@@ -22,20 +38,30 @@ const protect = (pool) => async (req, res, next) => {
        FROM super_admins a
        JOIN admin_roles r ON a.role_id = r.id
        WHERE a.id = $1`,
-      [decoded.id]
+      [userId]
     );
 
     const user = userResult.rows[0];
 
-    if (!user || user.is_blocked) {
+    if (!user) {
       return res.status(401).json({ message: 'Unauthorized: User not found or blocked' });
+    }
+    if (user.is_blocked) {
+      return res.status(401).json({ message: 'Unauthorized: User is blocked' });
     }
 
     req.user = user; // Attach user object to request
     next();
   } catch (err) {
-    console.error('JWT Verification Error:', err.message);
-    return res.status(401).json({ message: 'Invalid token' });
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token expired' });
+    }
+    if (err.name === 'JsonWebTokenError') {
+      console.error('JWT Verification Error:', err.message, '| token length:', token?.length, '| starts with:', token?.slice(0, 20));
+      return res.status(401).json({ message: 'Invalid token', code: 'INVALID_TOKEN' });
+    }
+    console.error('Auth middleware error:', err.message);
+    return res.status(500).json({ message: 'Authentication error' });
   }
 };
 

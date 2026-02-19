@@ -2,6 +2,12 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+const { JWT_SECRET } = require('./config/env');
+
+if (!JWT_SECRET) {
+  console.error('❌ Fatal: JWT_SECRET not set. Check Backend/.env');
+  process.exit(1);
+}
 
 // --- Database & Models ---
 const pool = require('./config/db');           // Main DB
@@ -26,6 +32,7 @@ const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const customQueryRoutes = require('./routes/customQueryRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
+const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
 const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
 const fileRoutes = require('./routes/fileRoutes');
@@ -78,7 +85,10 @@ console.log('='.repeat(60));
 app.use('/api/admins', adminRoutes(pool));
 
 console.log('📌 /api/system-prompts → Using docDB (docPool) for data, Main DB (pool) for auth');
-app.use('/api/system-prompts', systemPromptRoutes(pool)); // pool for auth, controller uses docDB
+app.use('/api/system-prompts', systemPromptRoutes(pool));
+
+console.log('📌 /api/agent-prompts → Using draftDB for data, Main DB (pool) for auth');
+app.use('/api/agent-prompts', agentPromptRoutes(pool)); // pool for auth, controller uses draftDB
 
 console.log('📌 /api/auth           → Using Main DB (pool)');
 app.use('/api/auth', authRoutes(pool));
@@ -127,7 +137,6 @@ app.use((req, res) => res.status(404).json({ message: 'API Endpoint Not Found' }
 // --- Initialize system_prompts table if it doesn't exist ---
 const initializeSystemPromptsTable = async () => {
   try {
-    // Check if table exists in docDB
     const checkTable = await docPool.query(`
       SELECT EXISTS (
         SELECT FROM information_schema.tables 
@@ -146,13 +155,10 @@ const initializeSystemPromptsTable = async () => {
           updated_at TIMESTAMP DEFAULT NOW()
         );
       `);
-      
-      // Create index for faster queries
       await docPool.query(`
         CREATE INDEX IF NOT EXISTS idx_system_prompts_created_at 
         ON system_prompts(created_at DESC);
       `);
-      
       console.log('✅ system_prompts table created successfully!');
     } else {
       console.log('✅ system_prompts table already exists');
@@ -163,14 +169,165 @@ const initializeSystemPromptsTable = async () => {
   }
 };
 
+// --- Initialize agent_prompts table in draftDB if it doesn't exist ---
+const initializeAgentPromptsTable = async () => {
+  try {
+    const checkTable = await draftPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'agent_prompts'
+      );
+    `);
+
+    if (!checkTable.rows[0].exists) {
+      console.log('📋 Creating agent_prompts table in draftDB...');
+      await draftPool.query(`
+        CREATE TABLE agent_prompts (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          prompt TEXT NOT NULL,
+          model_ids JSONB DEFAULT '[]',
+          temperature DECIMAL(3,2) DEFAULT 0.7,
+          agent_type VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await draftPool.query(`
+        CREATE INDEX IF NOT EXISTS idx_agent_prompts_agent_type 
+        ON agent_prompts(agent_type);
+      `);
+      console.log('✅ agent_prompts table created successfully in draftDB!');
+    } else {
+      console.log('✅ agent_prompts table already exists in draftDB');
+    }
+
+    // Add llm_parameters column if missing (for LLM parameter config per agent)
+    const checkCol = await draftPool.query(`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'agent_prompts' AND column_name = 'llm_parameters'
+      );
+    `);
+    if (!checkCol.rows[0].exists) {
+      console.log('📋 Adding llm_parameters column to agent_prompts...');
+      await draftPool.query(`
+        ALTER TABLE agent_prompts ADD COLUMN llm_parameters JSONB DEFAULT '{}';
+      `);
+      console.log('✅ llm_parameters column added to agent_prompts');
+    }
+  } catch (error) {
+    console.error('❌ Error initializing agent_prompts table:', error.message);
+    throw error;
+  }
+};
+
+// --- Initialize llm_models table in docDB if it doesn't exist (and fix id default if needed) ---
+const initializeLlmModelsTable = async () => {
+  try {
+    const checkTable = await docPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'llm_models'
+      );
+    `);
+
+    if (!checkTable.rows[0].exists) {
+      console.log('📋 Creating llm_models table in docDB...');
+      await docPool.query(`
+        CREATE TABLE llm_models (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          is_active BOOLEAN DEFAULT true,
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      console.log('✅ llm_models table created successfully in docDB!');
+    } else {
+      // Ensure id has a default (fix for existing tables created without SERIAL)
+      const colDefault = await docPool.query(`
+        SELECT column_default
+        FROM information_schema.columns
+        WHERE table_schema = 'public' AND table_name = 'llm_models' AND column_name = 'id';
+      `);
+      if (colDefault.rows[0] && !colDefault.rows[0].column_default) {
+        console.log('📋 Fixing llm_models.id: adding sequence default...');
+        await docPool.query(`
+          CREATE SEQUENCE IF NOT EXISTS llm_models_id_seq;
+          SELECT setval('llm_models_id_seq', COALESCE((SELECT MAX(id) FROM llm_models), 0));
+          ALTER TABLE llm_models ALTER COLUMN id SET DEFAULT nextval('llm_models_id_seq'::regclass);
+        `);
+        console.log('✅ llm_models.id default set.');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error initializing llm_models table:', error.message);
+    throw error;
+  }
+};
+
+// --- Initialize llm_model_parameters table in docDB if it doesn't exist ---
+const initializeLlmModelParametersTable = async () => {
+  try {
+    const checkTable = await docPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'llm_model_parameters'
+      );
+    `);
+
+    if (!checkTable.rows[0].exists) {
+      console.log('📋 Creating llm_model_parameters table in docDB...');
+      await docPool.query(`
+        CREATE TABLE llm_model_parameters (
+          id SERIAL PRIMARY KEY,
+          model_id INTEGER NOT NULL UNIQUE REFERENCES llm_models(id) ON DELETE CASCADE,
+          temperature NUMERIC(3,2) DEFAULT 1.0 CHECK (temperature >= 0 AND temperature <= 2),
+          media_resolution VARCHAR(50) DEFAULT 'default',
+          thinking_mode BOOLEAN DEFAULT false,
+          thinking_budget BOOLEAN DEFAULT false,
+          thinking_level VARCHAR(50) DEFAULT 'default',
+          structured_outputs_enabled BOOLEAN DEFAULT false,
+          structured_outputs_config JSONB DEFAULT '{}',
+          code_execution BOOLEAN DEFAULT false,
+          function_calling_enabled BOOLEAN DEFAULT false,
+          function_calling_config JSONB DEFAULT '{}',
+          grounding_google_search BOOLEAN DEFAULT false,
+          url_context BOOLEAN DEFAULT false,
+          system_instructions TEXT DEFAULT '',
+          api_key_status VARCHAR(50) DEFAULT 'none',
+          created_at TIMESTAMPTZ DEFAULT NOW(),
+          updated_at TIMESTAMPTZ DEFAULT NOW()
+        );
+      `);
+      await docPool.query(`
+        CREATE INDEX IF NOT EXISTS idx_llm_model_parameters_model_id ON llm_model_parameters(model_id);
+      `);
+      console.log('✅ llm_model_parameters table created successfully in docDB!');
+    } else {
+      console.log('✅ llm_model_parameters table already exists in docDB');
+    }
+  } catch (error) {
+    console.error('❌ Error initializing llm_model_parameters table:', error.message);
+    throw error;
+  }
+};
+
 // --- Start server ---
 const startServer = async () => {
   try {
     await sequelize.sync({ alter: true });
     console.log('✅ Sequelize Database synced!');
 
-    // Initialize system_prompts table
+    // Initialize system_prompts, agent_prompts, llm_models, and llm_model_parameters tables
     await initializeSystemPromptsTable();
+    await initializeAgentPromptsTable();
+    await initializeLlmModelsTable();
+    await initializeLlmModelParametersTable();
 
     const PORT = process.env.PORT || 4000;
     const server = app.listen(PORT, () => {

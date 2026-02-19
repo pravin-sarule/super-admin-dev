@@ -230,6 +230,9 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { Eye, EyeOff, Lock, Mail, Shield, User, AlertCircle, CheckCircle } from 'lucide-react';
+import { API_BASE_URL } from '../../config';
+
+const LOGIN_URL = `${API_BASE_URL}/auth/login`;
 
 const LoginPage = ({ setAuthStatus }) => {
   const [showPassword, setShowPassword] = useState(false);
@@ -248,32 +251,41 @@ const LoginPage = ({ setAuthStatus }) => {
     setSuccess('');
 
     try {
-      const response = await axios.post('https://super-admin-backend-120280829617.asia-south1.run.app/api/auth/login',
+      const response = await axios.post(
+        LOGIN_URL,
         { email, password },
-        {
-          headers: { 'Content-Type': 'application/json' },
-        }
+        { headers: { 'Content-Type': 'application/json' } }
       );
 
-      // ✅ Extract correct role and token from backend response
-      const { token, admin } = response.data;
+      const data = response.data || {};
+      // Support both { token, admin } and nested { data: { token, admin } }
+      const token = typeof data.token === 'string' ? data.token : (data.data && data.data.token);
+      const admin = data.admin || (data.data && data.data.admin) || {};
 
-      if (!token || !admin) {
-        throw new Error('Invalid server response');
+      if (!token || token.trim() === '') {
+        throw new Error('Invalid server response: no token received');
       }
 
-      // ✅ Save authentication data
-      localStorage.setItem('token', token);
-      localStorage.setItem('userRole', admin.role); // Correct role from DB
-      localStorage.setItem('userEmail', admin.email);
-      localStorage.setItem('userName', admin.name || 'Admin');
+      // Store token first so it persists even if admin shape differs
+      localStorage.setItem('token', token.trim());
 
-      console.log('✅ Login successful:', admin);
+      const role = admin.role || data.role || 'admin';
+      const userEmail = admin.email || email;
+      const userName = admin.name || 'Admin';
+
+      localStorage.setItem('userRole', role);
+      localStorage.setItem('userEmail', userEmail);
+      localStorage.setItem('userName', userName);
+
+      if (rememberMe) {
+        sessionStorage.setItem('token', token.trim());
+      }
+
+      console.log('✅ Login successful, token stored');
 
       setSuccess('Login successful! Redirecting to dashboard...');
       setAuthStatus(true);
 
-      // Redirect after success
       setTimeout(() => navigate('/dashboard'), 1000);
     } catch (err) {
       console.error('Login Error:', err.response?.data || err.message);

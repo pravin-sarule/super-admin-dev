@@ -69,9 +69,9 @@
 //   const [fetchValueLoading, setFetchValueLoading] = useState({});
 
 //   // API Base URL
-//   const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/secrets';
-//   const LLM_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/llm';
-//   const CHUNKING_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/chunking-methods';
+//   const API_BASE_URL = 'http://localhost:4000/api/secrets';
+//   const LLM_API_BASE_URL = 'http://localhost:4000/api/llm';
+//   const CHUNKING_API_BASE_URL = 'http://localhost:4000/api/chunking-methods';
 
 //   // Get user info from token
 //   useEffect(() => {
@@ -1675,9 +1675,9 @@
 //   const [fetchValueLoading, setFetchValueLoading] = useState({});
 
 //   // API Base URL
-//   const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/secrets';
-//   const LLM_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/llm';
-//   const CHUNKING_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/chunking-methods';
+//   const API_BASE_URL = 'http://localhost:4000/api/secrets';
+//   const LLM_API_BASE_URL = 'http://localhost:4000/api/llm';
+//   const CHUNKING_API_BASE_URL = 'http://localhost:4000/api/chunking-methods';
 
 //   // Get user info from token
 //   useEffect(() => {
@@ -3290,9 +3290,9 @@ const PromptManagement = () => {
   const [fetchValueLoading, setFetchValueLoading] = useState({});
 
   // API Base URL
-  const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/secrets';
-  const LLM_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/llm';
-  const CHUNKING_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/chunking-methods';
+  const API_BASE_URL = 'http://localhost:4000/api/secrets';
+  const LLM_API_BASE_URL = 'http://localhost:4000/api/llm';
+  const CHUNKING_API_BASE_URL = 'http://localhost:4000/api/chunking-methods';
 
   // Get user info from token
   useEffect(() => {
@@ -3313,8 +3313,6 @@ const PromptManagement = () => {
           title: 'Authentication Error',
           text: 'Invalid token. Please login again.',
           confirmButtonColor: '#3085d6',
-        }).then(() => {
-          localStorage.removeItem('token');
         });
       }
     } else {
@@ -3386,23 +3384,12 @@ const PromptManagement = () => {
       console.error('Error fetching prompts:', err);
       setError('Failed to fetch prompts.');
       
-      if (err.response?.status === 401) {
-        MySwal.fire({
-          icon: 'error',
-          title: 'Authentication Error',
-          text: 'Your session has expired. Please login again.',
-          confirmButtonColor: '#3085d6',
-        }).then(() => {
-          localStorage.removeItem('token');
-        });
-      } else {
-        MySwal.fire({
-          icon: 'error',
-          title: 'Error!',
-          text: err.response?.data?.error || 'Failed to fetch prompts. Please try again later.',
-          confirmButtonColor: '#3085d6',
-        });
-      }
+      MySwal.fire({
+        icon: 'error',
+        title: 'Error!',
+        text: err.response?.data?.error || err.response?.data?.message || 'Failed to fetch prompts. Please try again later.',
+        confirmButtonColor: '#3085d6',
+      });
     } finally {
       setLoading(false);
     }

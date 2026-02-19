@@ -1,32 +1,33 @@
 import React, { useEffect } from 'react';
-import { Navigate, Outlet, useNavigate } from 'react-router-dom';
+import { Navigate, Outlet } from 'react-router-dom';
 import { jwtDecode } from 'jwt-decode';
 
 const ProtectedRoute = ({ isAuthenticated }) => {
-  const navigate = useNavigate();
   const userRole = localStorage.getItem('userRole');
-  const token = localStorage.getItem('token');
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
 
   useEffect(() => {
     if (token) {
       try {
         const decodedToken = jwtDecode(token);
-        const currentTime = Date.now() / 1000; // in seconds
+        const currentTime = Date.now() / 1000;
 
         if (decodedToken.exp < currentTime) {
-          // Token expired
           localStorage.removeItem('token');
           localStorage.removeItem('userRole');
-          navigate('/login');
+          sessionStorage.removeItem('token');
+          sessionStorage.removeItem('userRole');
+          window.location.href = '/login';
         }
       } catch (error) {
-        // Invalid token
         localStorage.removeItem('token');
         localStorage.removeItem('userRole');
-        navigate('/login');
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('userRole');
+        window.location.href = '/login';
       }
     }
-  }, [token, navigate]);
+  }, [token]);
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;

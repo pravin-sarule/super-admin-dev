@@ -2,7 +2,7 @@
 
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
+const { JWT_SECRET } = require('../config/env');
 
 module.exports = (pool) => {
   /**
@@ -41,10 +41,10 @@ module.exports = (pool) => {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
 
-      // Generate JWT token with id and role_name
+      // Generate JWT token with id and role_name (same JWT_SECRET as auth middleware)
       const token = jwt.sign(
         { id: admin.id, role: admin.role_name },
-        process.env.JWT_SECRET,
+        JWT_SECRET,
         { expiresIn: '24h' }
       );
 

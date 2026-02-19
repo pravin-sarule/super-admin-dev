@@ -74,8 +74,6 @@ const LLMManagement = () => {
         title: 'Authentication Error',
         text: 'Invalid token. Please login again.',
         confirmButtonColor: '#dc2626',
-      }).then(() => {
-        localStorage.removeItem('token');
       });
       return;
     }

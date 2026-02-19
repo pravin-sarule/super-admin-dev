@@ -56,6 +56,8 @@ const Header = ({ toggleSidebar }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('userRole');
     localStorage.removeItem('username');
+    sessionStorage.removeItem('token');
+    sessionStorage.removeItem('userRole');
     navigate('/login');
     window.location.reload();
   };

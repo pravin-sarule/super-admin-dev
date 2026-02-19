@@ -33,9 +33,9 @@ const SystemPromptManagement = () => {
   const [updateLoading, setUpdateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState({});
 
-  // Get token helper
+  // Get token helper (check both storages like other dashboard pages)
   const getToken = () => {
-    return localStorage.getItem('token');
+    return localStorage.getItem('token') || sessionStorage.getItem('token');
   };
 
   // Fetch all system prompts
@@ -71,16 +71,12 @@ const SystemPromptManagement = () => {
     } catch (err) {
       console.error('Error fetching system prompts:', err);
       setError('Failed to fetch system prompts.');
-      
-      if (err.response?.status === 401) {
+      if (err.response?.status === 403) {
         MySwal.fire({
           icon: 'error',
-          title: 'Authentication Error',
-          text: 'Your session has expired. Please login again.',
+          title: 'Access denied',
+          text: err.response?.data?.message || 'You do not have permission to manage system prompts.',
           confirmButtonColor: '#3085d6',
-        }).then(() => {
-          localStorage.removeItem('token');
-          window.location.href = '/login';
         });
       } else {
         MySwal.fire({
@@ -155,6 +151,10 @@ const SystemPromptManagement = () => {
       setShowPromptTable(true);
     } catch (err) {
       console.error('Error updating system prompt:', err);
+      if (err.response?.status === 403) {
+        MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
+        return;
+      }
       MySwal.fire({
         icon: 'error',
         title: 'Error!',
@@ -207,6 +207,10 @@ const SystemPromptManagement = () => {
         }
       } catch (err) {
         console.error('Error deleting system prompt:', err);
+        if (err.response?.status === 403) {
+          MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
+          return;
+        }
         MySwal.fire({
           icon: 'error',
           title: 'Error!',
@@ -258,6 +262,10 @@ const SystemPromptManagement = () => {
       fetchPrompts();
     } catch (err) {
       console.error('Error creating system prompt:', err);
+      if (err.response?.status === 403) {
+        MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
+        return;
+      }
       MySwal.fire({
         icon: 'error',
         title: 'Error!',

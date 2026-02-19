@@ -18,4 +18,8 @@ router.get('/max-tokens', llmController.getAllMaxTokenEntries);
 // Update a specific LLM max token configuration
 router.put('/max-tokens/:id', llmController.updateMaxTokenEntry);
 
+// Get / update LLM model parameters (temperature, thinking, tools, etc.)
+router.get('/:id/parameters', llmController.getModelParameters);
+router.put('/:id/parameters', llmController.updateModelParameters);
+
 module.exports = router;
