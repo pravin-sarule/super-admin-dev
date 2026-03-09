@@ -3,7 +3,7 @@ import axios from 'axios';
 // Use env in production so all pages (Admin, User, etc.) hit the same backend and token works
 const API_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
   ? import.meta.env.VITE_API_BASE_URL
-  : 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+  : 'http://localhost:4000/api';
 
 const ADMIN_CREATE_URL = `${API_BASE_URL}/admins/create`;
 const ADMIN_GET_ALL_URL = `${API_BASE_URL}/admins`;

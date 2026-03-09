@@ -16,8 +16,8 @@ import {
   X,
   Gavel, // Added for Case Type
   Building2, // Added for Court
-  UserCheck, // Added for Judge
-  FileCheck // Added for Document Management
+  FileCheck, // Added for Document Management
+  BookMarked // Citation Management
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -87,6 +87,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       icon: FileCheck,
       roles: ['super-admin']
     },
+    {
+      name: 'Citation Management',
+      path: '/dashboard/citation-management',
+      icon: BookMarked,
+      roles: ['super-admin']
+    },
     // {
     //   name: 'Content Management',
     //   path: '/dashboard/content', // Assuming a path for content management
@@ -108,11 +114,6 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
           name: 'Add Court',
           path: '/dashboard/content/court',
           icon: Building2
-        },
-        {
-          name: 'Add Judge',
-          path: '/dashboard/content/judge',
-          icon: UserCheck
         }
       ]
     },
@@ -190,15 +191,15 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
                   <Link
                     to={item.path}
                     className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-lg transition-all duration-200 group relative ${active
-                        ? 'bg-blue-600 text-white'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                       }`}
                     title={!isOpen ? item.name : ''}
                   >
                     <item.icon
                       className={`w-5 h-5 flex-shrink-0 ${active
-                          ? 'text-white'
-                          : 'text-slate-400 group-hover:text-slate-200'
+                        ? 'text-white'
+                        : 'text-slate-400 group-hover:text-slate-200'
                         } ${isOpen ? 'mr-3' : 'mx-auto'}`}
                     />
                     {isOpen && (
@@ -214,8 +215,8 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
                   <>
                     <button
                       className={`w-full flex items-center px-4 py-3 mb-1 text-sm rounded-lg transition-all duration-200 group ${openMenu === item.key
-                          ? 'bg-slate-700 text-white'
-                          : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
+                        ? 'bg-slate-700 text-white'
+                        : 'text-slate-300 hover:text-white hover:bg-slate-700/60'
                         }`}
                       onClick={() => isOpen && handleMenuToggle(item.key)}
                       title={!isOpen ? item.name : ''}

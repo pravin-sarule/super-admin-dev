@@ -94,11 +94,12 @@ module.exports = (paymentPool) => {
 
   // TODO: Add middleware like `authenticateAdmin` if needed
 
-  router.post('/plans', (req, res) => planController.createPlan(req, res, paymentPool));
-  router.get('/plans', (req, res) => planController.getAllPlans(req, res, paymentPool));
-  router.get('/plans/:id', (req, res) => planController.getPlanById(req, res, paymentPool));
-  router.put('/plans/:id', (req, res) => planController.updatePlan(req, res, paymentPool));
-  router.delete('/plans/:id', (req, res) => planController.deletePlan(req, res, paymentPool));
+  // Mounted at /api/admin/plans — use / and /:id so paths are /api/admin/plans and /api/admin/plans/:id
+  router.post('/', (req, res) => planController.createPlan(req, res, paymentPool));
+  router.get('/', (req, res) => planController.getAllPlans(req, res, paymentPool));
+  router.get('/:id', (req, res) => planController.getPlanById(req, res, paymentPool));
+  router.put('/:id', (req, res) => planController.updatePlan(req, res, paymentPool));
+  router.delete('/:id', (req, res) => planController.deletePlan(req, res, paymentPool));
 
   return router;
 };

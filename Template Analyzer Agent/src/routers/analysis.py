@@ -5,14 +5,23 @@ from ..database import get_db
 from ..models.db_models import Template, TemplateField, TemplateSection
 from ..services.agent_service import AntigravityAgent
 from ..services.document_ai_service import DocumentAIService
+from ..config import settings
 from pydantic import BaseModel
 import uuid
 from typing import List, Optional, Dict, Any
 
 router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
-agent = AntigravityAgent()
+_agent: Optional[AntigravityAgent] = None
 doc_ai = DocumentAIService()
+
+
+def get_agent() -> Optional[AntigravityAgent]:
+    """Lazy-init agent only when GEMINI_API_KEY is set."""
+    global _agent
+    if _agent is None and getattr(settings, "GEMINI_API_KEY", None) and (settings.GEMINI_API_KEY or "").strip():
+        _agent = AntigravityAgent()
+    return _agent
 
 @router.get("/")
 async def analysis_root():
@@ -108,6 +117,9 @@ async def upload_template(
         await db.flush()
 
         signed_file_url = doc_ai.generate_signed_url(file_url) if file_url else None
+        agent = get_agent()
+        if not agent:
+            raise HTTPException(503, "Analysis unavailable: GEMINI_API_KEY not set in .env")
         print(f"DEBUG: Starting Phase 1 (AI Analysis)...")
         analysis_result = await agent.analyze_template(template_text, template_file_signed_url=signed_file_url)
         print(f"DEBUG: Phase 1 complete. Extracted fields/sections.")
@@ -319,6 +331,9 @@ async def generate_section(
             status_code=400,
             detail="Specify section_index (0-based) or section_id to identify the section",
         )
+    agent = get_agent()
+    if not agent:
+        raise HTTPException(503, "Analysis unavailable: GEMINI_API_KEY not set in .env")
     max_tokens = request.max_output_tokens or 65536
     content = await agent.generate_section_content(
         section_data,
@@ -336,6 +351,9 @@ async def generate_draft(
 ):
     """Generate full draft by generating each section in order and concatenating. Supports 500+ page documents
     (each section can be up to max_output_tokens_per_section). Returns full text and per-section content."""
+    agent = get_agent()
+    if not agent:
+        raise HTTPException(503, "Analysis unavailable: GEMINI_API_KEY not set in .env")
     template, merged_sections, fields = await _get_template_merged_sections(template_id, db)
     if not merged_sections:
         raise HTTPException(status_code=400, detail="Template has no sections")

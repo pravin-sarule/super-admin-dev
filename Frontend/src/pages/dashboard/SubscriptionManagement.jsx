@@ -444,8 +444,13 @@ const PlanDetails = ({ plan, onEdit, onBack, onSave, editMode, loading }) => {
 
   useEffect(() => {
     if (plan) {
+      const featuresStr = plan.features == null ? '' :
+        typeof plan.features === 'string' ? plan.features :
+        Array.isArray(plan.features) ? plan.features.join('\n') :
+        typeof plan.features === 'object' ? JSON.stringify(plan.features) : String(plan.features);
       setEditData({
         ...plan,
+        features: featuresStr,
         storage_limit_gb: plan.storage_limit_gb || '',
         drafting_type: plan.drafting_type || 'basic',
         razorpay_plan_id: plan.razorpay_plan_id || '',
@@ -677,7 +682,13 @@ const PlanDetails = ({ plan, onEdit, onBack, onSave, editMode, loading }) => {
                 className="w-full px-3 py-2 border rounded-lg"
               />
             ) : (
-              <p className="text-sm bg-gray-50 rounded p-3">{plan.features || 'No features listed'}</p>
+              <p className="text-sm bg-gray-50 rounded p-3">{
+                plan.features == null ? 'No features listed' :
+                typeof plan.features === 'string' ? (plan.features || 'No features listed') :
+                Array.isArray(plan.features) ? (plan.features.length ? plan.features.join(', ') : 'No features listed') :
+                typeof plan.features === 'object' ? (Object.keys(plan.features).length ? JSON.stringify(plan.features) : 'No features listed') :
+                String(plan.features)
+              }</p>
             )}
           </div>
         </div>
