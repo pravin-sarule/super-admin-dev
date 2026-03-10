@@ -14,7 +14,7 @@ export default defineConfig({
     port: 3001,
     proxy: {
       '/api': {
-        target: 'http://localhost:4000',
+        target: 'https://super-admin-backend-120280829617.asia-south1.run.app',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/api'),
       },
