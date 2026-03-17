@@ -3128,9 +3128,13 @@ class AntigravityAgent:
         text = (response.text or "").strip()
         clean = self._extract_json(text)
         try:
-            return json.loads(clean)
+            result = json.loads(clean)
         except json.JSONDecodeError:
-            return await self._auto_fix_json(clean)
+            result = await self._auto_fix_json(clean)
+        if not isinstance(result, dict):
+            print(f"DEBUG: _call_gemini got non-dict result (type={type(result).__name__}), returning empty dict")
+            return {}
+        return result
 
     async def _call_gemini_text(self, prompt: str, max_output_tokens: int = None, timeout: float = 600.0) -> str:
         max_tok = min(max_output_tokens or self.MAX_TOKENS_TEXT, self.MAX_TOKENS_TEXT)
@@ -3165,7 +3169,11 @@ class AntigravityAgent:
                 config={"response_mime_type":"application/json",
                         "max_output_tokens":8192,"temperature":0.0}),
             timeout=60.0)
-        return json.loads(self._extract_json((resp.text or "").strip()))
+        result = json.loads(self._extract_json((resp.text or "").strip()))
+        if not isinstance(result, dict):
+            print(f"DEBUG: _auto_fix_json got non-dict result (type={type(result).__name__}), returning empty dict")
+            return {}
+        return result
 
     # ======================================================================
     # PHASE 1 - TEMPLATE ANALYSIS
@@ -3658,6 +3666,9 @@ Generate now:"""
 
     @staticmethod
     def _post_process_analysis(result: dict, metrics: Dict[str, Any] = None) -> dict:
+        if not isinstance(result, dict):
+            print(f"DEBUG: _post_process_analysis got non-dict (type={type(result).__name__}), resetting to empty dict")
+            result = {}
         if "sections" in result and not result.get("all_fields"):
             all_fields, seen = [], set()
             for sec in result["sections"]:

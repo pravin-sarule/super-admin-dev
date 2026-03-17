@@ -38,7 +38,7 @@ const TemplateManagement = () => {
     });
 
     // API Config
-    const ANALYSIS_API_URL = 'https://template-analyzer-agent-120280829617.asia-south1.run.app/analysis';
+    const ANALYSIS_API_URL = 'http://127.0.0.1:8000/analysis';
 
     useEffect(() => {
         fetchTemplates();

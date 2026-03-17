@@ -5,6 +5,7 @@ from ..database import get_db
 from ..models.db_models import Template, TemplateField, TemplateSection
 from ..services.agent_service import AntigravityAgent
 from ..services.document_ai_service import DocumentAIService
+from ..services.field_extractor import HybridFieldExtractor
 from pydantic import BaseModel
 import uuid
 from typing import List, Optional, Dict, Any
@@ -13,6 +14,7 @@ router = APIRouter(prefix="/analysis", tags=["Analysis"])
 
 agent = AntigravityAgent()
 doc_ai = DocumentAIService()
+field_extractor = HybridFieldExtractor()
 
 @router.get("/")
 async def analysis_root():
@@ -108,21 +110,52 @@ async def upload_template(
         await db.flush()
 
         signed_file_url = doc_ai.generate_signed_url(file_url) if file_url else None
-        print(f"DEBUG: Starting Phase 1 (AI Analysis)...")
+        print(f"DEBUG: Starting Phase 1 (AI Analysis - Gemini sections + hybrid fields)...")
         analysis_result = await agent.analyze_template(template_text, template_file_signed_url=signed_file_url)
-        print(f"DEBUG: Phase 1 complete. Extracted fields/sections.")
+        if not isinstance(analysis_result, dict):
+            print(f"DEBUG: analyze_template returned non-dict (type={type(analysis_result).__name__}), resetting")
+            analysis_result = {}
+        print(f"DEBUG: Phase 1 complete. Gemini sections extracted.")
+
+        # Run hybrid field extractor over the extracted template text
+        print("DEBUG: Running HybridFieldExtractor on template text...")
+        hybrid_schema = field_extractor.extract_from_text(template_text)
+        if not isinstance(hybrid_schema, dict):
+            hybrid_schema = {}
+        analysis_result["hybrid_fields"] = hybrid_schema
+        print(f"DEBUG: HybridFieldExtractor identified {hybrid_schema.get('total_fields', 0)} fields.")
 
         new_field_entry = TemplateField(template_id=template_id, template_fields=analysis_result)
         db.add(new_field_entry)
 
-        sections = analysis_result.get("sections", [])
+        raw_sections = analysis_result.get("sections", [])
+        # Normalize: Gemini sometimes returns a mix of dicts and strings; ensure every item is a dict
+        sections = []
+        for i, item in enumerate(raw_sections):
+            if isinstance(item, dict):
+                sections.append(item)
+            elif isinstance(item, str):
+                sections.append({
+                    "section_id": f"section_{i+1}",
+                    "section_name": item,
+                    "section_purpose": "",
+                    "order": i + 1,
+                    "fields": [],
+                    "format_blueprint": [],
+                    "drafting_prompt": f"Generate the {item} section.",
+                })
+            else:
+                sections.append({"section_name": "Untitled Section", "section_purpose": "", "fields": [], "order": i + 1})
         print(f"DEBUG: Processing {len(sections)} sections sequentially to avoid rate limits...")
         for index, section in enumerate(sections):
-            print(f"DEBUG: Starting section {index+1}/{len(sections)}: {section.get('section_name')}")
+            section_name = section.get("section_name", "Untitled Section")
+            print(f"DEBUG: Starting section {index+1}/{len(sections)}: {section_name}")
             prompt_data = await agent.generate_section_prompts(section)
+            if not isinstance(prompt_data, dict):
+                prompt_data = {"section_intro": "", "field_prompts": []}
             section_entry = TemplateSection(
                 template_id=template_id,
-                section_name=section.get("section_name", "Untitled Section"),
+                section_name=section_name,
                 section_purpose=section.get("section_purpose", ""),
                 section_intro=prompt_data.get("section_intro", ""),
                 section_prompts=prompt_data.get("field_prompts", []),
@@ -171,11 +204,15 @@ async def _get_template_merged_sections(template_id: uuid.UUID, db: AsyncSession
     fields_result = await db.execute(select(TemplateField).where(TemplateField.template_id == template_id))
     fields_entry = fields_result.scalar_one_or_none()
     fields = fields_entry.template_fields if fields_entry else {}
+    if not isinstance(fields, dict):
+        fields = {}
     analysis_sections = fields.get("sections") or []
     merged_sections = []
     for i, db_sec in enumerate(db_sections):
         sec_dict = _section_row_to_dict(db_sec)
         anal = analysis_sections[i] if i < len(analysis_sections) else {}
+        if not isinstance(anal, dict):
+            anal = {}
         sec_dict["section_id"] = anal.get("section_id") or sec_dict.get("id")
         sec_dict["fields"] = anal.get("fields", [])
         sec_dict["section_category"] = anal.get("section_category")
