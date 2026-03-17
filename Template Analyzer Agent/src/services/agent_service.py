@@ -3231,6 +3231,20 @@ CORRECT sections by document type:
     5. Covenants / Obligations <- obligations of parties
     6. Execution           <- signatures, witnesses, notary block
 
+  LEAVE AND LICENCE AGREEMENT:
+    1. Preamble            <- document title, date, place, state, whereas clauses
+    2. Licensor Details    <- licensor name, parentage, age, PAN, Aadhaar, address, contact
+    3. Licensee Details    <- licensee name, parentage, age, PAN, Aadhaar, address, contact
+    4. Licensed Premises   <- premises type, address, floor, flat, society, area, parking
+    5. Licence Period      <- commencement date, end date, period months, lock-in period
+    6. Licence Fee         <- monthly fee, payment mode, escalation, TDS
+    7. Security Deposit    <- deposit amount, payment mode, refund days
+    8. Maintenance & Utilities <- responsibility table, minor repair limit
+    9. Permitted Use & Restrictions <- permitted use, max occupants, pets policy
+    10. Termination        <- notice period, lock-in penalties, holdover
+    11. Dispute Resolution <- governing law, jurisdiction, arbitration
+    12. Schedules & Execution <- Schedule A (premises), Schedule B (inventory), signatures, witnesses
+
   EMPLOYMENT AGREEMENT:
     1. Parties & Date
     2. Appointment & Role
@@ -3262,12 +3276,18 @@ RULE 3 - FIELDS (variables the user fills in)
 =================================================================
 
 Fields = the VARIABLE SLOTS inside each section:
-  - Blanks (____), placeholders [like this] or {{like_this}}
+  - {{field_name}} Jinja/Handlebars placeholders — CRITICAL: extract EVERY {{...}} token as a field.
+    The "key" for each field is the exact snake_case name inside the braces (e.g. {{licensor_name}} → key: "licensor_name").
+  - Blanks (____), placeholders [like this]
   - Names, dates, amounts, addresses, case numbers
   - Any contextually obvious variable
 
+IMPORTANT: If the template uses {{field_name}} placeholders extensively (e.g. {{licensor_name}},
+{{agreement_date}}, {{monthly_licence_fee}}), extract EVERY UNIQUE placeholder as a field in the
+section where it first appears. Do NOT skip any {{...}} tokens.
+
 Field requirements:
-  - Unique snake_case "key" (prefix with section abbreviation to avoid clashes)
+  - Unique snake_case "key" — for {{field_name}} placeholders, use the exact name inside braces
   - Human-readable "label" shown on the form to the user
   - "type": string | date | number | currency | address | text_long | boolean
   - "required": true/false

@@ -48,6 +48,8 @@ class HybridFieldExtractor:
 
     # Regex patterns for explicit placeholders / structure
     PATTERNS: Dict[str, re.Pattern] = {
+        # {{field_name}} — Jinja/Handlebars style (JuriNex, DocuSign, etc.)
+        "curly_field": re.compile(r"\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}"),
         # ARTICLE________OF THE CONSTITUTION
         "underscore_field": re.compile(r"([A-Z\s]+)_{3,}([A-Z\s]+)"),
         # .....Petitioner
@@ -89,14 +91,47 @@ class HybridFieldExtractor:
 
     # ----------------- PATTERN-BASED EXTRACTION -----------------
 
+    # Infer FieldType from a {{field_name}} key
+    @staticmethod
+    def _infer_type_from_key(key: str) -> FieldType:
+        k = key.lower()
+        if any(w in k for w in ("date", "dob", "born", "expiry", "commencement", "end_date", "agreement_date")):
+            return FieldType.DATE
+        if any(w in k for w in ("age", "fee", "deposit", "amount", "months", "sqft", "qty", "number", "no", "limit", "escalation", "days")):
+            return FieldType.NUMBER
+        if any(w in k for w in ("address", "purpose", "details", "text", "clause", "policy", "status", "inventory")):
+            return FieldType.LONG_TEXT
+        return FieldType.TEXT
+
     def _extract_fields_by_pattern(self, text: str) -> List[Field]:
         fields: List[Field] = []
+        seen_curly: set = set()
         lines = text.splitlines()
 
         for line in lines:
             stripped = line.strip()
             if not stripped:
                 continue
+
+            # {{field_name}} style — collect ALL occurrences on this line
+            for m in self.PATTERNS["curly_field"].finditer(stripped):
+                key = m.group(1)
+                if key in seen_curly:
+                    continue
+                seen_curly.add(key)
+                ftype = self._infer_type_from_key(key)
+                fields.append(
+                    Field(
+                        field_id=key,
+                        field_name=self._humanize(key),
+                        field_type=ftype,
+                        page_number=1,
+                        location_marker=f"{{{{{key}}}}}",
+                        surrounding_text=stripped[:120],
+                        extraction_methods=["pattern_curly"],
+                        confidence=0.98,
+                    )
+                )
 
             # Underscore style
             m = self.PATTERNS["underscore_field"].search(stripped)

@@ -80,6 +80,9 @@ async def upload_template(
             print(f"DEBUG: Starting Parallel Document AI processing for {file.filename}...")
             template_text = await doc_ai.parallel_process_pdf(file_content)
             print(f"DEBUG: Document AI processing complete. Extracted {len(template_text)} characters.")
+            # Fix common OCR garbling of {{field}} placeholders
+            import re as _re
+            template_text = _re.sub(r'\{\s*\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\s*\}', r'{{\1}}', template_text)
         else:
             template_text = file_content.decode('utf-8', errors='ignore')
 
