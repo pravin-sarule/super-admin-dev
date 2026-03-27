@@ -5,8 +5,6 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 
-import { ANALYSIS_API_BASE_URL as ANALYSIS_API_URL } from '../../../config';
-
 import TemplateList from './TemplateList';
 import UploadModal from './UploadTemplateModal';
 import TemplateDetailsModal from './TemplateDetailsModal';
@@ -42,6 +40,9 @@ const TemplateManagement = () => {
         file: null,
         image: null
     });
+
+    // API Config – Template Analyzer Agent (Cloud Run default, overridable by env)
+    const ANALYSIS_API_URL = import.meta.env?.VITE_ANALYSIS_API_URL || 'https://template-analyzer-agent-120280829617.asia-south1.run.app/analysis';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');

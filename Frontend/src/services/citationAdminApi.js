@@ -10,8 +10,9 @@ const isLocalFrontend =
   (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
 /**
- * Local dev: use relative `/api` so Vite proxies to the backend (see vite.config.js).
- * Otherwise use API_BASE_URL from config (Cloud Run default).
+ * Local dev: use relative `/api` so Vite proxies to the backend.
+ * Avoids 404s from Cloud Run when it is behind on citation-admin/analytics routes.
+ * Preview / prod build on localhost without Vite: use configured API_BASE_URL.
  */
 const effectiveApiBase =
   isLocalFrontend && import.meta.env.DEV

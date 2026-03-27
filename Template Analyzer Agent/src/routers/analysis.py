@@ -200,12 +200,8 @@ async def _run_analysis_background(
             # Consider fields "present" if either section.fields[] OR top-level all_fields
             # is non-empty — both are produced by the AI and should not be overwritten by
             # the smaller hybrid extractor output.
-            sections_have_fields = (
-                any(len(s.get("fields", [])) > 0 for s in analysis_result.get("sections", []))
-                or len(analysis_result.get("all_fields", [])) > 0
-            )
-            if not sections_have_fields and hybrid_fields_list:
-                print("DEBUG: [BG] Distributing hybrid fields to sections...")
+            if hybrid_fields_list:
+                print("DEBUG: [BG] Backfilling hybrid fields into sections...")
                 _distribute_fields_to_sections(analysis_result, template_text, hybrid_fields_list)
                 print(f"DEBUG: [BG] all_fields={len(analysis_result.get('all_fields', []))}")
 

@@ -5,8 +5,6 @@ import { Plus, Trash2, Search, ChevronDown, ChevronRight, Eye, X, Lock, Edit2 } 
 import axios from 'axios';
 import Swal from 'sweetalert2';
 
-import { API_BASE_URL } from '../../../config';
-
 const AddCaseType = () => {
   const [caseTypes, setCaseTypes] = useState([]);
   const [expandedRows, setExpandedRows] = useState(new Set());
@@ -19,6 +17,8 @@ const AddCaseType = () => {
   const [subTypeFormData, setSubTypeFormData] = useState({ id: null, case_type_id: null, name: '' });
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
 
   const getAuthToken = () => localStorage.getItem('token');
 

@@ -3112,19 +3112,129 @@ def _heading_to_section_id(text: str, fallback_index: int) -> str:
     return cleaned or f"section_{fallback_index}"
 
 
+def _extract_toc_heading_candidates(template_text: str) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    seen = set()
+    lines = [_clean_heading_text(line) for line in template_text.splitlines()]
+    collecting = False
+    raw_entries: List[str] = []
+    expect_title = False
+
+    for raw_line in lines:
+        line = re.sub(r"^[#*§\u25a0\u2605\-\s]+", "", raw_line).strip()
+        if not line:
+            continue
+
+        upper = line.upper()
+        if upper == "TABLE OF CONTENTS":
+            collecting = True
+            continue
+        if not collecting:
+            continue
+        if upper.startswith("SECTION 1"):
+            break
+        if upper.startswith("JURINEX TEMPLATE |") or re.fullmatch(r"PAGE\s+\d+", upper):
+            break
+        if upper in {"SECTION", "TYPE", "GENERAL POWER OF ATTORNEY"}:
+            continue
+        if re.fullmatch(r"\d+", line) or re.fullmatch(r"[()\-\u2013\u2014]+", line):
+            expect_title = True
+            continue
+        if not expect_title:
+            continue
+        if len(line) < 4 or len(line) > 120 or not re.search(r"[A-Za-z]", line):
+            expect_title = False
+            continue
+        if (
+            "<font" in line.lower()
+            or "__" in line
+            or re.search(r"\b(variable|standard|ai_injection)\b", line, re.IGNORECASE)
+        ):
+            expect_title = False
+            continue
+        raw_entries.append(line)
+        expect_title = False
+
+    numbered_idx = 1
+    for entry in raw_entries:
+        normalized = entry.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+
+        if normalized.startswith("signature block") or normalized.startswith("notary /"):
+            section_name = entry
+        elif normalized.startswith("schedules"):
+            section_name = f"SECTION {numbered_idx} - SCHEDULES"
+            numbered_idx += 1
+        else:
+            section_name = f"SECTION {numbered_idx} - {entry}"
+            numbered_idx += 1
+
+        candidates.append({
+            "section_name": section_name,
+            "section_id": _heading_to_section_id(section_name, len(candidates) + 1),
+            "order": len(candidates) + 1,
+        })
+
+    return candidates
+
+
 def _extract_heading_candidates(template_text: str) -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
     seen = set()
-    lines = [line.strip() for line in template_text.splitlines()]
+    lines = [_clean_heading_text(line) for line in template_text.splitlines()]
+
+    def _add_candidate(heading: str):
+        cleaned = _clean_heading_text(re.sub(r"\s*\[[^\]]+\]\s*$", "", heading))
+        if cleaned.lower().startswith("schedules ("):
+            return
+        normalized = re.sub(r"\s*[-:\u2013\u2014]+\s*", " ", cleaned).lower()
+        if not cleaned or normalized in seen:
+            return
+        seen.add(normalized)
+        candidates.append({
+            "section_name": cleaned,
+            "section_id": _heading_to_section_id(cleaned, len(candidates) + 1),
+            "order": len(candidates) + 1,
+        })
+
+    for toc_candidate in _extract_toc_heading_candidates(template_text):
+        _add_candidate(toc_candidate.get("section_name", ""))
 
     patterns = [
-        re.compile(r"^(SECTION\s+\d+[A-Z]?(?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
-        re.compile(r"^(SECTION\s+[A-Z](?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
-        re.compile(r"^(SCHEDULE\s*[-–]?\s*[A-Z](?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
-        re.compile(r"^(EXECUTION\s+BLOCK(?:\s*[-.:]\s*.*)?)$", re.IGNORECASE),
+        re.compile(r"^(SECTION\s+\d+[A-Z]?(?:\s*[-.:\u2013\u2014]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(SECTION\s+[A-Z](?:\s*[-.:\u2013\u2014]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(SCHEDULE\s*[-\u2013\u2014]?\s*[A-Z](?:\s*[-.:\u2013\u2014]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(EXECUTION(?:\s*&|\s+AND)?\s+SIGNATURE\s+BLOCK(?:\s*[-.:\u2013\u2014]\s*.*)?)$", re.IGNORECASE),
+        re.compile(r"^(NOTARY\s*/\s*SUB-REGISTRAR\s+ACKNOWLEDGMENT)$", re.IGNORECASE),
     ]
 
-    for line in lines:
+    stitched_lines: List[str] = []
+    idx = 0
+    while idx < len(lines):
+        line = re.sub(r"^[#*§\u25a0\u2605]+\s*", "", lines[idx]).strip()
+        if not line:
+            idx += 1
+            continue
+
+        stitched = line
+        if re.match(r"^(SECTION|SCHEDULE)\b", line, re.IGNORECASE) and idx + 1 < len(lines):
+            next_line = re.sub(r"^[#*§\u25a0\u2605]+\s*", "", lines[idx + 1]).strip()
+            if (
+                next_line
+                and len(stitched) < 110
+                and not re.match(r"^(SECTION|SCHEDULE|PAGE\s+\d+|JURINEX TEMPLATE \|)", next_line, re.IGNORECASE)
+                and not re.match(r"^\d+(?:\.\d+)?\b", next_line)
+                and not re.match(r"^SPECIAL CLAUSE$", next_line, re.IGNORECASE)
+            ):
+                stitched = f"{stitched} {next_line}"
+                idx += 1
+
+        stitched_lines.append(_clean_heading_text(stitched))
+        idx += 1
+
+    for line in stitched_lines:
         if not line:
             continue
         heading = None
@@ -3141,15 +3251,9 @@ def _extract_heading_candidates(template_text: str) -> List[Dict[str, Any]]:
         if not heading:
             continue
 
-        normalized = heading.lower()
-        if normalized in seen:
+        if len(heading) > 140 or heading.endswith(" it shall be stamped at"):
             continue
-        seen.add(normalized)
-        candidates.append({
-            "section_name": heading,
-            "section_id": _heading_to_section_id(heading, len(candidates) + 1),
-            "order": len(candidates) + 1,
-        })
+        _add_candidate(heading)
 
     return candidates
 
@@ -3543,8 +3647,8 @@ WRONG - DO NOT create sections for individual template sentences:
 These are BOILERPLATE TEXT that belong INSIDE a section.
 They are NOT sections themselves.
 
-WRONG - Do NOT create 20-25 sections for a 10-page document.
-  But if the uploaded template really contains many genuine headings across later pages,
+WRONG - Do NOT fragment one continuous section into many fake micro-sections.
+  But if the uploaded template really contains 20+ genuine headings across later pages,
   you must return all of them.
 
 IMPORTANT FOR ANY TEMPLATE:
@@ -3555,6 +3659,16 @@ IMPORTANT FOR ANY TEMPLATE:
   - Do NOT stop after the first 2-3 pages if the template continues with later headings.
   - Use the PRE-DETECTED HEADING CANDIDATES above as evidence, but keep only items
     that truly behave like headings in this uploaded template.
+  - If the document contains a TABLE OF CONTENTS, treat it as a coverage checklist.
+    Reconcile your final section list against it before returning JSON.
+  - Missing later sections means your answer is incomplete.
+
+FULL-DOCUMENT COVERAGE PROTOCOL:
+  1. Scan the full document from first page to last page.
+  2. Build the section list from actual headings and major structural blocks.
+  3. Reconcile that list with the TABLE OF CONTENTS and PRE-DETECTED HEADING CANDIDATES.
+  4. If the TOC or heading candidates show more sections than your draft answer, keep analysing until they are covered.
+  5. Prefer complete coverage over an artificially small section count.
 
 =================================================================
 RULE 3 - FIELDS (variables the user fills in)
@@ -3571,6 +3685,8 @@ Fields = the VARIABLE SLOTS inside each section:
 
 IMPORTANT: If the template uses {{field_name}} or __field_name__ placeholders extensively, extract EVERY UNIQUE placeholder
 as a field in the section where it first appears. Do NOT skip any {{...}} or __...__ tokens.
+If a section has visible blanks, labels, signature lines, property rows, witness rows, notary rows,
+schedule tables, execution metadata, or registration details, convert those fillable items into fields.
 
 Field requirements:
   - Unique snake_case "key" — for {{field_name}} use name inside braces; for __field_name__ use name between underscores

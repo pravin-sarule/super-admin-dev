@@ -16,7 +16,7 @@ import SystemPromptManagement from './pages/dashboard/SystemPromptManagement';
 import AgentList from './pages/dashboard/agent-prompt';
 import LLMManagement from './pages/dashboard/LLMManagement';
 import DocumentManagement from './pages/dashboard/DocumentManagement';
-import CitationManagement from './pages/dashboard/CitationManagement/index.js';
+import CitationManagement from './pages/dashboard/CitationManagement';
 import AddCaseType from './pages/dashboard/content/AddCaseType';
 import AddCourt from './pages/dashboard/content/AddCourt';
 import AddJudge from './pages/dashboard/content/AddJudge';
