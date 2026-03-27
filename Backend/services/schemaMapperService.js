@@ -217,31 +217,17 @@ const extractGeneratedSection = (text, sectionNumber, keyword, summaryType) => {
  */
 const findSection = (text, sectionNumber, keywords) => {
   if (!text) return '';
-  
-  // Try to find section by number pattern (2.1, 2.2, etc.)
-  const sectionPattern = new RegExp(
-    `(?:^|\\n)\\s*${sectionNumber.replace('.', '\\.')}[.\\s]+[^\\n]*(?:\\n(?!\\s*(?:2\\.|3\\.|\\d+\\.|$))[^\\n]*)*`,
-    'im'
-  );
-  
-  let match = text.match(sectionPattern);
-  if (match) {
-    return match[0];
+
+  const normalizedText = normalizeText(text);
+  const lines = normalizedText.split('\n');
+  const startIndex = findSectionStartLine(lines, sectionNumber, keywords);
+
+  if (startIndex !== -1) {
+    const endIndex = findSectionEndLine(lines, startIndex, sectionNumber);
+    return lines.slice(startIndex, endIndex).join('\n').trim();
   }
-  
-  // Fallback: search by keywords
-  for (const keyword of keywords) {
-    const keywordPattern = new RegExp(
-      `(?:^|\\n)[^\\n]*${keyword}[^\\n]*(?:\\n(?!\\s*(?:2\\.|3\\.|\\d+\\.|$))[^\\n]*)*`,
-      'im'
-    );
-    match = text.match(keywordPattern);
-    if (match) {
-      return match[0];
-    }
-  }
-  
-  return '';
+
+  return findKeywordWindow(normalizedText, keywords);
 };
 
 /**
@@ -252,7 +238,7 @@ const extractContent = (sectionText) => {
   
   // Remove section headers and labels
   let content = sectionText
-    .replace(/^\s*\d+\.\d+\s*[^\n]*\n?/i, '')
+    .replace(/^\s*(?:section\s*)?\d+(?:[.\-\s]\d+)+[:.)\-\s]*[^\n]*\n?/i, '')
     .replace(/^(?:content|summary|text):\s*/i, '')
     .trim();
   
@@ -374,9 +360,142 @@ const extractAttachmentChecklist = (text, document) => {
   return checklist.length > 0 ? checklist : [];
 };
 
+const normalizeText = (text) => {
+  return String(text || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+};
+
+const escapeRegex = (value) => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const normalizeSectionNumber = (sectionNumber) => sectionNumber.replace(/[^\d]+/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+
+const buildSectionNumberPattern = (sectionNumber) => {
+  const normalized = normalizeSectionNumber(sectionNumber);
+  const parts = normalized.split('.').filter(Boolean);
+  return parts.map(escapeRegex).join('[\\s.\\-]+');
+};
+
+const buildKeywordPatterns = (keywords = []) => {
+  return keywords
+    .filter(Boolean)
+    .map((keyword) => new RegExp(`\\b${escapeRegex(String(keyword)).replace(/\\[\s_-]+/g, '[\\\\s_-]+')}\\b`, 'i'));
+};
+
+const isLikelyHeadingLine = (line) => {
+  if (!line) return false;
+  const trimmed = line.trim();
+  if (!trimmed || trimmed.length > 220) return false;
+
+  return /^(?:section\s*)?(?:\d+(?:[.\-\s]\d+)+|\d+\.)\s*\S+/i.test(trimmed);
+};
+
+const findSectionStartLine = (lines, sectionNumber, keywords) => {
+  const sectionNumberPattern = new RegExp(`^(?:section\\s*)?${buildSectionNumberPattern(sectionNumber)}(?:\\b|[:.)\\-\\s])`, 'i');
+  const keywordPatterns = buildKeywordPatterns(keywords);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+
+    if (sectionNumberPattern.test(line)) {
+      return index;
+    }
+
+    const keywordMatches = keywordPatterns.filter((pattern) => pattern.test(line)).length;
+    if (keywordMatches >= Math.min(2, keywordPatterns.length) && isLikelyHeadingLine(line)) {
+      return index;
+    }
+  }
+
+  return -1;
+};
+
+const findSectionEndLine = (lines, startIndex, sectionNumber) => {
+  const currentMajor = normalizeSectionNumber(sectionNumber).split('.')[0] || '';
+
+  for (let index = startIndex + 1; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    if (!line) continue;
+
+    if (!isLikelyHeadingLine(line)) {
+      continue;
+    }
+
+    const match = line.match(/^(?:section\s*)?(\d+(?:[.\-\s]\d+)+|\d+\.)/i);
+    const headingNumber = normalizeSectionNumber(match?.[1] || '');
+
+    if (!headingNumber) {
+      continue;
+    }
+
+    if (headingNumber !== normalizeSectionNumber(sectionNumber)) {
+      const headingMajor = headingNumber.split('.')[0] || '';
+      if (!currentMajor || headingMajor === currentMajor || Number(headingMajor) > Number(currentMajor)) {
+        return index;
+      }
+    }
+  }
+
+  return lines.length;
+};
+
+const findKeywordWindow = (text, keywords) => {
+  if (!text || !Array.isArray(keywords) || keywords.length === 0) {
+    return '';
+  }
+
+  const windows = [];
+  const normalizedKeywords = keywords.filter(Boolean).map((keyword) => String(keyword).trim()).filter(Boolean);
+
+  for (const keyword of normalizedKeywords) {
+    const pattern = new RegExp(`\\b${escapeRegex(keyword).replace(/\\[\s_-]+/g, '[\\\\s_-]+')}\\b`, 'ig');
+    let match;
+
+    while ((match = pattern.exec(text)) !== null) {
+      const start = Math.max(0, match.index - 500);
+      const end = Math.min(text.length, match.index + keyword.length + 2000);
+      windows.push({ start, end });
+
+      if (windows.length >= 3) {
+        break;
+      }
+    }
+
+    if (windows.length >= 3) {
+      break;
+    }
+  }
+
+  if (windows.length === 0) {
+    return '';
+  }
+
+  windows.sort((a, b) => a.start - b.start);
+  const merged = [];
+
+  for (const window of windows) {
+    const previous = merged[merged.length - 1];
+    if (previous && window.start <= previous.end + 200) {
+      previous.end = Math.max(previous.end, window.end);
+    } else {
+      merged.push({ ...window });
+    }
+  }
+
+  return merged
+    .slice(0, 2)
+    .map(({ start, end }) => text.slice(start, end).trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .trim();
+};
+
 module.exports = {
   mapToLegalSummarySchema,
   mapToInputFormDataSchema,
   mapToOutputSummaryTemplateSchema,
 };
-

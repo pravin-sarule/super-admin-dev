@@ -28,6 +28,7 @@ const secretRoutes = require('./routes/secretManagerRoutes');
 const contentRoutes = require('./routes/contentRoutes');
 const draftPool = require('./config/draftDB');
 const paymentPool = require('./config/payment_DB');
+const citationPool = require('./config/citationDB');
 const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const customQueryRoutes = require('./routes/customQueryRoutes');
@@ -36,6 +37,10 @@ const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
 const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
 const fileRoutes = require('./routes/fileRoutes');
+const citationAdminRoutes = require('./routes/citation_routes');
+const userAdminRoutes = require('./routes/user_routes/users.routes');
+const requestIdMiddleware = require('./middleware/requestId.middleware');
+const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
 
 // // --- CORS ---
@@ -71,6 +76,7 @@ app.use(cors({
 
 // --- Middleware ---
 app.use(express.json());
+app.use(requestIdMiddleware);
 app.use((req, res, next) => {
   console.log(`📥 Incoming Request: ${req.method} ${req.originalUrl}`);
   next();
@@ -99,8 +105,12 @@ app.use('/api/users', userRoutes(pool));
 console.log('📌 /api/admin/templates → Using Main DB (pool)');
 app.use('/api/admin/templates', adminTemplateRoutes(draftPool));
 
-console.log('📌 /api/admin          → Using Main DB (pool)');
-app.use('/api/admin', planRoutes(paymentPool));
+// Citation admin: dedicated path so it never conflicts with /api/admin/plans or other admin routes
+console.log('📌 /api/citation-admin  → Using Citation DB + Auth DB + docDB');
+app.use('/api/citation-admin', citationAdminRoutes(citationPool, pool, docPool));
+
+console.log('📌 /api/admin/plans     → Using Payment DB (paymentPool)');
+app.use('/api/admin/plans', planRoutes(paymentPool));
 
 console.log('📌 /api/support-queries → Using Main DB (pool)');
 app.use('/api/support-queries', supportQueryRoutes(pool));
@@ -129,10 +139,35 @@ app.use('/api/token-usage', tokenUsageRoutes(pool));
 console.log('📌 /api/file → Using Main DB (pool) ✨');
 app.use('/api/file', fileRoutes(pool));
 
+// --- Health Check (no auth required) ---
+app.get('/api/admin/health', async (req, res) => {
+  const checks = {};
+  try {
+    await pool.query('SELECT 1');
+    checks.authDB = 'ok';
+  } catch (e) {
+    checks.authDB = `error: ${e.message}`;
+  }
+  try {
+    await citationPool.query('SELECT 1');
+    checks.citationDB = 'ok';
+  } catch (e) {
+    checks.citationDB = `error: ${e.message}`;
+  }
+  const allOk = checks.authDB === 'ok' && checks.citationDB === 'ok';
+  res.status(allOk ? 200 : 503).json({ success: allOk, databases: checks });
+});
+
+console.log('📌 /api/admin/users → Using Auth DB (pool)');
+app.use('/api/admin/users', userAdminRoutes(pool));
+
 console.log('='.repeat(60) + '\n');
 
 // --- 404 ---
 app.use((req, res) => res.status(404).json({ message: 'API Endpoint Not Found' }));
+
+// --- Centralized error handler (must be last) ---
+app.use(errorMiddleware);
 
 // --- Initialize system_prompts table if it doesn't exist ---
 const initializeSystemPromptsTable = async () => {
@@ -344,7 +379,7 @@ const startServer = async () => {
       console.log(`\n⚠️  ${signal} received. Closing server...`);
       server.close(async () => {
         console.log('🛑 HTTP server closed.');
-        
+
         // Close both database pools
         try {
           await pool.end();
@@ -360,6 +395,13 @@ const startServer = async () => {
           console.error('❌ Error closing docDB pool:', e);
         }
 
+        try {
+          await citationPool.end();
+          console.log('✅ Citation PostgreSQL pool closed.');
+        } catch (e) {
+          console.error('❌ Error closing citation pool:', e);
+        }
+
         process.exit(0);
       });
     };
@@ -370,7 +412,7 @@ const startServer = async () => {
     process.on('unhandledRejection', err => {
       console.error('❌ Unhandled Rejection:', err);
     });
-    
+
     process.on('uncaughtException', err => {
       console.error('❌ Uncaught Exception:', err);
       shutdown('Uncaught Exception');

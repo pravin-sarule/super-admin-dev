@@ -14,8 +14,8 @@ const createAgentPrompt = async (req, res) => {
   if (!prompt || !prompt.trim()) {
     return res.status(400).json({ message: 'Prompt is required' });
   }
-  if (!agent_type || !['drafting', 'summarization'].includes(agent_type)) {
-    return res.status(400).json({ message: "agent_type must be 'drafting' or 'summarization'" });
+  if (!agent_type || !['drafting', 'summarization', 'citation'].includes(agent_type)) {
+    return res.status(400).json({ message: "agent_type must be 'drafting', 'summarization' or 'citation'" });
   }
 
   const modelIds = Array.isArray(model_ids) ? model_ids : [];
@@ -44,7 +44,7 @@ const createAgentPrompt = async (req, res) => {
 
 /**
  * @desc Get all agent prompts (optional filter by agent_type)
- * @route GET /api/agent-prompts?agent_type=drafting|summarization
+ * @route GET /api/agent-prompts?agent_type=drafting|summarization|citation
  */
 const getAllAgentPrompts = async (req, res) => {
   const { agent_type } = req.query;
@@ -53,7 +53,7 @@ const getAllAgentPrompts = async (req, res) => {
     let query = 'SELECT * FROM agent_prompts';
     const params = [];
 
-    if (agent_type && ['drafting', 'summarization'].includes(agent_type)) {
+    if (agent_type && ['drafting', 'summarization', 'citation'].includes(agent_type)) {
       query += ' WHERE agent_type = $1';
       params.push(agent_type);
     }
@@ -121,8 +121,8 @@ const updateAgentPrompt = async (req, res) => {
   if (prompt !== undefined && !prompt.trim()) {
     return res.status(400).json({ message: 'Prompt cannot be empty' });
   }
-  if (agent_type !== undefined && !['drafting', 'summarization'].includes(agent_type)) {
-    return res.status(400).json({ message: "agent_type must be 'drafting' or 'summarization'" });
+  if (agent_type !== undefined && !['drafting', 'summarization', 'citation'].includes(agent_type)) {
+    return res.status(400).json({ message: "agent_type must be 'drafting', 'summarization' or 'citation'" });
   }
 
   try {
