@@ -727,6 +727,7 @@ const AgentList = () => {
   const [activeTab, setActiveTab] = useState('drafting'); // first tab: Drafting Agents
   const [draftingAgents, setDraftingAgents] = useState([]);
   const [summarizationAgents, setSummarizationAgents] = useState([]);
+  const [citationAgents, setCitationAgents] = useState([]);
   const [llmModels, setLlmModels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -750,12 +751,14 @@ const AgentList = () => {
     }
     try {
       setError(null);
-      const [draftRes, sumRes] = await Promise.all([
+      const [draftRes, sumRes, citationRes] = await Promise.all([
         api.get('/agent-prompts', { params: { agent_type: 'drafting' } }),
         api.get('/agent-prompts', { params: { agent_type: 'summarization' } }),
+        api.get('/agent-prompts', { params: { agent_type: 'citation' } }),
       ]);
       setDraftingAgents(draftRes.data?.data || []);
       setSummarizationAgents(sumRes.data?.data || []);
+      setCitationAgents(citationRes.data?.data || []);
     } catch (err) {
       console.error('Error fetching agents:', err);
       setError(err.response?.data?.message || 'Failed to load agents.');
@@ -791,8 +794,18 @@ const AgentList = () => {
     Promise.all([fetchAgents(), fetchLlmModels()]).finally(() => setLoading(false));
   }, []);
 
-  const currentAgents = activeTab === 'drafting' ? draftingAgents : summarizationAgents;
-  const agentType = activeTab === 'drafting' ? 'drafting' : 'summarization';
+  const currentAgents =
+    activeTab === 'drafting'
+      ? draftingAgents
+      : activeTab === 'summarization'
+        ? summarizationAgents
+        : citationAgents;
+  const agentType =
+    activeTab === 'drafting'
+      ? 'drafting'
+      : activeTab === 'summarization'
+        ? 'summarization'
+        : 'citation';
 
   const openCreate = () => {
     setCreateForm({
@@ -884,7 +897,7 @@ const AgentList = () => {
       <div className="mb-6">
         <div className="border-l-4 border-blue-600 pl-4">
           <h1 className="text-2xl font-bold text-slate-900">Agent Prompt Management</h1>
-          <p className="text-slate-600 mt-1 text-sm">Create and manage drafting and summarization agents with prompts, models and LLM parameters.</p>
+          <p className="text-slate-600 mt-1 text-sm">Create and manage drafting, citation and summarization agents with prompts, models and LLM parameters.</p>
         </div>
       </div>
 
@@ -908,6 +921,17 @@ const AgentList = () => {
               }`}
             >
               Drafting Agents
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('citation')}
+              className={`flex-1 px-4 py-3 text-sm font-medium transition-colors ${
+                activeTab === 'citation'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-50 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              Citation Agents
             </button>
             <button
               type="button"
@@ -967,7 +991,7 @@ const AgentList = () => {
               <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-slate-50/80">
                 <div>
                   <h2 className="text-xl font-bold text-slate-900">Create Agent</h2>
-                  <p className="text-sm text-slate-500 mt-0.5">Add a new drafting or summarization agent</p>
+                  <p className="text-sm text-slate-500 mt-0.5">Add a new drafting, citation or summarization agent</p>
                 </div>
                 <button
                   type="button"

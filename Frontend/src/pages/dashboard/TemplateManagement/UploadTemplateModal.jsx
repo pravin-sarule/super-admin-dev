@@ -164,7 +164,7 @@ const UploadModal = ({
                                 {isUploading ? (
                                     <>
                                         <Loader2 className="animate-spin" size={24} />
-                                        Processing via Document AI...
+                                        Uploading & starting analysis...
                                     </>
                                 ) : (
                                     <>

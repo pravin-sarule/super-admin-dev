@@ -31,6 +31,13 @@ class DocumentAIService:
             self.client = None
             self.storage_client = None
 
+    def _get_processor_name(self) -> str:
+        if not self.client:
+            raise Exception("Document AI client is not initialized.")
+        if self.processor_id:
+            return self.client.processor_path(self.project_id, self.location, self.processor_id)
+        return f"projects/{self.project_id}/locations/{self.location}/processors/general-ocr"
+
     async def parallel_process_pdf(self, file_content: bytes):
         """
         Splits PDF into chunks and processes them in parallel using online method.
@@ -93,7 +100,7 @@ class DocumentAIService:
             gcs_output_config={"gcs_uri": gcs_output_uri}
         )
         
-        name = self.client.processor_path(self.project_id, self.location, self.processor_id)
+        name = self._get_processor_name()
         
         request = documentai.BatchProcessRequest(
             name=name,
@@ -137,7 +144,7 @@ class DocumentAIService:
         if not self.client:
             raise Exception("Document AI Service not properly initialized.")
 
-        name = self.client.processor_path(self.project_id, self.location, self.processor_id)
+        name = self._get_processor_name()
         raw_document = documentai.RawDocument(content=file_content, mime_type="application/pdf")
         request = documentai.ProcessRequest(name=name, raw_document=raw_document)
         

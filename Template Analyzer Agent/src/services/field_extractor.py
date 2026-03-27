@@ -50,6 +50,8 @@ class HybridFieldExtractor:
     PATTERNS: Dict[str, re.Pattern] = {
         # {{field_name}} — Jinja/Handlebars style (JuriNex, DocuSign, etc.)
         "curly_field": re.compile(r"\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}"),
+        # __field_name__ — double-underscore style (JuriNex Sale Deed, etc.)
+        "double_underscore_field": re.compile(r"__([a-zA-Z][a-zA-Z0-9_]*)__"),
         # ARTICLE________OF THE CONSTITUTION
         "underscore_field": re.compile(r"([A-Z\s]+)_{3,}([A-Z\s]+)"),
         # .....Petitioner
@@ -105,33 +107,65 @@ class HybridFieldExtractor:
 
     def _extract_fields_by_pattern(self, text: str) -> List[Field]:
         fields: List[Field] = []
-        seen_curly: set = set()
-        lines = text.splitlines()
+        seen_keys: set = set()
 
-        for line in lines:
-            stripped = line.strip()
-            if not stripped:
-                continue
+        # --- Full-text scan for explicit placeholder styles ---
+        # PDF OCR can split tokens across lines/cells; scanning the full text catches those.
+        # Strategy:
+        #   1. Scan raw text with a multiline-aware pattern (catches tokens split by a newline)
+        #   2. Scan whitespace-collapsed text with the standard pattern (catches all single-line tokens)
+        # Both scans share the same `seen_keys` set so there are no duplicates.
 
-            # {{field_name}} style — collect ALL occurrences on this line
-            for m in self.PATTERNS["curly_field"].finditer(stripped):
-                key = m.group(1)
-                if key in seen_curly:
+        # Multiline-aware variants: allow a single newline (+ optional indent) inside the token
+        _double_underscore_multiline = re.compile(
+            r"__([a-zA-Z][a-zA-Z0-9_]*(?:\n[ \t]*[a-zA-Z0-9_]*)*)__"
+        )
+        _curly_multiline = re.compile(
+            r"\{\{([a-zA-Z][a-zA-Z0-9_]*(?:\n[ \t]*[a-zA-Z0-9_]*)*)\}\}"
+        )
+
+        # Whitespace-collapsed text catches tokens that are intact but on one line
+        collapsed = re.sub(r"\s+", " ", text)
+
+        def _add_placeholder_fields(matches, method: str, confidence: float):
+            for m in matches:
+                key = re.sub(r"\s+", "", m.group(1))   # normalise multiline keys
+                if not key or key in seen_keys:
                     continue
-                seen_curly.add(key)
+                seen_keys.add(key)
                 ftype = self._infer_type_from_key(key)
+                marker = f"__{key}__" if "double_underscore" in method else f"{{{{{key}}}}}"
                 fields.append(
                     Field(
                         field_id=key,
                         field_name=self._humanize(key),
                         field_type=ftype,
                         page_number=1,
-                        location_marker=f"{{{{{key}}}}}",
-                        surrounding_text=stripped[:120],
-                        extraction_methods=["pattern_curly"],
-                        confidence=0.98,
+                        location_marker=marker,
+                        surrounding_text=m.group(0)[:120],
+                        extraction_methods=[method],
+                        confidence=confidence,
                     )
                 )
+
+        # __field__ — multiline scan on raw text, then standard scan on collapsed text
+        _add_placeholder_fields(_double_underscore_multiline.finditer(text),
+                                "pattern_double_underscore", 0.97)
+        _add_placeholder_fields(self.PATTERNS["double_underscore_field"].finditer(collapsed),
+                                "pattern_double_underscore", 0.97)
+
+        # {{field}} — multiline scan on raw text, then standard scan on collapsed text
+        _add_placeholder_fields(_curly_multiline.finditer(text),
+                                "pattern_curly", 0.98)
+        _add_placeholder_fields(self.PATTERNS["curly_field"].finditer(collapsed),
+                                "pattern_curly", 0.98)
+
+        lines = text.splitlines()
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
 
             # Underscore style
             m = self.PATTERNS["underscore_field"].search(stripped)

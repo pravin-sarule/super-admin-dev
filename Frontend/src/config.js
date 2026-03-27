@@ -1,9 +1,28 @@
 import axios from 'axios';
 
+// Cloud Run defaults; override with VITE_API_BASE_URL / VITE_BACKEND_ORIGIN / VITE_ANALYSIS_API_URL for local dev
+const DEFAULT_BACKEND_ORIGIN = 'https://super-admin-backend-120280829617.asia-south1.run.app';
+const DEFAULT_ANALYSIS_API_BASE = 'https://template-analyzer-agent-120280829617.asia-south1.run.app/analysis';
+
+const envApiBase =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
+    ? import.meta.env.VITE_API_BASE_URL
+    : null;
+
 // Use env in production so all pages (Admin, User, etc.) hit the same backend and token works
-const API_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
-  ? import.meta.env.VITE_API_BASE_URL
-  : 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+const API_BASE_URL = envApiBase || `${DEFAULT_BACKEND_ORIGIN}/api`;
+
+export const BACKEND_ORIGIN =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_BACKEND_ORIGIN
+    ? import.meta.env.VITE_BACKEND_ORIGIN
+    : envApiBase
+      ? String(envApiBase).replace(/\/api\/?$/, '')
+      : DEFAULT_BACKEND_ORIGIN;
+
+export const ANALYSIS_API_BASE_URL =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_ANALYSIS_API_URL
+    ? import.meta.env.VITE_ANALYSIS_API_URL
+    : DEFAULT_ANALYSIS_API_BASE;
 
 const ADMIN_CREATE_URL = `${API_BASE_URL}/admins/create`;
 const ADMIN_GET_ALL_URL = `${API_BASE_URL}/admins`;
@@ -36,4 +55,11 @@ axios.interceptors.response.use(
   }
 );
 
-export { API_BASE_URL, ADMIN_CREATE_URL, ADMIN_GET_ALL_URL, ADMIN_GET_BY_ID_URL, getToken, getAuthHeaders };
+export {
+  API_BASE_URL,
+  ADMIN_CREATE_URL,
+  ADMIN_GET_ALL_URL,
+  ADMIN_GET_BY_ID_URL,
+  getToken,
+  getAuthHeaders,
+};

@@ -17,7 +17,8 @@ import {
   Gavel, // Added for Case Type
   Building2, // Added for Court
   UserCheck, // Added for Judge
-  FileCheck // Added for Document Management
+  FileCheck, // Added for Document Management
+  BookMarked, // Added for Citation Management
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -55,6 +56,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Prompt Management',
       path: '/dashboard/prompts',
       icon: Edit,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Citation Management',
+      path: '/dashboard/citation-management',
+      icon: BookMarked,
       roles: ['super-admin']
     },
     {

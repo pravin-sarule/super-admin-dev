@@ -5,6 +5,8 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 
+import { ANALYSIS_API_BASE_URL as ANALYSIS_API_URL } from '../../../config';
+
 import TemplateList from './TemplateList';
 import UploadModal from './UploadTemplateModal';
 import TemplateDetailsModal from './TemplateDetailsModal';
@@ -40,9 +42,6 @@ const TemplateManagement = () => {
         file: null,
         image: null
     });
-
-    // API Config – Template Analyzer Agent (Cloud Run)
-    const ANALYSIS_API_URL = import.meta.env?.VITE_ANALYSIS_API_URL || 'https://template-analyzer-agent-120280829617.asia-south1.run.app/analysis';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');
@@ -241,31 +240,69 @@ const TemplateManagement = () => {
         }
 
         try {
+            // Step 1: Upload & start background analysis (returns immediately)
             const response = await axios.post(`${ANALYSIS_API_URL}/upload-template`, uploadData, {
                 headers: { 'Content-Type': 'multipart/form-data', ...getAuthHeaders() },
-                timeout: 300000
+                timeout: 120000  // 2 min for OCR + GCS upload only
             });
 
-            if (response.data.status === 'success') {
-                MySwal.fire({
-                    icon: 'success',
-                    title: 'Success!',
-                    text: 'Template uploaded and processed successfully.',
-                    timer: 3000
-                });
-                setShowUploadModal(false);
-                setFormData({ name: '', category: '', subcategory: '', description: '', file: null, image: null });
+            const templateId = response.data.template_id;
+            if (!templateId) throw new Error('No template_id returned from server.');
+
+            // Step 2: Close modal, refresh list (shows the template as "processing")
+            setShowUploadModal(false);
+            setFormData({ name: '', category: '', subcategory: '', description: '', file: null, image: null });
+            fetchTemplates();
+
+            // Step 3: Poll for completion in background
+            const pollInterval = setInterval(async () => {
+                try {
+                    const statusRes = await axios.get(`${ANALYSIS_API_URL}/template/${templateId}/status`, {
+                        headers: getAuthHeaders()
+                    });
+                    const { status, sections_ready } = statusRes.data;
+
+                    if (status === 'active') {
+                        clearInterval(pollInterval);
+                        setIsUploading(false);
+                        fetchTemplates();
+                        MySwal.fire({
+                            icon: 'success',
+                            title: 'Analysis Complete!',
+                            text: `Template processed with ${sections_ready} sections ready.`,
+                            timer: 3000,
+                            showConfirmButton: false
+                        });
+                    } else if (status === 'error') {
+                        clearInterval(pollInterval);
+                        setIsUploading(false);
+                        MySwal.fire({
+                            icon: 'warning',
+                            title: 'Analysis Issue',
+                            text: 'Template was saved but AI analysis encountered an error. You can still use it.',
+                        });
+                        fetchTemplates();
+                    }
+                } catch {
+                    // Polling errors are non-fatal, keep trying
+                }
+            }, 8000); // Poll every 8 seconds
+
+            // Safety: stop polling after 15 minutes
+            setTimeout(() => {
+                clearInterval(pollInterval);
+                setIsUploading(false);
                 fetchTemplates();
-            }
+            }, 900000);
+
         } catch (error) {
             console.error('Upload error:', error);
+            setIsUploading(false);
             MySwal.fire({
                 icon: 'error',
                 title: 'Upload Failed',
                 text: error.response?.data?.detail || 'Something went wrong.'
             });
-        } finally {
-            setIsUploading(false);
         }
     };
 

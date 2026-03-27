@@ -3010,7 +3010,8 @@ try:
     import google.adk as adk
 except ImportError:
     adk = None
-import json, re, asyncio, math
+import json, re, asyncio, math, time
+from urllib import request as urllib_request, error as urllib_error
 from typing import Optional, List, Dict, Any, Tuple
 from ..config import settings
 
@@ -3102,16 +3103,139 @@ def _blueprint_to_prompt_spec(blueprint: list, section_name: str) -> str:
     return "\n".join(lines)
 
 
+def _clean_heading_text(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip(" -:\t")).strip()
+
+
+def _heading_to_section_id(text: str, fallback_index: int) -> str:
+    cleaned = re.sub(r"[^a-z0-9]+", "_", _clean_heading_text(text).lower()).strip("_")
+    return cleaned or f"section_{fallback_index}"
+
+
+def _extract_heading_candidates(template_text: str) -> List[Dict[str, Any]]:
+    candidates: List[Dict[str, Any]] = []
+    seen = set()
+    lines = [line.strip() for line in template_text.splitlines()]
+
+    patterns = [
+        re.compile(r"^(SECTION\s+\d+[A-Z]?(?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(SECTION\s+[A-Z](?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(SCHEDULE\s*[-–]?\s*[A-Z](?:\s*[-.:]\s*|\s+)(.+))$", re.IGNORECASE),
+        re.compile(r"^(EXECUTION\s+BLOCK(?:\s*[-.:]\s*.*)?)$", re.IGNORECASE),
+    ]
+
+    for line in lines:
+        if not line:
+            continue
+        heading = None
+
+        for pattern in patterns:
+            match = pattern.match(line)
+            if match:
+                heading = _clean_heading_text(match.group(1))
+                break
+
+        if not heading and re.match(r"^\d{1,2}\s*[-.)]\s+[A-Z][A-Za-z0-9 ,&/'()\-]{4,}$", line):
+            heading = _clean_heading_text(line)
+
+        if not heading:
+            continue
+
+        normalized = heading.lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        candidates.append({
+            "section_name": heading,
+            "section_id": _heading_to_section_id(heading, len(candidates) + 1),
+            "order": len(candidates) + 1,
+        })
+
+    return candidates
+
+
+def _heading_candidates_to_display(candidates: List[Dict[str, Any]], max_items: int = 40) -> str:
+    if not candidates:
+        return "(none detected)"
+    lines = []
+    for item in candidates[:max_items]:
+        lines.append(f"  {item['order']}. {item['section_name']}")
+    if len(candidates) > max_items:
+        lines.append(f"  ... ({len(candidates) - max_items} more)")
+    return "\n".join(lines)
+
+
 class AntigravityAgent:
     MAX_TOKENS_JSON = 16384
     MAX_TOKENS_TEXT = 65536
     CHUNK_THRESHOLD_WORDS = 1500
 
     def __init__(self):
-        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.client = genai.Client(api_key=settings.GEMINI_API_KEY) if settings.GEMINI_API_KEY else None
         self.model_name = settings.GEMINI_MODEL
+        self.anthropic_api_key = settings.ANTHROPIC_API_KEY
+        self.anthropic_model = settings.ANTHROPIC_MODEL
+        self.default_provider = (settings.DEFAULT_LLM_PROVIDER or "claude").strip().lower()
+        self.section_extraction_provider = (settings.SECTION_EXTRACTION_PROVIDER or "claude").strip().lower()
+        self.prompt_refinement_provider = (settings.PROMPT_REFINEMENT_PROVIDER or self.default_provider).strip().lower()
+        self.text_generation_provider = (settings.TEXT_GENERATION_PROVIDER or self.default_provider).strip().lower()
+        self.validation_provider = (settings.VALIDATION_PROVIDER or self.default_provider).strip().lower()
+
+    async def _call_json(self, prompt: str, max_output_tokens: int = None, timeout: float = 300.0, provider: str = "auto") -> dict:
+        selected_provider = (provider or "auto").strip().lower()
+        if selected_provider == "auto":
+            if self.default_provider == "gemini" and self.client:
+                selected_provider = "gemini"
+            elif self.default_provider == "claude" and self.anthropic_api_key:
+                selected_provider = "claude"
+            elif self.anthropic_api_key:
+                selected_provider = "claude"
+            elif self.client:
+                selected_provider = "gemini"
+            else:
+                raise ValueError("No JSON-capable LLM is configured.")
+        elif selected_provider == "claude" and not self.anthropic_api_key and self.client:
+            print("DEBUG: Claude requested for JSON, but ANTHROPIC_API_KEY is missing. Falling back to Gemini.")
+            selected_provider = "gemini"
+        elif selected_provider == "gemini" and not self.client and self.anthropic_api_key:
+            print("DEBUG: Gemini requested for JSON, but GEMINI_API_KEY is missing. Falling back to Claude.")
+            selected_provider = "claude"
+
+        if selected_provider == "claude":
+            return await self._call_claude_json(prompt, max_output_tokens=max_output_tokens, timeout=timeout)
+        if selected_provider == "gemini":
+            return await self._call_gemini(prompt, max_output_tokens=max_output_tokens, timeout=timeout)
+        raise ValueError(f"Unsupported JSON provider: {selected_provider}")
+
+    async def _call_text(self, prompt: str, max_output_tokens: int = None, timeout: float = 600.0, provider: str = "auto") -> str:
+        selected_provider = (provider or "auto").strip().lower()
+        if selected_provider == "auto":
+            if self.default_provider == "gemini" and self.client:
+                selected_provider = "gemini"
+            elif self.default_provider == "claude" and self.anthropic_api_key:
+                selected_provider = "claude"
+            elif self.anthropic_api_key:
+                selected_provider = "claude"
+            elif self.client:
+                selected_provider = "gemini"
+            else:
+                raise ValueError("No text-capable LLM is configured.")
+        elif selected_provider == "claude" and not self.anthropic_api_key and self.client:
+            print("DEBUG: Claude requested for text, but ANTHROPIC_API_KEY is missing. Falling back to Gemini.")
+            selected_provider = "gemini"
+        elif selected_provider == "gemini" and not self.client and self.anthropic_api_key:
+            print("DEBUG: Gemini requested for text, but GEMINI_API_KEY is missing. Falling back to Claude.")
+            selected_provider = "claude"
+
+        if selected_provider == "claude":
+            return await self._call_claude_text(prompt, max_output_tokens=max_output_tokens, timeout=timeout)
+        if selected_provider == "gemini":
+            return await self._call_gemini_text(prompt, max_output_tokens=max_output_tokens, timeout=timeout)
+        raise ValueError(f"Unsupported text provider: {selected_provider}")
 
     async def _call_gemini(self, prompt: str, max_output_tokens: int = None, timeout: float = 300.0) -> dict:
+        if not self.client:
+            raise ValueError("GEMINI_API_KEY is not configured.")
         max_tok = max_output_tokens or self.MAX_TOKENS_JSON
         print(f"DEBUG: Gemini JSON call (max_tokens={max_tok})...")
         try:
@@ -3136,7 +3260,79 @@ class AntigravityAgent:
             return {}
         return result
 
+    async def _call_claude_json(self, prompt: str, max_output_tokens: int = None, timeout: float = 300.0) -> dict:
+        if not self.anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not configured.")
+
+        max_tok = max_output_tokens or self.MAX_TOKENS_JSON
+        print(f"DEBUG: Claude JSON call (model={self.anthropic_model}, max_tokens={max_tok})...")
+
+        payload = json.dumps({
+            "model": self.anthropic_model,
+            "max_tokens": max_tok,
+            "temperature": 0.1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }).encode("utf-8")
+
+        def _send_request() -> dict:
+            req = urllib_request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": self.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+            with urllib_request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        last_err = None
+        for attempt in range(3):
+            if attempt > 0:
+                wait = 15 * attempt
+                print(f"DEBUG: Claude JSON retry {attempt}/2 after {wait}s (prev error: {last_err})...")
+                await asyncio.sleep(wait)
+            try:
+                raw = await asyncio.wait_for(asyncio.to_thread(_send_request), timeout=timeout + 5)
+                last_err = None
+                break
+            except asyncio.TimeoutError:
+                last_err = f"timeout after {timeout}s"
+                continue
+            except urllib_error.HTTPError as e:
+                last_err = f"HTTP {e.code}"
+                if e.code in (429, 529, 503, 500):
+                    continue  # retryable
+                raise
+            except Exception as e:
+                last_err = str(e)
+                print(f"DEBUG: Claude JSON failed: {e}")
+                raise
+        if last_err:
+            raise ValueError(f"Claude JSON call failed after 3 attempts: {last_err}")
+
+        content = raw.get("content", [])
+        text = "".join(part.get("text", "") for part in content if isinstance(part, dict) and part.get("type") == "text").strip()
+        clean = self._extract_json(text)
+        try:
+            result = json.loads(clean)
+        except json.JSONDecodeError:
+            result = await self._auto_fix_json(clean)
+        if not isinstance(result, dict):
+            print(f"DEBUG: _call_claude_json got non-dict result (type={type(result).__name__}), returning empty dict")
+            return {}
+        return result
+
     async def _call_gemini_text(self, prompt: str, max_output_tokens: int = None, timeout: float = 600.0) -> str:
+        if not self.client:
+            raise ValueError("GEMINI_API_KEY is not configured for text generation.")
         max_tok = min(max_output_tokens or self.MAX_TOKENS_TEXT, self.MAX_TOKENS_TEXT)
         print(f"DEBUG: Gemini plain-text call (max_tokens={max_tok})...")
         try:
@@ -3151,6 +3347,70 @@ class AntigravityAgent:
         except Exception as e:
             print(f"DEBUG: Gemini failed: {e}"); raise
 
+    async def _call_claude_text(self, prompt: str, max_output_tokens: int = None, timeout: float = 600.0) -> str:
+        if not self.anthropic_api_key:
+            raise ValueError("ANTHROPIC_API_KEY is not configured for text generation.")
+
+        max_tok = min(max_output_tokens or self.MAX_TOKENS_TEXT, self.MAX_TOKENS_TEXT)
+        print(f"DEBUG: Claude plain-text call (model={self.anthropic_model}, max_tokens={max_tok})...")
+
+        payload = json.dumps({
+            "model": self.anthropic_model,
+            "max_tokens": max_tok,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+        }).encode("utf-8")
+
+        def _send_request() -> dict:
+            req = urllib_request.Request(
+                "https://api.anthropic.com/v1/messages",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": self.anthropic_api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+            with urllib_request.urlopen(req, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+
+        last_err = None
+        raw = None
+        for attempt in range(3):
+            if attempt > 0:
+                wait = 15 * attempt
+                print(f"DEBUG: Claude text retry {attempt}/2 after {wait}s (prev error: {last_err})...")
+                await asyncio.sleep(wait)
+            try:
+                raw = await asyncio.wait_for(asyncio.to_thread(_send_request), timeout=timeout + 5)
+                last_err = None
+                break
+            except asyncio.TimeoutError:
+                last_err = f"timeout after {timeout}s"
+                continue
+            except urllib_error.HTTPError as e:
+                last_err = f"HTTP {e.code}"
+                if e.code in (429, 529, 503, 500):
+                    continue
+                raise
+            except Exception as e:
+                last_err = str(e)
+                print(f"DEBUG: Claude text failed: {e}")
+                raise
+        if last_err:
+            raise ValueError(f"Claude text call failed after 3 attempts: {last_err}")
+        return "".join(
+            part.get("text", "")
+            for part in raw.get("content", [])
+            if isinstance(part, dict) and part.get("type") == "text"
+        ).strip()
+
     @staticmethod
     def _extract_json(text: str) -> str:
         m = re.search(r"```(?:json)?\s*\n?(\{[\s\S]*?\})\s*\n?```", text)
@@ -3162,14 +3422,53 @@ class AntigravityAgent:
         return raw
 
     async def _auto_fix_json(self, broken: str) -> dict:
-        resp = await asyncio.wait_for(
-            self.client.aio.models.generate_content(
-                model=self.model_name,
-                contents="Fix JSON syntax errors. Return ONLY valid JSON.\n\n" + broken[:12000],
-                config={"response_mime_type":"application/json",
-                        "max_output_tokens":8192,"temperature":0.0}),
-            timeout=60.0)
-        result = json.loads(self._extract_json((resp.text or "").strip()))
+        use_claude_first = (self.default_provider == "claude" and self.anthropic_api_key) or (not self.client and self.anthropic_api_key)
+        if use_claude_first:
+            payload = json.dumps({
+                "model": self.anthropic_model,
+                "max_tokens": 8192,
+                "temperature": 0.0,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Fix JSON syntax errors. Return ONLY valid JSON.\n\n" + broken[:12000]
+                    }
+                ]
+            }).encode("utf-8")
+
+            def _send_fix_request() -> dict:
+                req = urllib_request.Request(
+                    "https://api.anthropic.com/v1/messages",
+                    data=payload,
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-api-key": self.anthropic_api_key,
+                        "anthropic-version": "2023-06-01",
+                    },
+                    method="POST",
+                )
+                with urllib_request.urlopen(req, timeout=60) as response:
+                    return json.loads(response.read().decode("utf-8"))
+
+            raw = await asyncio.wait_for(asyncio.to_thread(_send_fix_request), timeout=65.0)
+            fixed_text = "".join(
+                part.get("text", "")
+                for part in raw.get("content", [])
+                if isinstance(part, dict) and part.get("type") == "text"
+            ).strip()
+        elif self.client:
+            resp = await asyncio.wait_for(
+                self.client.aio.models.generate_content(
+                    model=self.model_name,
+                    contents="Fix JSON syntax errors. Return ONLY valid JSON.\n\n" + broken[:12000],
+                    config={"response_mime_type":"application/json",
+                            "max_output_tokens":8192,"temperature":0.0}),
+                timeout=60.0)
+            fixed_text = (resp.text or "").strip()
+        else:
+            raise ValueError("No LLM API key is configured for JSON auto-fix.")
+
+        result = json.loads(self._extract_json(fixed_text))
         if not isinstance(result, dict):
             print(f"DEBUG: _auto_fix_json got non-dict result (type={type(result).__name__}), returning empty dict")
             return {}
@@ -3187,6 +3486,8 @@ class AntigravityAgent:
         metrics = _compute_page_metrics(template_text)
         blueprint = _extract_layout_blueprint(template_text)
         layout = _blueprint_to_display(blueprint, max_lines=500)
+        heading_candidates = _extract_heading_candidates(template_text)
+        heading_candidates_display = _heading_candidates_to_display(heading_candidates)
         url_ctx = f"\nTEMPLATE URL: {template_file_signed_url}\n" if template_file_signed_url else ""
 
         prompt = f"""
@@ -3201,6 +3502,9 @@ PAGE METRICS: page_width={metrics['page_width']}, std_indent={metrics['std_inden
 LAYOUT BLUEPRINT (alignment-classified lines from PDF):
 {layout}
 
+PRE-DETECTED HEADING CANDIDATES FROM THE FULL DOCUMENT:
+{heading_candidates_display}
+
 RAW TEMPLATE TEXT:
 \"\"\"{template_text}\"\"\"
 
@@ -3211,65 +3515,46 @@ RULE 1 - WHAT IS A SECTION?
 A SECTION = one of the major structural blocks of the document.
 It must correspond to a real HEADING or major chapter in the template.
 
-CORRECT sections by document type:
+Valid examples of section shapes:
+  - title block
+  - parties block
+  - preamble / recitals
+  - definitions
+  - payment terms
+  - scope / obligations / covenants
+  - representations / warranties
+  - schedules / annexures / appendices
+  - compliance checklist
+  - execution / signature / witness block
 
-  WRIT PETITION:
-    1. Case Title          <- the cause title / court + parties block
-    2. Index               <- table listing all parts of the petition
-    3. Synopsis            <- synopsis and list of dates
-    4. Facts of the Case   <- all numbered fact paragraphs together
-    5. Grounds             <- all legal grounds together
-    6. Prayer              <- the relief / prayer block
-    7. Affidavit           <- affidavit in support + verification
-    (optionally: Cover Page, Questions of Law, Averment, Filing Details)
-
-  RENT DEED:
-    1. Deed Header         <- document title, date, place of execution
-    2. Parties             <- landlord details + tenant details
-    3. Recitals            <- all WHEREAS clauses together
-    4. Tenancy Terms       <- all numbered tenancy conditions together
-    5. Covenants / Obligations <- obligations of parties
-    6. Execution           <- signatures, witnesses, notary block
-
-  LEAVE AND LICENCE AGREEMENT:
-    1. Preamble            <- document title, date, place, state, whereas clauses
-    2. Licensor Details    <- licensor name, parentage, age, PAN, Aadhaar, address, contact
-    3. Licensee Details    <- licensee name, parentage, age, PAN, Aadhaar, address, contact
-    4. Licensed Premises   <- premises type, address, floor, flat, society, area, parking
-    5. Licence Period      <- commencement date, end date, period months, lock-in period
-    6. Licence Fee         <- monthly fee, payment mode, escalation, TDS
-    7. Security Deposit    <- deposit amount, payment mode, refund days
-    8. Maintenance & Utilities <- responsibility table, minor repair limit
-    9. Permitted Use & Restrictions <- permitted use, max occupants, pets policy
-    10. Termination        <- notice period, lock-in penalties, holdover
-    11. Dispute Resolution <- governing law, jurisdiction, arbitration
-    12. Schedules & Execution <- Schedule A (premises), Schedule B (inventory), signatures, witnesses
-
-  EMPLOYMENT AGREEMENT:
-    1. Parties & Date
-    2. Appointment & Role
-    3. Compensation & Benefits
-    4. Obligations & Conduct
-    5. Termination
-    6. General Provisions
-    7. Signatures
+Use the actual structure of THIS uploaded template only.
+Do not assume a fixed list of section names, fixed fields, fixed categories, or a fixed section count.
 
 =================================================================
 RULE 2 - WHAT IS NOT A SECTION?
 =================================================================
 
 WRONG - DO NOT create sections for individual template sentences:
-  x "WHEREAS the House owner is the sole absolute owner of"
-  x "This Deed of Rent is made at"
-  x "NOW THIS DEED OF TENANCY WITHNESSETH THE FOLLOWING"
-  x "1. That the Tenancy shall be initially for the period of"
-  x "This Deed of Rent is made at"
+  x a single recital sentence
+  x a single boilerplate opening line
+  x one ordinary numbered clause from inside a larger section
+  x a fragment of body text that has no standalone heading
 
 These are BOILERPLATE TEXT that belong INSIDE a section.
 They are NOT sections themselves.
 
 WRONG - Do NOT create 20-25 sections for a 10-page document.
-  A typical legal document has 5-12 structural sections, not 25.
+  But if the uploaded template really contains many genuine headings across later pages,
+  you must return all of them.
+
+IMPORTANT FOR ANY TEMPLATE:
+  - If the document has many real headings across later pages, return all of them.
+  - If the document has numbered sections, chapter headings, schedules, annexures,
+    appendices, compliance tables, or execution blocks, each real structural block
+    should become its own section.
+  - Do NOT stop after the first 2-3 pages if the template continues with later headings.
+  - Use the PRE-DETECTED HEADING CANDIDATES above as evidence, but keep only items
+    that truly behave like headings in this uploaded template.
 
 =================================================================
 RULE 3 - FIELDS (variables the user fills in)
@@ -3277,17 +3562,18 @@ RULE 3 - FIELDS (variables the user fills in)
 
 Fields = the VARIABLE SLOTS inside each section:
   - {{field_name}} Jinja/Handlebars placeholders — CRITICAL: extract EVERY {{...}} token as a field.
-    The "key" for each field is the exact snake_case name inside the braces (e.g. {{licensor_name}} → key: "licensor_name").
+    The "key" for each field is the exact snake_case name inside the braces.
+  - __field_name__ double-underscore placeholders (e.g. __total_consideration__, __stamp_duty_percentage__) — CRITICAL:
+    extract EVERY __name__ token as a field. The "key" is the exact snake_case name between the underscores.
   - Blanks (____), placeholders [like this]
   - Names, dates, amounts, addresses, case numbers
   - Any contextually obvious variable
 
-IMPORTANT: If the template uses {{field_name}} placeholders extensively (e.g. {{licensor_name}},
-{{agreement_date}}, {{monthly_licence_fee}}), extract EVERY UNIQUE placeholder as a field in the
-section where it first appears. Do NOT skip any {{...}} tokens.
+IMPORTANT: If the template uses {{field_name}} or __field_name__ placeholders extensively, extract EVERY UNIQUE placeholder
+as a field in the section where it first appears. Do NOT skip any {{...}} or __...__ tokens.
 
 Field requirements:
-  - Unique snake_case "key" — for {{field_name}} placeholders, use the exact name inside braces
+  - Unique snake_case "key" — for {{field_name}} use name inside braces; for __field_name__ use name between underscores
   - Human-readable "label" shown on the form to the user
   - "type": string | date | number | currency | address | text_long | boolean
   - "required": true/false
@@ -3301,10 +3587,9 @@ Each section MUST have a "drafting_prompt" with COMPLETE instructions:
   a) The EXACT heading to output (copy from template)
   b) The EXACT layout: centred heading, numbered paragraphs, table, etc.
   c) All BOILERPLATE TEXT to reproduce VERBATIM
-     (e.g. "MOST RESPECTFULLY SHEWETH:", "FOR WHICH ACT OF KINDNESS...",
-      "NOW THIS DEED OF TENANCY WITHNESSETH THE FOLLOWING:-")
+     where the template requires fixed text
   d) WHERE each field value goes
-     (e.g. "Insert {{landlord_name}} after 'son of' in first WHEREAS clause")
+     based on this template's own wording and structure
   e) Legal tone, opening lines, closing phrases
   f) Every output line must be prefixed [CENTER], [LEFT_INDENT], [RIGHT], etc.
 
@@ -3314,7 +3599,7 @@ RETURN VALID JSON ONLY - no markdown fences, no explanation
 
 {{
   "template_name": "Document title from first heading",
-  "document_type": "Rent Deed | Writ Petition | Employment Agreement | ...",
+  "document_type": "Short description inferred from this uploaded template",
   "total_sections": 6,
   "estimated_draft_length": "~N pages",
   "page_metrics": {{
@@ -3338,8 +3623,8 @@ RETURN VALID JSON ONLY - no markdown fences, no explanation
     {{
       "section_id": "unique_snake_case_id",
       "section_name": "Exact structural heading from the template",
-      "section_purpose": "One sentence: what the user fills in here",
-      "section_category": "case_title|index|synopsis|facts|grounds|prayer|affidavit|parties|recitals|terms|covenants|signatures|other",
+      "section_purpose": "One sentence: what belongs in this section",
+      "section_category": "other",
       "order": 1,
       "page_break_before": true,
       "estimated_words": 300,
@@ -3375,13 +3660,18 @@ RETURN VALID JSON ONLY - no markdown fences, no explanation
 FINAL CHECK before returning:
 1. Does every section_name match a real structural heading in the template?
 2. Are there NO sections named after template boilerplate sentences?
-3. Is total_sections between 5 and 15?
+3. For a long document, did you include all real numbered sections, schedules, and execution blocks?
 4. Does every section have a complete drafting_prompt with boilerplate verbatim?
 5. Does every field have a clear label and description?
 """
 
-        result = await self._call_gemini(prompt, max_output_tokens=self.MAX_TOKENS_JSON, timeout=300.0)
-        result = self._post_process_analysis(result, metrics)
+        result = await self._call_json(
+            prompt,
+            max_output_tokens=self.MAX_TOKENS_JSON,
+            timeout=300.0,
+            provider=self.section_extraction_provider,
+        )
+        result = self._post_process_analysis(result, metrics, heading_candidates)
         print(f"DEBUG: Analysis done - {result.get('total_sections')} sections, "
               f"{len(result.get('all_fields', []))} fields.")
         return result
@@ -3434,7 +3724,11 @@ Return ONLY valid JSON:
   "legal_references": []
 }}
 """
-        result = await self._call_gemini(prompt, max_output_tokens=8192)
+        result = await self._call_json(
+            prompt,
+            max_output_tokens=8192,
+            provider=self.prompt_refinement_provider,
+        )
         if not isinstance(result, dict):
             print(f"DEBUG: generate_section_prompts got non-dict response (type={type(result).__name__}), using defaults")
             return {
@@ -3456,7 +3750,7 @@ Return ONLY valid JSON:
 FIELD RULES: {json.dumps(field_info)}
 USER INPUT: "{user_input}"
 Return ONLY: {{"valid": true}} OR {{"valid": false, "error_prompt": "...", "suggestion": "..."}}"""
-        return await self._call_gemini(prompt)
+        return await self._call_json(prompt, provider=self.validation_provider)
 
     # ======================================================================
     # PHASE 6 - Section content generation
@@ -3537,7 +3831,12 @@ RULES:
 
 Generate now:"""
 
-        return await self._call_gemini_text(prompt, max_output_tokens=max_output_tokens, timeout=600.0)
+        return await self._call_text(
+            prompt,
+            max_output_tokens=max_output_tokens,
+            timeout=600.0,
+            provider=self.text_generation_provider,
+        )
 
     async def _generate_chunked(self, section_data: dict, field_values: dict,
                                  target_words_max: int) -> str:
@@ -3685,10 +3984,41 @@ Generate now:"""
     # ======================================================================
 
     @staticmethod
-    def _post_process_analysis(result: dict, metrics: Dict[str, Any] = None) -> dict:
+    def _post_process_analysis(
+        result: dict,
+        metrics: Dict[str, Any] = None,
+        heading_candidates: List[Dict[str, Any]] = None
+    ) -> dict:
         if not isinstance(result, dict):
             print(f"DEBUG: _post_process_analysis got non-dict (type={type(result).__name__}), resetting to empty dict")
             result = {}
+        heading_candidates = heading_candidates or []
+        existing_sections = result.get("sections", [])
+        existing_names = {
+            _clean_heading_text(sec.get("section_name", "")).lower()
+            for sec in existing_sections
+            if isinstance(sec, dict) and sec.get("section_name")
+        }
+        if heading_candidates and len(existing_sections) < len(heading_candidates):
+            for candidate in heading_candidates:
+                candidate_name = _clean_heading_text(candidate.get("section_name", ""))
+                if not candidate_name or candidate_name.lower() in existing_names:
+                    continue
+                existing_sections.append({
+                    "section_id": candidate.get("section_id") or _heading_to_section_id(candidate_name, len(existing_sections) + 1),
+                    "section_name": candidate_name,
+                    "section_purpose": f"Generate the '{candidate_name}' section exactly as it appears in the template.",
+                    "section_category": "other",
+                    "order": candidate.get("order", len(existing_sections) + 1),
+                    "page_break_before": False,
+                    "estimated_words": 400,
+                    "depends_on": [],
+                    "drafting_prompt": f"Generate the section '{candidate_name}' exactly as in the source template, preserving legal wording, layout, tables, schedules, and signature formatting where applicable.",
+                    "format_blueprint": [],
+                    "fields": [],
+                })
+                existing_names.add(candidate_name.lower())
+            result["sections"] = existing_sections
         if "sections" in result and not result.get("all_fields"):
             all_fields, seen = [], set()
             for sec in result["sections"]:

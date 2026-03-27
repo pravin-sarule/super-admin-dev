@@ -111,13 +111,62 @@ const FieldsTab = ({ selectedTemplate, handleUpdateFields, editedFields, setEdit
     useEffect(() => {
         try {
             const parsed = JSON.parse(editedFields);
-            if (parsed.sections) {
-                setFields(parsed.sections);
+            if (parsed.sections || Array.isArray(parsed.all_fields)) {
+                // Build a map: section_id -> fields from top-level all_fields
+                const allFieldsMap = {};
+                if (Array.isArray(parsed.all_fields)) {
+                    parsed.all_fields.forEach(f => {
+                        const sid = f.section_id || '__unassigned__';
+                        if (!allFieldsMap[sid]) allFieldsMap[sid] = [];
+                        allFieldsMap[sid].push(f);
+                    });
+                }
+
+                // Track which section_ids from all_fields were consumed
+                const consumedSectionIds = new Set();
+
+                // Merge: combine section.fields + all_fields (by section_id), deduplicating by key
+                const mergedSections = (parsed.sections || []).map(section => {
+                    const sid = section.section_id;
+                    const fromSection = Array.isArray(section.fields) ? section.fields : [];
+                    const fromAllFields = sid ? (allFieldsMap[sid] || []) : [];
+                    const seen = new Set(fromSection.map(f => f.key).filter(Boolean));
+                    const sectionFields = [
+                        ...fromSection,
+                        ...fromAllFields.filter(f => f.key && !seen.has(f.key))
+                    ];
+                    if (sid) consumedSectionIds.add(sid);
+                    return { ...section, fields: sectionFields };
+                });
+
+                // Add extra sections for any all_fields entries whose section_id
+                // didn't match any of the stored sections (common when AI produces
+                // more sections in all_fields than are stored in the sections array)
+                Object.entries(allFieldsMap).forEach(([sid, sidFields]) => {
+                    if (consumedSectionIds.has(sid)) return; // already merged above
+
+                    // Deduplicate against keys already present in mergedSections
+                    const allExistingKeys = new Set(
+                        mergedSections.flatMap(s => (s.fields || []).map(f => f.key).filter(Boolean))
+                    );
+                    const newFields = sidFields.filter(f => f.key && !allExistingKeys.has(f.key));
+                    if (newFields.length === 0) return;
+
+                    const sectionName = sid === '__unassigned__'
+                        ? 'Other Fields'
+                        : (sidFields[0]?.section_name || sid);
+
+                    mergedSections.push({
+                        section_id: sid,
+                        section_name: sectionName,
+                        fields: newFields,
+                    });
+                });
+
+                setFields(mergedSections);
                 // Expand all sections by default
                 const expanded = {};
-                parsed.sections.forEach((section, idx) => {
-                    expanded[idx] = true;
-                });
+                mergedSections.forEach((_, idx) => { expanded[idx] = true; });
                 setExpandedSections(expanded);
             }
         } catch (e) {
@@ -171,12 +220,26 @@ const FieldsTab = ({ selectedTemplate, handleUpdateFields, editedFields, setEdit
         updateJSON(updatedFields);
     };
 
-    // Update JSON from fields
+    // Update JSON from fields - preserve the full structure
     const updateJSON = (updatedFields) => {
-        const jsonData = {
-            sections: updatedFields
-        };
-        setEditedFields(JSON.stringify(jsonData, null, 2));
+        try {
+            const existing = JSON.parse(editedFields);
+            // Rebuild all_fields from updated sections
+            const allFields = [];
+            const seen = new Set();
+            updatedFields.forEach(section => {
+                (section.fields || []).forEach(f => {
+                    if (f.key && !seen.has(f.key)) {
+                        seen.add(f.key);
+                        allFields.push({ ...f, section_id: section.section_id });
+                    }
+                });
+            });
+            const jsonData = { ...existing, sections: updatedFields, all_fields: allFields };
+            setEditedFields(JSON.stringify(jsonData, null, 2));
+        } catch {
+            setEditedFields(JSON.stringify({ sections: updatedFields }, null, 2));
+        }
     };
 
     // Save all changes
@@ -291,7 +354,7 @@ const FieldsTab = ({ selectedTemplate, handleUpdateFields, editedFields, setEdit
                                             </button>
                                             <div>
                                                 <h4 className="font-bold text-gray-900 text-lg">
-                                                    {section.title || `Section ${sectionIdx + 1}`}
+                                                    {section.section_name || section.title || `Section ${sectionIdx + 1}`}
                                                 </h4>
                                                 <p className="text-sm text-gray-500">
                                                     {section.fields?.length || 0} field{section.fields?.length !== 1 ? 's' : ''}
