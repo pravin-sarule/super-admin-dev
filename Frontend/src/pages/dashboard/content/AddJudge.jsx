@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Search, X, Eye, Building2, Edit2, Lock } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL } from '../../../config';
 
 const AddJudge = () => {
   const [judges, setJudges] = useState([]);

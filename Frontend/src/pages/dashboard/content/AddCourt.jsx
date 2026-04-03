@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Search, MapPin, X, Eye, Edit2, Building2, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL } from '../../../config';
 
 const AddCourt = () => {
   const [activeTab, setActiveTab] = useState('benches');

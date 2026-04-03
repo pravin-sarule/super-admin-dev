@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Search, ChevronDown, ChevronRight, Eye, X, Lock, Edit2 } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
-import { API_BASE_URL } from '../../config';
+import { API_BASE_URL } from '../../../config';
 
 const AddCaseType = () => {
   const [caseTypes, setCaseTypes] = useState([]);
