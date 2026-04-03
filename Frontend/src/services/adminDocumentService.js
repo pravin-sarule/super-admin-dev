@@ -1,6 +1,8 @@
 // services/adminDocumentService.js
+import { BACKEND_ORIGIN } from '../config';
+
 class AdminDocumentService {
-  constructor(gatewayUrl = 'https://super-admin-backend-120280829617.asia-south1.run.app') {
+  constructor(gatewayUrl = BACKEND_ORIGIN) {
     this.baseUrl = `${gatewayUrl}/ai-agent/documents`;
   }
 

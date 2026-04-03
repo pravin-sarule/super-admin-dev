@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Search, MapPin, X, Eye, Edit2, Building2, Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
+import { API_BASE_URL } from '../../config';
 
 const AddCourt = () => {
   const [activeTab, setActiveTab] = useState('benches');
@@ -55,8 +56,6 @@ const AddCourt = () => {
   const [benchPage, setBenchPage] = useState(1);
   const [benchTabCourtPage, setBenchTabCourtPage] = useState(1);
   const itemsPerPage = 10;
-
-  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
 
   const getAuthToken = () => {
     return localStorage.getItem('token');

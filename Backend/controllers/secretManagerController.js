@@ -1160,15 +1160,17 @@ const createSecret = async (req, res) => {
       return res.status(400).json({ error: 'name and secret_value (prompt) are required' });
     }
 
-    // Extract files from req.files (multer)
+    // Extract files from req.files (multer) — optional; if used, both must be provided
     const inputPdf = req.files?.input_pdf?.[0] || req.files?.input_pdf;
     const outputPdf = req.files?.output_pdf?.[0] || req.files?.output_pdf;
-
-    if (!inputPdf || !outputPdf) {
-      return res.status(400).json({ 
-        error: 'Both input_pdf and output_pdf files are required' 
+    const hasInput = !!(inputPdf && inputPdf.buffer);
+    const hasOutput = !!(outputPdf && outputPdf.buffer);
+    if (hasInput !== hasOutput) {
+      return res.status(400).json({
+        error: 'Provide both input_pdf and output_pdf, or omit both (prompt-only is allowed).',
       });
     }
+    const hasTemplatePair = hasInput && hasOutput;
 
     // Step 1: Generate secret_manager_id from name if not provided
     let finalSecretManagerId = secret_manager_id ? String(secret_manager_id).trim() : null;
@@ -1231,20 +1233,25 @@ const createSecret = async (req, res) => {
     });
     const versionId = versionResponse.name.split('/').pop();
 
-    // Step 3: Upload input PDF to GCS (input/ folder)
-    // Multer with memoryStorage stores file in buffer property
-    const inputFileBuffer = inputPdf.buffer;
-    if (!inputFileBuffer) {
-      return res.status(400).json({ error: 'Input PDF file buffer is missing' });
-    }
-    const inputFileData = await uploadFileToGCS(inputFileBuffer, inputPdf.originalname, 'input/');
+    let inputFileData = null;
+    let outputFileData = null;
+    let inputFileBuffer = null;
+    let outputFileBuffer = null;
 
-    // Step 4: Upload output PDF to GCS (output/ folder)
-    const outputFileBuffer = outputPdf.buffer;
-    if (!outputFileBuffer) {
-      return res.status(400).json({ error: 'Output PDF file buffer is missing' });
+    if (hasTemplatePair) {
+      // Step 3–4: Upload PDFs to GCS (Multer memoryStorage → buffer)
+      inputFileBuffer = inputPdf.buffer;
+      if (!inputFileBuffer) {
+        return res.status(400).json({ error: 'Input PDF file buffer is missing' });
+      }
+      inputFileData = await uploadFileToGCS(inputFileBuffer, inputPdf.originalname, 'input/');
+
+      outputFileBuffer = outputPdf.buffer;
+      if (!outputFileBuffer) {
+        return res.status(400).json({ error: 'Output PDF file buffer is missing' });
+      }
+      outputFileData = await uploadFileToGCS(outputFileBuffer, outputPdf.originalname, 'output/');
     }
-    const outputFileData = await uploadFileToGCS(outputFileBuffer, outputPdf.originalname, 'output/');
 
     // Step 5: Save secret_manager record first (to get the ID)
     const secretResult = await docDB.query(`
@@ -1271,79 +1278,69 @@ const createSecret = async (req, res) => {
 
     const secretManagerId = secretResult.rows[0].id;
 
-    // Step 6: Save file metadata to template_files table
-    inputFileData.fileType = 'input';
-    const inputTemplateId = await saveFileMetadata(inputFileData, secretManagerId, created_by);
-
-    outputFileData.fileType = 'output';
-    const outputTemplateId = await saveFileMetadata(outputFileData, secretManagerId, created_by);
-
-    // Step 7: Process files with Document AI and extract text
-    console.log('🤖 Starting Document AI text extraction...');
+    let inputTemplateId = null;
+    let outputTemplateId = null;
     let inputExtractionId = null;
     let outputExtractionId = null;
+    let templatesPayload = null;
 
-    try {
-      // Extract text from input PDF
-      console.log('📄 Processing input PDF with Document AI...');
-      const inputExtractionResult = await extractTextFromPDF(
-        inputFileBuffer,
-        inputPdf.originalname
-      );
-      inputExtractionId = await saveExtractedText(
-        inputTemplateId,
-        'input',
-        inputExtractionResult
-      );
-      console.log(`✅ Input text extracted: ${inputExtractionResult.totalCharacters} characters`);
-    } catch (extractionError) {
-      console.error('❌ Failed to extract text from input PDF:', extractionError.message);
-      // Continue even if extraction fails - don't block the upload
-    }
+    if (hasTemplatePair) {
+      // Step 6: Save file metadata to template_files table
+      inputFileData.fileType = 'input';
+      inputTemplateId = await saveFileMetadata(inputFileData, secretManagerId, created_by);
 
-    try {
-      // Extract text from output PDF
-      console.log('📄 Processing output PDF with Document AI...');
-      const outputExtractionResult = await extractTextFromPDF(
-        outputFileBuffer,
-        outputPdf.originalname
-      );
-      outputExtractionId = await saveExtractedText(
-        outputTemplateId,
-        'output',
-        outputExtractionResult
-      );
-      console.log(`✅ Output text extracted: ${outputExtractionResult.totalCharacters} characters`);
-    } catch (extractionError) {
-      console.error('❌ Failed to extract text from output PDF:', extractionError.message);
-      // Continue even if extraction fails - don't block the upload
-    }
+      outputFileData.fileType = 'output';
+      outputTemplateId = await saveFileMetadata(outputFileData, secretManagerId, created_by);
 
-    // Step 8: Update secret_manager with template IDs
-    await docDB.query(`
+      // Step 7: Process files with Document AI and extract text
+      console.log('🤖 Starting Document AI text extraction...');
+
+      try {
+        console.log('📄 Processing input PDF with Document AI...');
+        const inputExtractionResult = await extractTextFromPDF(
+          inputFileBuffer,
+          inputPdf.originalname
+        );
+        inputExtractionId = await saveExtractedText(
+          inputTemplateId,
+          'input',
+          inputExtractionResult
+        );
+        console.log(`✅ Input text extracted: ${inputExtractionResult.totalCharacters} characters`);
+      } catch (extractionError) {
+        console.error('❌ Failed to extract text from input PDF:', extractionError.message);
+      }
+
+      try {
+        console.log('📄 Processing output PDF with Document AI...');
+        const outputExtractionResult = await extractTextFromPDF(
+          outputFileBuffer,
+          outputPdf.originalname
+        );
+        outputExtractionId = await saveExtractedText(
+          outputTemplateId,
+          'output',
+          outputExtractionResult
+        );
+        console.log(`✅ Output text extracted: ${outputExtractionResult.totalCharacters} characters`);
+      } catch (extractionError) {
+        console.error('❌ Failed to extract text from output PDF:', extractionError.message);
+      }
+
+      // Step 8: Link template IDs on secret_manager
+      await docDB.query(
+        `
       UPDATE secret_manager
       SET input_template_id = $1, output_template_id = $2
       WHERE id = $3
-    `, [inputTemplateId, outputTemplateId, secretManagerId]);
+    `,
+        [inputTemplateId, outputTemplateId, secretManagerId]
+      );
 
-    // Step 9: Generate fresh signed URLs for response
-    const inputSignedUrl = await generateSignedURL(inputFileData.bucketPath, 60);
-    const outputSignedUrl = await generateSignedURL(outputFileData.bucketPath, 60);
+      const inputSignedUrl = await generateSignedURL(inputFileData.bucketPath, 60);
+      const outputSignedUrl = await generateSignedURL(outputFileData.bucketPath, 60);
 
-    // Step 10: Fetch complete record
-    const finalResult = await docDB.query(`
-      SELECT s.*, l.name AS llm_name, c.method_name AS chunking_method_name
-      FROM secret_manager s
-      LEFT JOIN llm_models l ON s.llm_id = l.id
-      LEFT JOIN chunking_methods c ON s.chunking_method_id = c.id
-      WHERE s.id = $1
-    `, [secretManagerId]);
-
-    res.status(201).json({
-      message: 'Secret created successfully with template files',
-      dbRecord: finalResult.rows[0],
-      gcpVersion: versionId,
-      templates: {
+      templatesPayload = {
         input: {
           id: inputTemplateId,
           filename: inputFileData.fileName,
@@ -1362,7 +1359,28 @@ const createSecret = async (req, res) => {
           textExtracted: outputExtractionId !== null,
           extractionId: outputExtractionId,
         },
-      },
+      };
+    }
+
+    // Step 9–10: Fetch complete record
+    const finalResult = await docDB.query(
+      `
+      SELECT s.*, l.name AS llm_name, c.method_name AS chunking_method_name
+      FROM secret_manager s
+      LEFT JOIN llm_models l ON s.llm_id = l.id
+      LEFT JOIN chunking_methods c ON s.chunking_method_id = c.id
+      WHERE s.id = $1
+    `,
+      [secretManagerId]
+    );
+
+    res.status(201).json({
+      message: hasTemplatePair
+        ? 'Secret created successfully with template files'
+        : 'Secret created successfully (prompt only; no PDF templates)',
+      dbRecord: finalResult.rows[0],
+      gcpVersion: versionId,
+      ...(templatesPayload ? { templates: templatesPayload } : {}),
     });
   } catch (err) {
     console.error('Error creating secret:', err.message);

@@ -77,9 +77,9 @@ module.exports = (docDB) => {
   // 🔐 GET /api/secrets/:id → fetch single secret by ID (includes its value and template files)
   router.get('/:id', fetchSecretValueById);
 
-  // 📥 POST /api/secrets → create new secret in GCP + docDB with file uploads
-  // Accepts multipart/form-data with fields: name, description, secret_value, llm_id, chunking_method_id, temperature
-  // and files: input_pdf, output_pdf
+  // 📥 POST /api/secrets → create new secret in GCP + docDB (multipart)
+  // Fields: name, description, secret_value, llm_id, chunking_method_id, temperature, template_type, status
+  // Files input_pdf + output_pdf are optional; if either is sent, both must be provided.
   router.post('/', upload.fields([
     { name: 'input_pdf', maxCount: 1 },
     { name: 'output_pdf', maxCount: 1 }

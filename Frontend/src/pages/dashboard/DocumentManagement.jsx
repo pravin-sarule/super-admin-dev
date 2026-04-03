@@ -34,7 +34,7 @@ const DocumentManagement = () => {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadLoading, setUploadLoading] = useState(false);
 
-  const documentService = new AdminDocumentService('https://super-admin-backend-120280829617.asia-south1.run.app');
+  const documentService = useMemo(() => new AdminDocumentService(), []);
 
   // Fetch all documents
   const fetchDocuments = async () => {

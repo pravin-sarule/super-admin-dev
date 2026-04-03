@@ -1,9 +1,27 @@
 import axios from 'axios';
 
-// Use env in production so all pages (Admin, User, etc.) hit the same backend and token works
-const API_BASE_URL = typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
-  ? import.meta.env.VITE_API_BASE_URL
-  : 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+// Defaults: Cloud Run super-admin backend & template analyzer. Override with VITE_* in .env for local dev.
+const DEFAULT_API_BASE = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+
+const API_BASE_URL =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
+    ? import.meta.env.VITE_API_BASE_URL
+    : DEFAULT_API_BASE;
+
+/** Backend origin without `/api` (document gateway, etc.) */
+export const BACKEND_ORIGIN = String(API_BASE_URL).replace(/\/api\/?$/, '');
+
+/** Template Analyzer Agent (Cloud Run) */
+export const TEMPLATE_ANALYZER_BASE_URL =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_TEMPLATE_ANALYZER_BASE_URL
+    ? import.meta.env.VITE_TEMPLATE_ANALYZER_BASE_URL
+    : 'https://template-analyzer-agent-120280829617.asia-south1.run.app';
+
+/** Analyzer routes are mounted under `/analysis` */
+export const ANALYSIS_API_URL =
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_ANALYSIS_API_URL
+    ? import.meta.env.VITE_ANALYSIS_API_URL
+    : `${TEMPLATE_ANALYZER_BASE_URL}/analysis`;
 
 const ADMIN_CREATE_URL = `${API_BASE_URL}/admins/create`;
 const ADMIN_GET_ALL_URL = `${API_BASE_URL}/admins`;

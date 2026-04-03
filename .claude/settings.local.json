@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cmd //c taskkill //F //PID 8000)"
+      "Bash(cmd //c taskkill //F //PID 8000)",
+      "Bash(xargs grep:*)",
+      "Bash(grep -l \"custom_query\\\\|llm_models\\\\|llm_max_tokens\" \"c:\\\\Users\\\\ADMIN\\\\super-admin-dev\\\\Backend\\\\migrations\"/*.sql)",
+      "Bash(find \"c:\\\\Users\\\\ADMIN\\\\super-admin-dev\\\\Backend\" -type f \\\\\\( -name \"*.sql\" -o -name \"*.js\" \\\\\\) -exec grep -l \"CREATE TABLE.*llm\\\\|CREATE TABLE.*custom\" {} \\\\;)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\('dependencies',{}\\), **d.get\\('devDependencies',{}\\)}.items\\(\\)]\")",
+      "Read(//c/Users/ADMIN/**)",
+      "Bash(python3 -c ':*)",
+      "Bash(node -e ':*)",
+      "Bash(node -e \"const fs=require\\('fs'\\); const f='c:/Users/ADMIN/jurinex-dev/Backend/ChatModel/controllers/chatController.js'; let c=fs.readFileSync\\(f,'utf8'\\); console.log\\(c.includes\\('getUserProfile\\(userId, authorizationHeader\\)'\\)\\); console.log\\(c.split\\('getUserProfile\\(userId, authorizationHeader\\)'\\).length-1\\);\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\ADMIN\\jurinex-dev\\Backend\\ChatModel\\services"
     ]
   }
 }

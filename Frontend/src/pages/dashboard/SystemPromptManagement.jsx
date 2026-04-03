@@ -10,6 +10,26 @@ const MySwal = withReactContent(Swal);
 // System Prompts API URL
 const SYSTEM_PROMPTS_API_URL = `${API_BASE_URL}/system-prompts`;
 
+const PROMPT_TYPE_OPTIONS = [
+  { value: 'general', label: 'General (multiple prompts allowed)' },
+  { value: 'chat_model', label: 'Chat model service' },
+  { value: 'summarization', label: 'Summarization service' },
+];
+
+const serviceLabel = (promptType) => {
+  const t = promptType || 'general';
+  if (t === 'chat_model') return 'Chat model';
+  if (t === 'summarization') return 'Summarization';
+  return 'General';
+};
+
+const serviceBadgeClass = (promptType) => {
+  const t = promptType || 'general';
+  if (t === 'chat_model') return 'bg-sky-100 text-sky-800 border-sky-200';
+  if (t === 'summarization') return 'bg-violet-100 text-violet-800 border-violet-200';
+  return 'bg-slate-100 text-slate-700 border-slate-200';
+};
+
 const SystemPromptManagement = () => {
   const [prompts, setPrompts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -20,7 +40,8 @@ const SystemPromptManagement = () => {
   const [showPromptTable, setShowPromptTable] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newPrompt, setNewPrompt] = useState({
-    system_prompt: ''
+    system_prompt: '',
+    prompt_type: 'general',
   });
 
   // Search and pagination states
@@ -58,9 +79,10 @@ const SystemPromptManagement = () => {
       });
 
       if (response.data.success && response.data.data) {
-        const transformedData = response.data.data.map(prompt => ({
+        const transformedData = response.data.data.map((prompt) => ({
           id: prompt.id,
           system_prompt: prompt.system_prompt,
+          prompt_type: prompt.prompt_type || 'general',
           created_at: new Date(prompt.created_at).toLocaleString(),
           updated_at: new Date(prompt.updated_at).toLocaleString(),
         }));
@@ -239,7 +261,10 @@ const SystemPromptManagement = () => {
       const token = getToken();
       const response = await axios.post(
         SYSTEM_PROMPTS_API_URL,
-        { system_prompt: newPrompt.system_prompt.trim() },
+        {
+          system_prompt: newPrompt.system_prompt.trim(),
+          prompt_type: newPrompt.prompt_type || 'general',
+        },
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -251,12 +276,12 @@ const SystemPromptManagement = () => {
       MySwal.fire({
         icon: 'success',
         title: 'Success!',
-        text: 'System prompt created successfully.',
+        text: response.data?.message || 'System prompt saved successfully.',
         confirmButtonColor: '#3085d6',
-        timer: 2000,
+        timer: 2500,
       });
 
-      setNewPrompt({ system_prompt: '' });
+      setNewPrompt({ system_prompt: '', prompt_type: 'general' });
       setShowCreateForm(false);
       setShowPromptTable(true);
       fetchPrompts();
@@ -291,9 +316,15 @@ const SystemPromptManagement = () => {
 
   // Search and filter logic
   const filteredPrompts = useMemo(() => {
-    return prompts.filter(prompt =>
-      prompt.system_prompt.toLowerCase().includes(searchValue.toLowerCase())
-    );
+    const q = searchValue.toLowerCase();
+    return prompts.filter((prompt) => {
+      const label = serviceLabel(prompt.prompt_type).toLowerCase();
+      return (
+        prompt.system_prompt.toLowerCase().includes(q) ||
+        (prompt.prompt_type || 'general').toLowerCase().includes(q) ||
+        label.includes(q)
+      );
+    });
   }, [prompts, searchValue]);
 
   // Pagination logic
@@ -381,7 +412,7 @@ const SystemPromptManagement = () => {
                 onClick={() => {
                   setShowCreateForm(false);
                   setShowPromptTable(true);
-                  setNewPrompt({ system_prompt: '' });
+                  setNewPrompt({ system_prompt: '', prompt_type: 'general' });
                 }}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
               >
@@ -390,6 +421,28 @@ const SystemPromptManagement = () => {
             </div>
 
             <div className="space-y-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Service <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={newPrompt.prompt_type}
+                  onChange={(e) =>
+                    setNewPrompt({ ...newPrompt, prompt_type: e.target.value })
+                  }
+                  className="w-full max-w-xl px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+                >
+                  {PROMPT_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-2">
+                  <strong>Chat model</strong> and <strong>Summarization</strong> each store a single active prompt;
+                  saving again replaces the existing one. <strong>General</strong> prompts can be added many times.
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   System Prompt <span className="text-red-500">*</span>
@@ -401,9 +454,6 @@ const SystemPromptManagement = () => {
                   placeholder="Enter your system prompt here..."
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
                 />
-                <p className="text-xs text-gray-500 mt-2">
-                  This prompt will be used as the system message for AI interactions.
-                </p>
               </div>
             </div>
 
@@ -424,7 +474,7 @@ const SystemPromptManagement = () => {
                 onClick={() => {
                   setShowCreateForm(false);
                   setShowPromptTable(true);
-                  setNewPrompt({ system_prompt: '' });
+                  setNewPrompt({ system_prompt: '', prompt_type: 'general' });
                 }}
                 className="px-6 py-3 border border-gray-300 text-base font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all"
               >
@@ -448,6 +498,9 @@ const SystemPromptManagement = () => {
                       </div>
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Service
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       System Prompt (Preview)
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -464,7 +517,7 @@ const SystemPromptManagement = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center">
+                      <td colSpan="6" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
                           <p className="text-gray-600 font-medium">Loading system prompts...</p>
@@ -473,7 +526,7 @@ const SystemPromptManagement = () => {
                     </tr>
                   ) : paginatedPrompts.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="px-6 py-12 text-center">
+                      <td colSpan="6" className="px-6 py-12 text-center">
                         <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                         <p className="text-gray-500 font-medium text-lg">No system prompts found</p>
                         <p className="text-gray-400 text-sm mt-2">
@@ -486,6 +539,13 @@ const SystemPromptManagement = () => {
                       <tr key={prompt.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm font-semibold text-gray-900">#{prompt.id}</div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(prompt.prompt_type)}`}
+                          >
+                            {serviceLabel(prompt.prompt_type)}
+                          </span>
                         </td>
                         <td className="px-6 py-4">
                           <div className="text-sm text-gray-900 max-w-md">
@@ -635,6 +695,15 @@ const SystemPromptManagement = () => {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">ID</label>
                 <p className="text-sm font-semibold text-gray-900">#{selectedPrompt.id}</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Service</label>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(selectedPrompt.prompt_type)}`}
+                >
+                  {serviceLabel(selectedPrompt.prompt_type)}
+                </span>
               </div>
 
               <div>

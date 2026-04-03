@@ -3217,6 +3217,7 @@ import { Eye, Edit, Save, FileText, Key, Code, Hash, Filter, ChevronLeft, Chevro
 import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
+import { API_BASE_URL as API_ROOT } from '../../config';
 
 // Helper function to decode JWT token
 const decodeToken = (token) => {
@@ -3289,10 +3290,10 @@ const PromptManagement = () => {
   const [deleteLoading, setDeleteLoading] = useState({});
   const [fetchValueLoading, setFetchValueLoading] = useState({});
 
-  // API Base URL
-  const API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/secrets';
-  const LLM_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/llm';
-  const CHUNKING_API_BASE_URL = 'https://super-admin-backend-120280829617.asia-south1.run.app/api/chunking-methods';
+  // API URLs (central base in src/config.js)
+  const API_BASE_URL = `${API_ROOT}/secrets`;
+  const LLM_API_BASE_URL = `${API_ROOT}/llm`;
+  const CHUNKING_API_BASE_URL = `${API_ROOT}/chunking-methods`;
 
   // Get user info from token
   useEffect(() => {
@@ -3813,11 +3814,11 @@ const PromptManagement = () => {
       return;
     }
 
-    if (!inputPdfFile || !outputPdfFile) {
+    if ((inputPdfFile && !outputPdfFile) || (!inputPdfFile && outputPdfFile)) {
       MySwal.fire({
         icon: 'warning',
         title: 'Validation Error',
-        text: 'Both Input PDF and Output PDF files are required.',
+        text: 'Add both Input and Output PDF templates, or leave both empty.',
         confirmButtonColor: '#3085d6',
       });
       return;
@@ -3848,9 +3849,10 @@ const PromptManagement = () => {
         formData.append('temperature', parseFloat(newPrompt.temperature));
       }
       
-      // Append files
-      formData.append('input_pdf', inputPdfFile);
-      formData.append('output_pdf', outputPdfFile);
+      if (inputPdfFile && outputPdfFile) {
+        formData.append('input_pdf', inputPdfFile);
+        formData.append('output_pdf', outputPdfFile);
+      }
       
       console.log('📤 Creating prompt with files...');
       
@@ -4373,12 +4375,12 @@ const PromptManagement = () => {
 
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Input PDF Template <span className="text-red-500">*</span>
+                  Input PDF template <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
                 <input
                   type="file"
                   accept=".pdf,application/pdf"
-                  onChange={(e) => setInputPdfFile(e.target.files[0])}
+                  onChange={(e) => setInputPdfFile(e.target.files[0] || null)}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 {inputPdfFile && (
@@ -4390,12 +4392,12 @@ const PromptManagement = () => {
 
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Output PDF Template <span className="text-red-500">*</span>
+                  Output PDF template <span className="text-gray-400 font-normal">(optional)</span>
                 </label>
                 <input
                   type="file"
                   accept=".pdf,application/pdf"
-                  onChange={(e) => setOutputPdfFile(e.target.files[0])}
+                  onChange={(e) => setOutputPdfFile(e.target.files[0] || null)}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
                 {outputPdfFile && (
@@ -4403,6 +4405,9 @@ const PromptManagement = () => {
                     Selected: {outputPdfFile.name} ({(outputPdfFile.size / 1024 / 1024).toFixed(2)} MB)
                   </p>
                 )}
+                <p className="text-xs text-gray-500 mt-2">
+                  You can create a prompt with text only. PDFs are optional; if you use them, add both input and output files.
+                </p>
               </div>
 
               <div className="md:col-span-2">

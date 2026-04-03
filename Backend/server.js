@@ -31,7 +31,6 @@ const paymentPool = require('./config/payment_DB');
 const citationPool = require('./config/citationDB');
 const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
-const customQueryRoutes = require('./routes/customQueryRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
 const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
@@ -39,6 +38,8 @@ const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
 const fileRoutes = require('./routes/fileRoutes');
 const citationAdminRoutes = require('./routes/citation_routes');
 const userAdminRoutes = require('./routes/user_routes/users.routes');
+const llmChatConfigRoutes = require('./routes/llmChatConfigRoutes');
+const summarizationChatConfigRoutes = require('./routes/summarizationChatConfigRoutes');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
@@ -127,9 +128,6 @@ app.use('/api/llm', llmRoutes);
 console.log('📌 /api/chunking-methods → Using docDB (docPool) ✨');
 app.use('/api/chunking-methods', chunkingMethodRoutes);
 
-console.log('📌 /api/custom-query → Using docDB (docPool) ✨');
-app.use('/api/custom-query', customQueryRoutes);
-
 console.log('📌 /api/llm-usage → Using Payment DB (paymentPool) ✨');
 app.use('/api/llm-usage', llmUsageRoutes(pool));
 
@@ -161,6 +159,12 @@ app.get('/api/admin/health', async (req, res) => {
 console.log('📌 /api/admin/users → Using Auth DB (pool)');
 app.use('/api/admin/users', userAdminRoutes(pool));
 
+console.log('📌 /api/admin/llm-config → Using docDB (docPool) for config, Main DB (pool) for auth');
+app.use('/api/admin/llm-config', llmChatConfigRoutes(pool));
+
+console.log('📌 /api/admin/summarization-chat-config → Using docDB (docPool) for config, Main DB (pool) for auth');
+app.use('/api/admin/summarization-chat-config', summarizationChatConfigRoutes(pool));
+
 console.log('='.repeat(60) + '\n');
 
 // --- 404 ---
@@ -186,6 +190,7 @@ const initializeSystemPromptsTable = async () => {
         CREATE TABLE system_prompts (
           id SERIAL PRIMARY KEY,
           system_prompt TEXT NOT NULL,
+          prompt_type VARCHAR(32) NOT NULL DEFAULT 'general',
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         );
@@ -194,10 +199,62 @@ const initializeSystemPromptsTable = async () => {
         CREATE INDEX IF NOT EXISTS idx_system_prompts_created_at 
         ON system_prompts(created_at DESC);
       `);
+      await docPool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_system_prompts_service_type
+        ON system_prompts (prompt_type)
+        WHERE prompt_type IN ('chat_model', 'summarization');
+      `);
       console.log('✅ system_prompts table created successfully!');
     } else {
       console.log('✅ system_prompts table already exists');
+      await docPool.query(`
+        ALTER TABLE system_prompts
+        ADD COLUMN IF NOT EXISTS prompt_type VARCHAR(32) NOT NULL DEFAULT 'general';
+      `);
+      await docPool.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_system_prompts_service_type
+        ON system_prompts (prompt_type)
+        WHERE prompt_type IN ('chat_model', 'summarization');
+      `);
     }
+
+    // Fix legacy tables where `id` was created without SERIAL (INSERTs fail with null id)
+    await docPool.query(`
+      DO $$
+      DECLARE
+        col_default text;
+        id_identity text;
+      BEGIN
+        SELECT c.column_default, c.is_identity INTO col_default, id_identity
+        FROM information_schema.columns c
+        WHERE c.table_schema = 'public'
+          AND c.table_name = 'system_prompts'
+          AND c.column_name = 'id';
+
+        IF col_default IS NULL AND COALESCE(id_identity, 'NO') <> 'YES' THEN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_class rel
+            JOIN pg_namespace n ON n.oid = rel.relnamespace
+            WHERE rel.relkind = 'S' AND rel.relname = 'system_prompts_id_seq' AND n.nspname = 'public'
+          ) THEN
+            CREATE SEQUENCE public.system_prompts_id_seq;
+          END IF;
+          -- setval() does not accept 0; empty table: is_called false so next nextval() is 1
+          IF (SELECT COALESCE(MAX(id), 0) FROM public.system_prompts) = 0 THEN
+            PERFORM setval('public.system_prompts_id_seq', 1, false);
+          ELSE
+            PERFORM setval(
+              'public.system_prompts_id_seq',
+              (SELECT MAX(id) FROM public.system_prompts)
+            );
+          END IF;
+          ALTER TABLE public.system_prompts
+            ALTER COLUMN id SET DEFAULT nextval('public.system_prompts_id_seq'::regclass);
+          -- Skip OWNED BY: PG requires sequence and table same owner; DEFAULT alone is enough for inserts
+          RAISE NOTICE 'system_prompts.id: attached SERIAL sequence (legacy table repair)';
+        END IF;
+      END $$;
+    `);
   } catch (error) {
     console.error('❌ Error initializing system_prompts table:', error.message);
     throw error;
@@ -352,6 +409,197 @@ const initializeLlmModelParametersTable = async () => {
   }
 };
 
+// --- Initialize llm_chat_config table in docDB if it doesn't exist ---
+const initializeLlmChatConfigTable = async () => {
+  try {
+    const checkTable = await docPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'llm_chat_config'
+      );
+    `);
+
+    if (!checkTable.rows[0].exists) {
+      console.log('📋 Creating llm_chat_config table in docDB...');
+      await docPool.query(`
+        CREATE TABLE llm_chat_config (
+          id SERIAL PRIMARY KEY,
+          max_output_tokens INT DEFAULT 20000,
+          total_tokens_per_day INT DEFAULT 250000,
+          llm_model VARCHAR(100) DEFAULT 'gemini-2.5-flash-lite',
+          llm_provider VARCHAR(100) DEFAULT 'google',
+          model_temperature DECIMAL(3,2) DEFAULT 0.7,
+          messages_per_hour INT DEFAULT 50,
+          quota_chats_per_minute INT DEFAULT 10,
+          chats_per_day INT DEFAULT 60,
+          max_document_pages INT DEFAULT 300,
+          max_document_size_mb INT DEFAULT 40,
+          max_file_upload_per_day INT DEFAULT 15,
+          max_upload_files INT DEFAULT 8,
+          streaming_delay INT DEFAULT 100,
+          updated_by INT DEFAULT NULL,
+          updated_at TIMESTAMP DEFAULT NOW(),
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await docPool.query(`
+        INSERT INTO llm_chat_config (
+          max_output_tokens, total_tokens_per_day, llm_model, llm_provider, model_temperature,
+          messages_per_hour, quota_chats_per_minute, chats_per_day,
+          max_document_pages, max_document_size_mb, max_file_upload_per_day,
+          max_upload_files, streaming_delay
+        ) VALUES (
+          20000, 250000, 'gemini-2.5-flash-lite', 'google', 0.7,
+          50, 10, 60, 300, 40, 15, 8, 100
+        );
+      `);
+      console.log('✅ llm_chat_config table created with default row!');
+    } else {
+      await docPool.query(`
+        DO $$
+        BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'llm_chat_config' AND column_name = 'llm_provider') THEN
+            ALTER TABLE llm_chat_config ADD COLUMN llm_provider VARCHAR(100) DEFAULT 'google';
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'llm_chat_config' AND column_name = 'max_upload_files') THEN
+            ALTER TABLE llm_chat_config ADD COLUMN max_upload_files INT DEFAULT 8;
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'llm_chat_config' AND column_name = 'streaming_delay') THEN
+            ALTER TABLE llm_chat_config ADD COLUMN streaming_delay INT DEFAULT 100;
+          END IF;
+        END $$;
+      `);
+      // Ensure a default row exists
+      const rowCheck = await docPool.query('SELECT id FROM llm_chat_config LIMIT 1');
+      if (rowCheck.rowCount === 0) {
+        await docPool.query(`
+          INSERT INTO llm_chat_config (
+            max_output_tokens, total_tokens_per_day, llm_model, llm_provider, model_temperature,
+            messages_per_hour, quota_chats_per_minute, chats_per_day,
+            max_document_pages, max_document_size_mb, max_file_upload_per_day,
+            max_upload_files, streaming_delay
+          ) VALUES (
+            20000, 250000, 'gemini-2.5-flash-lite', 'google', 0.7,
+            50, 10, 60, 300, 40, 15, 8, 100
+          );
+        `);
+        console.log('✅ Default llm_chat_config row inserted.');
+      } else {
+        console.log('✅ llm_chat_config table already exists');
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error initializing llm_chat_config table:', error.message);
+    throw error;
+  }
+};
+
+// --- Initialize summarization_chat_config table in docDB ---
+const initializeSummarizationChatConfigTable = async () => {
+  try {
+    const checkTable = await docPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables
+        WHERE table_schema = 'public'
+        AND table_name = 'summarization_chat_config'
+      );
+    `);
+
+    if (!checkTable.rows[0].exists) {
+      console.log('📋 Creating summarization_chat_config table in docDB...');
+      await docPool.query(`
+        CREATE TABLE summarization_chat_config (
+          id SERIAL PRIMARY KEY,
+          llm_model VARCHAR(200) DEFAULT 'gemini-2.5-flash',
+          llm_provider VARCHAR(100) DEFAULT 'google',
+          model_temperature DECIMAL(3,2) DEFAULT 0.7,
+          max_output_tokens INT DEFAULT 25000,
+          streaming_delay INT DEFAULT 50,
+          max_upload_files INT DEFAULT 10,
+          max_file_size_mb INT DEFAULT 100,
+          max_document_size_mb INT DEFAULT 40,
+          max_document_pages INT DEFAULT 400,
+          max_context_documents INT DEFAULT 8,
+          embedding_provider VARCHAR(100) DEFAULT 'google',
+          embedding_model VARCHAR(200) DEFAULT 'text-embedding-004',
+          embedding_dimension INT DEFAULT 768,
+          retrieval_top_k INT DEFAULT 10,
+          use_hybrid_search BOOLEAN DEFAULT TRUE,
+          use_rrf BOOLEAN DEFAULT TRUE,
+          semantic_weight DECIMAL(4,3) DEFAULT 0.7,
+          keyword_weight DECIMAL(4,3) DEFAULT 0.3,
+          text_search_language VARCHAR(50) DEFAULT 'english',
+          total_tokens_per_day INT DEFAULT 300000,
+          messages_per_hour INT DEFAULT 60,
+          quota_chats_per_minute INT DEFAULT 20,
+          chats_per_day INT DEFAULT 80,
+          max_file_upload_per_day INT DEFAULT 15,
+          max_conversation_history INT DEFAULT 25,
+          updated_by INT DEFAULT NULL,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      await docPool.query(`
+        INSERT INTO summarization_chat_config (
+          llm_model, llm_provider, model_temperature, max_output_tokens, streaming_delay,
+          max_upload_files, max_file_size_mb,
+          max_document_size_mb, max_document_pages, max_context_documents,
+          embedding_provider, embedding_model, embedding_dimension, retrieval_top_k,
+          use_hybrid_search, use_rrf, semantic_weight, keyword_weight, text_search_language,
+          total_tokens_per_day, messages_per_hour, quota_chats_per_minute, chats_per_day,
+          max_file_upload_per_day, max_conversation_history
+        ) VALUES (
+          'gemini-2.5-flash', 'google', 0.7, 25000, 50,
+          10, 100,
+          40, 400, 8,
+          'google', 'text-embedding-004', 768, 10,
+          TRUE, TRUE, 0.7, 0.3, 'english',
+          300000, 60, 20, 80,
+          15, 25
+        );
+      `);
+      console.log('✅ summarization_chat_config table created with default row!');
+    } else {
+      const rowCheck = await docPool.query('SELECT id FROM summarization_chat_config LIMIT 1');
+      if (rowCheck.rowCount === 0) {
+        await docPool.query(`
+          INSERT INTO summarization_chat_config (
+            llm_model, llm_provider, model_temperature, max_output_tokens, streaming_delay,
+            max_upload_files, max_file_size_mb,
+            max_document_size_mb, max_document_pages, max_context_documents,
+            embedding_provider, embedding_model, embedding_dimension, retrieval_top_k,
+            use_hybrid_search, use_rrf, semantic_weight, keyword_weight, text_search_language,
+            total_tokens_per_day, messages_per_hour, quota_chats_per_minute, chats_per_day,
+            max_file_upload_per_day, max_conversation_history
+          ) VALUES (
+            'gemini-2.5-flash', 'google', 0.7, 25000, 50,
+            10, 100,
+            40, 400, 8,
+            'google', 'text-embedding-004', 768, 10,
+            TRUE, TRUE, 0.7, 0.3, 'english',
+            300000, 60, 20, 80,
+            15, 25
+          );
+        `);
+        console.log('✅ Default summarization_chat_config row inserted.');
+      } else {
+        console.log('✅ summarization_chat_config table already exists');
+      }
+    }
+
+    await docPool.query(`
+      ALTER TABLE summarization_chat_config
+      DROP COLUMN IF EXISTS summarization_model,
+      DROP COLUMN IF EXISTS max_summarization_output_tokens;
+    `);
+  } catch (error) {
+    console.error('❌ Error initializing summarization_chat_config table:', error.message);
+    throw error;
+  }
+};
+
 // --- Start server ---
 const startServer = async () => {
   try {
@@ -363,6 +611,8 @@ const startServer = async () => {
     await initializeAgentPromptsTable();
     await initializeLlmModelsTable();
     await initializeLlmModelParametersTable();
+    await initializeLlmChatConfigTable();
+    await initializeSummarizationChatConfigTable();
 
     const PORT = process.env.PORT || 4000;
     const server = app.listen(PORT, () => {

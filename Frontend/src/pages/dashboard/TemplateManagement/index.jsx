@@ -8,6 +8,7 @@ import withReactContent from 'sweetalert2-react-content';
 import TemplateList from './TemplateList';
 import UploadModal from './UploadTemplateModal';
 import TemplateDetailsModal from './TemplateDetailsModal';
+import { ANALYSIS_API_URL } from '../../../config';
 
 const MySwal = withReactContent(Swal);
 
@@ -40,9 +41,6 @@ const TemplateManagement = () => {
         file: null,
         image: null
     });
-
-    // API Config – Template Analyzer Agent (Cloud Run default, overridable by env)
-    const ANALYSIS_API_URL = import.meta.env?.VITE_ANALYSIS_API_URL || 'https://template-analyzer-agent-120280829617.asia-south1.run.app/analysis';
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token') || sessionStorage.getItem('token');

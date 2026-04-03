@@ -13,9 +13,9 @@ export default defineConfig({
   server: {
     port: 3001,
     proxy: {
-      // Cloud backend default. Override with VITE_DEV_PROXY_TARGET for local backend if needed.
+      // Local backend default. Override with VITE_DEV_PROXY_TARGET if needed.
       '/api': {
-        target: process.env.VITE_DEV_PROXY_TARGET || 'https://super-admin-backend-120280829617.asia-south1.run.app',
+        target: process.env.VITE_DEV_PROXY_TARGET || 'http://localhost:4000',
         changeOrigin: true,
       },
     },
