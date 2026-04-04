@@ -3,9 +3,17 @@ import axios from 'axios';
 // Defaults: Cloud Run super-admin backend & template analyzer. Override with VITE_* in .env for local dev.
 const DEFAULT_API_BASE = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
 
+/** All dashboard routes are mounted under `/api/...` on the backend. Accept env with or without `/api`. */
+function normalizeApiBaseUrl(raw) {
+  const base = String(raw ?? '').trim();
+  if (!base) return DEFAULT_API_BASE;
+  const noTrailingSlashes = base.replace(/\/+$/, '');
+  return noTrailingSlashes.endsWith('/api') ? noTrailingSlashes : `${noTrailingSlashes}/api`;
+}
+
 const API_BASE_URL =
   typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
-    ? import.meta.env.VITE_API_BASE_URL
+    ? normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
     : DEFAULT_API_BASE;
 
 /** Backend origin without `/api` (document gateway, etc.) */
