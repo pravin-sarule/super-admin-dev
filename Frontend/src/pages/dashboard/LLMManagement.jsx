@@ -764,25 +764,10 @@ const LLMManagement = () => {
             ) : (
               <div className="space-y-5">
 
-                {/* Section: LLM & Generation */}
-                <SectionCard icon={Cpu} title="LLM & Generation" description="Primary language model and output generation settings">
+                <SectionCard icon={Hash} title="LLM & Generation" description="Maximum tokens per summarization LLM response.">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <FormField label="LLM Model" icon={Bot} hint="Primary model for chat responses.">
-                      <select value={sumConfig.llm_model} onChange={(e) => handleSumConfigChange('llm_model', e.target.value)} className={selectCls}>
-                        {llmModels.map((model) => (<option key={model.id} value={model.name}>{model.name}</option>))}
-                      </select>
-                    </FormField>
-                    <FormField label="LLM Provider" icon={Layers} hint="Provider identifier for the chat LLM.">
-                      <input type="text" value={sumConfig.llm_provider ?? ''} onChange={(e) => handleSumConfigChange('llm_provider', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Model Temperature" icon={Thermometer} hint="Controls creativity (0 = deterministic, 2 = max creative).">
-                      <input type="number" min="0" max="2" step="0.1" value={sumConfig.model_temperature} onChange={(e) => handleSumConfigChange('model_temperature', e.target.value)} className={inputCls} />
-                    </FormField>
                     <FormField label="Max Output Tokens" icon={Hash} hint="Maximum tokens per LLM response.">
                       <input type="number" min="1" value={sumConfig.max_output_tokens} onChange={(e) => handleSumConfigChange('max_output_tokens', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Streaming Delay (ms)" icon={Zap} hint="Delay between streaming chunks.">
-                      <input type="number" min="0" value={sumConfig.streaming_delay} onChange={(e) => handleSumConfigChange('streaming_delay', e.target.value)} className={inputCls} />
                     </FormField>
                   </div>
                 </SectionCard>
