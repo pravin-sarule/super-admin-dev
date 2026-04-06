@@ -1,945 +1,2154 @@
-
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
 import {
-  Eye, Edit, Save, MessageCircle, Filter, ChevronLeft, ChevronRight,
-  Trash2, PlusCircle, X, Mail, Clock, CheckCircle, AlertCircle,
-  User, Calendar, Phone, MessageSquare, Send, RefreshCw
+  Archive,
+  ArrowLeft,
+  CalendarDays,
+  CircleHelp,
+  ExternalLink,
+  Eye,
+  Filter,
+  LoaderCircle,
+  Mail,
+  MessageSquareText,
+  PlusCircle,
+  Search,
+  Ticket,
+  Trash2,
+  User,
+  X,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
-// Custom Sweet Alert Component (same as subscription management)
-const SweetAlert = ({ isOpen, onClose, onConfirm, title, text, type = 'info', showCancel = false }) => {
-  if (!isOpen) return null;
+const SUPPORT_DEBUG_PREFIX = '[SupportHelp]';
 
-  const getIcon = () => {
-    switch (type) {
-      case 'success': return '✅';
-      case 'error': return '❌';
-      case 'warning': return '⚠️';
-      default: return 'ℹ️';
-    }
-  };
+const createTraceId = () =>
+  `support-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-  const getButtonColor = () => {
-    switch (type) {
-      case 'success': return 'bg-green-600 hover:bg-green-700';
-      case 'error': return 'bg-red-600 hover:bg-red-700';
-      case 'warning': return 'bg-yellow-600 hover:bg-yellow-700';
-      default: return 'bg-blue-600 hover:bg-blue-700';
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-        <div className="text-center">
-          <div className="text-4xl mb-4">{getIcon()}</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-          {text && <p className="text-gray-600 mb-6">{text}</p>}
-          <div className="flex justify-center space-x-3">
-            {showCancel && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            )}
-            <button
-              onClick={onConfirm}
-              className={`px-4 py-2 text-white rounded-lg ${getButtonColor()}`}
-            >
-              {showCancel ? 'Confirm' : 'OK'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const getStoredToken = () => {
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+  return token ? String(token).trim() : '';
 };
 
-// API Service for Support Queries
+const logSupportEvent = (stage, payload = {}, level = 'log') => {
+  const logger = console[level] || console.log;
+  logger(`${SUPPORT_DEBUG_PREFIX} ${stage}`, payload);
+};
+
+const logSupportTableSnapshot = (queries) => {
+  const rows = Array.isArray(queries) ? queries : [];
+  console.group(`${SUPPORT_DEBUG_PREFIX} table:dataflow`);
+  logSupportEvent('table:summary', {
+    totalQueries: rows.length,
+    ids: rows.map((query) => query.id),
+  });
+  if (rows.length > 0) {
+    console.table(
+      rows.map((query) => ({
+        id: query.id,
+        ticket_number: query.ticket_number || '-',
+        subject: query.subject,
+        user_id: query.user_id,
+        user_name: query.user_name,
+        user_email: query.user_email,
+        status: query.status,
+        priority: query.priority,
+        created_at: query.created_at,
+      }))
+    );
+  }
+  console.groupEnd();
+};
+
+const readResponsePayload = async (response) => {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    try {
+      return await response.json();
+    } catch (error) {
+      return { parseError: error.message };
+    }
+  }
+
+  try {
+    const text = await response.text();
+    return text ? { raw: text } : null;
+  } catch (error) {
+    return { parseError: error.message };
+  }
+};
+
+const createApiError = ({ message, status, payload, traceId, url, method }) => {
+  const error = new Error(message);
+  error.status = status;
+  error.payload = payload;
+  error.traceId = traceId;
+  error.url = url;
+  error.method = method;
+  return error;
+};
+
+const parseContentDispositionFilename = (contentDisposition = '') => {
+  const utfMatch = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1]);
+    } catch (error) {
+      return utfMatch[1];
+    }
+  }
+
+  const plainMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return plainMatch?.[1] || '';
+};
+
 const supportApiService = {
   baseURL: `${API_BASE_URL}/support-queries`,
-  
+
   getAuthToken() {
-    // Get token from localStorage - adjust the key name as per your storage
-    return localStorage.getItem('token');
+    return getStoredToken();
   },
-  
+
   getAuthHeaders() {
     const token = this.getAuthToken();
     return {
       'Content-Type': 'application/json',
-      ...(token && { 'Authorization': `Bearer ${token}` })
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     };
   },
-  
+
+  async request(path, { method = 'GET', data, context = 'unknown' } = {}) {
+    const traceId = createTraceId();
+    const url = `${this.baseURL}${path}`;
+    const token = this.getAuthToken();
+    const requestMeta = {
+      traceId,
+      context,
+      method,
+      url,
+      apiBaseUrl: API_BASE_URL,
+      userRole: localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || 'unknown',
+      hasToken: Boolean(token),
+      tokenPreview: token ? `${token.slice(0, 12)}...` : null,
+      payload: data ?? null,
+    };
+
+    console.groupCollapsed(`${SUPPORT_DEBUG_PREFIX} ${context} -> ${method} ${url}`);
+    logSupportEvent('request:start', requestMeta);
+
+    try {
+      const response = await fetch(url, {
+        method,
+        cache: 'no-store',
+        headers: {
+          ...this.getAuthHeaders(),
+          'X-Request-Id': traceId,
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+        ...(data ? { body: JSON.stringify(data) } : {}),
+      });
+
+      const payload = await readResponsePayload(response);
+      const responseMeta = {
+        ...requestMeta,
+        status: response.status,
+        ok: response.ok,
+        responsePayload: payload,
+      };
+
+      if (!response.ok) {
+        logSupportEvent('request:error', responseMeta, 'error');
+        throw createApiError({
+          message: payload?.message || `Support API request failed with status ${response.status}`,
+          status: response.status,
+          payload,
+          traceId,
+          url,
+          method,
+        });
+      }
+
+      logSupportEvent('request:success', responseMeta);
+      return payload;
+    } catch (error) {
+      if (!error.traceId) {
+        logSupportEvent(
+          'request:exception',
+          {
+            ...requestMeta,
+            errorMessage: error.message,
+            stack: error.stack,
+          },
+          'error'
+        );
+      }
+      throw error;
+    } finally {
+      console.groupEnd();
+    }
+  },
+
   async fetchQueries() {
-    const response = await fetch(`${this.baseURL}/all`, { // Assuming /all for fetching all queries
-      headers: this.getAuthHeaders()
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
+    return this.request('/all', { context: 'fetchQueries' });
   },
-  
-  async createQuery(data) {
-    const response = await fetch(this.baseURL, {
-      method: 'POST',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
-  },
-  
+
   async getQuery(id) {
-    const response = await fetch(`${this.baseURL}/${id}`, {
-      headers: this.getAuthHeaders()
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
+    return this.request(`/${id}`, { context: 'getQuery' });
   },
-  
+
+  async createQuery(data) {
+    return this.request('', { method: 'POST', data, context: 'createQuery' });
+  },
+
   async updateQuery(id, data) {
-    const response = await fetch(`${this.baseURL}/${id}`, {
-      method: 'PUT',
-      headers: this.getAuthHeaders(),
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return await response.json();
+    return this.request(`/${id}`, { method: 'PUT', data, context: 'updateQuery' });
   },
-  
+
   async deleteQuery(id) {
-    const response = await fetch(`${this.baseURL}/${id}`, { 
-      method: 'DELETE',
-      headers: this.getAuthHeaders()
+    return this.request(`/${id}`, { method: 'DELETE', context: 'deleteQuery' });
+  },
+
+  async fetchPriorities() {
+    const token = this.getAuthToken();
+    const traceId = createTraceId();
+    const url = `${API_BASE_URL}/support-priorities`;
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        'X-Request-Id': traceId,
+      },
     });
-    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-    return { success: true };
-  }
+    if (!response.ok) {
+      const payload = await readResponsePayload(response);
+      throw createApiError({ message: payload?.message || 'Failed to load priorities', status: response.status, traceId, url, method: 'GET' });
+    }
+    return response.json();
+  },
+
+  async getAttachmentPreview(id, attachmentIndex = 0) {
+    const traceId = createTraceId();
+    const url = `${this.baseURL}/${id}/attachment/preview?attachmentIndex=${attachmentIndex}`;
+    const token = this.getAuthToken();
+    const requestMeta = {
+      traceId,
+      context: 'getAttachmentPreview',
+      method: 'GET',
+      url,
+      apiBaseUrl: API_BASE_URL,
+      userRole: localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || 'unknown',
+      hasToken: Boolean(token),
+      tokenPreview: token ? `${token.slice(0, 12)}...` : null,
+      queryId: id,
+      attachmentIndex,
+    };
+
+    console.groupCollapsed(`${SUPPORT_DEBUG_PREFIX} getAttachmentPreview -> GET ${url}`);
+    logSupportEvent('request:start', requestMeta);
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Accept: 'application/octet-stream',
+          'X-Request-Id': traceId,
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      });
+
+      if (!response.ok) {
+        const payload = await readResponsePayload(response);
+        logSupportEvent(
+          'request:error',
+          {
+            ...requestMeta,
+            status: response.status,
+            ok: response.ok,
+            responsePayload: payload,
+          },
+          'error'
+        );
+        throw createApiError({
+          message: payload?.message || `Attachment preview request failed with status ${response.status}`,
+          status: response.status,
+          payload,
+          traceId,
+          url,
+          method: 'GET',
+        });
+      }
+
+      const blob = await response.blob();
+      const contentType = response.headers.get('content-type') || blob.type || 'application/octet-stream';
+      const contentDisposition = response.headers.get('content-disposition') || '';
+      const fileName = parseContentDispositionFilename(contentDisposition);
+
+      logSupportEvent('request:success', {
+        ...requestMeta,
+        status: response.status,
+        ok: response.ok,
+        contentType,
+        fileName,
+        blobSize: blob.size,
+      });
+
+      return { blob, contentType, fileName, traceId, url, attachmentIndex };
+    } catch (error) {
+      if (!error.traceId) {
+        logSupportEvent(
+          'request:exception',
+          {
+            ...requestMeta,
+            errorMessage: error.message,
+            stack: error.stack,
+          },
+          'error'
+        );
+      }
+      throw error;
+    } finally {
+      console.groupEnd();
+    }
+  },
 };
 
-// Query Form Component
-const QueryForm = ({ query, onSave, onCancel, loading }) => {
-  const [formData, setFormData] = useState(query || {
-    subject: '',
-    message: '',
-    priority: 'medium',
-    category: 'general',
-    user_email: '',
-    user_name: ''
-  });
+const collectAttachmentCandidates = (attachmentValue) => {
+  if (attachmentValue == null) return [];
 
-  const handleChange = (field, value) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  if (Array.isArray(attachmentValue)) {
+    return attachmentValue.flatMap((entry) => collectAttachmentCandidates(entry));
+  }
 
-  const handleSubmit = () => {
-    onSave(formData);
+  if (typeof attachmentValue === 'object') {
+    const candidateValue =
+      attachmentValue.attachment_url ||
+      attachmentValue.url ||
+      attachmentValue.path ||
+      attachmentValue.gcsPath ||
+      attachmentValue.gcs_path ||
+      attachmentValue.file_path ||
+      attachmentValue.storage_path ||
+      attachmentValue.storagePath ||
+      attachmentValue.gcsUrl ||
+      attachmentValue.gcs_url ||
+      attachmentValue.cloudStorageObject ||
+      '';
+
+    if (!candidateValue) return [];
+
+    return [
+      {
+        value: candidateValue,
+        file_name:
+          attachmentValue.file_name ||
+          attachmentValue.fileName ||
+          attachmentValue.name ||
+          '',
+        mime_type: attachmentValue.mime_type || attachmentValue.mimeType || '',
+        size: attachmentValue.size || null,
+        resolved_attachment_url: attachmentValue.resolved_attachment_url || '',
+      },
+    ];
+  }
+
+  const rawText = String(attachmentValue).trim();
+  if (!rawText) return [];
+
+  if (
+    (rawText.startsWith('[') && rawText.endsWith(']')) ||
+    (rawText.startsWith('{') && rawText.endsWith('}'))
+  ) {
+    try {
+      return collectAttachmentCandidates(JSON.parse(rawText));
+    } catch (error) {
+      // Fall through to plain string handling.
+    }
+  }
+
+  if (rawText.includes('\n')) {
+    return rawText
+      .split(/\r?\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => ({ value: entry, file_name: '', resolved_attachment_url: '' }));
+  }
+
+  if (rawText.includes('|')) {
+    return rawText
+      .split('|')
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => ({ value: entry, file_name: '', resolved_attachment_url: '' }));
+  }
+
+  if (rawText.includes(',')) {
+    const commaSeparatedEntries = rawText
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+
+    if (commaSeparatedEntries.length > 1) {
+      return commaSeparatedEntries.map((entry) => ({
+        value: entry,
+        file_name: '',
+        resolved_attachment_url: '',
+      }));
+    }
+  }
+
+  return [{ value: rawText, file_name: '', resolved_attachment_url: '' }];
+};
+
+const readPayload = (response) => {
+  const payload = response?.data || response;
+
+  if (payload == null) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload.map(normalizeQuery);
+  }
+
+  return normalizeQuery(payload || {});
+};
+
+const resolveAttachmentHref = (attachment) => {
+  const resolved = String(
+    attachment?.resolved_attachment_url || attachment?.resolved_url || attachment?.resolvedAttachmentUrl || ''
+  ).trim();
+  if (resolved) return resolved;
+
+  const raw = String(attachment?.attachment_url || attachment || '').trim();
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  return '';
+};
+
+const getAttachmentFileName = (attachment) => {
+  const rawValue = String(attachment?.attachment_url || attachment?.normalized_path || attachment || '').trim();
+  if (!rawValue) return 'attachment';
+
+  const sanitizedValue = rawValue.split('?')[0].replace(/\/+$/, '');
+  const segments = sanitizedValue.split('/');
+  return segments[segments.length - 1] || 'attachment';
+};
+
+const normalizeAttachments = (query) => {
+  const attachmentCandidates =
+    Array.isArray(query?.attachments) && query.attachments.length > 0
+      ? query.attachments
+      : query?.attachment_urls != null
+        ? collectAttachmentCandidates(query.attachment_urls)
+        : collectAttachmentCandidates(query?.attachment_url);
+
+  return attachmentCandidates
+    .map((attachment, index) => {
+      const rawValue = String(attachment?.attachment_url || attachment?.value || attachment || '').trim();
+      if (!rawValue) return null;
+
+      return {
+        id: attachment?.id || `attachment-${index}`,
+        index: Number.isFinite(attachment?.index) ? attachment.index : index,
+        attachment_url: rawValue,
+        normalized_path: attachment?.normalized_path || rawValue,
+        file_name: attachment?.file_name || getAttachmentFileName(rawValue),
+        mime_type: attachment?.mime_type || attachment?.mimeType || '',
+        size: attachment?.size || null,
+        resolved_attachment_url:
+          attachment?.resolved_attachment_url ||
+          (index === 0 ? query?.resolved_attachment_url || '' : ''),
+      };
+    })
+    .filter(Boolean);
+};
+
+const normalizeQuery = (query) => {
+  const attachments = normalizeAttachments(query);
+
+  return {
+    id: query.id,
+    user_id: query.user_id ?? null,
+    subject: query.subject || 'Untitled query',
+    priority: query.priority || 'medium',
+    message: query.message || '',
+    attachment_url: query.attachment_url || '',
+    attachments,
+    attachment_count: query.attachment_count ?? attachments.length,
+    resolved_attachment_url:
+      query.resolved_attachment_url || attachments[0]?.resolved_attachment_url || '',
+    ticket_number: query.ticket_number || '',
+    status: query.status || 'open',
+    category: query.category || 'General',
+    created_at: query.created_at || null,
+    updated_at: query.updated_at || null,
+    user_name: query.user_name || (query.user_id ? `User #${query.user_id}` : 'Unknown user'),
+    user_email: query.user_email || '',
+    email_sent: Boolean(query.email_sent),
+    status_changed: Boolean(query.status_changed),
   };
+};
+
+const getAttachmentPreviewKind = ({ contentType = '', fileName = '' }) => {
+  const normalizedType = String(contentType).toLowerCase();
+  const normalizedName = String(fileName).toLowerCase();
+
+  if (normalizedType.startsWith('image/')) return 'image';
+  if (normalizedType.includes('pdf') || normalizedName.endsWith('.pdf')) return 'pdf';
+  if (
+    normalizedType.includes('msword') ||
+    normalizedType.includes('officedocument.wordprocessingml.document') ||
+    normalizedName.endsWith('.doc') ||
+    normalizedName.endsWith('.docx')
+  ) {
+    return 'office';
+  }
+  if (
+    normalizedType.startsWith('text/') ||
+    ['.txt', '.md', '.json', '.csv', '.log'].some((extension) => normalizedName.endsWith(extension))
+  ) {
+    return 'text';
+  }
+
+  return 'other';
+};
+
+const formatStatus = (status) =>
+  String(status || 'open')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const formatDate = (value) => {
+  if (!value) return '-';
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) return '-';
+
+  return parsedDate.toLocaleDateString();
+};
+
+const statusBadgeStyles = {
+  open: 'bg-amber-50 text-amber-700 border-amber-200',
+  pending: 'bg-amber-50 text-amber-700 border-amber-200',
+  in_progress: 'bg-sky-50 text-sky-700 border-sky-200',
+  resolved: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  closed: 'bg-slate-100 text-slate-600 border-slate-200',
+};
+
+const defaultPriorityBadgeStyles = {
+  low: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  medium: 'bg-amber-50 text-amber-700 border-amber-200',
+  high: 'bg-orange-50 text-orange-700 border-orange-200',
+  urgent: 'bg-rose-50 text-rose-700 border-rose-200',
+};
+
+const modalBackdropClassName =
+  'fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4 backdrop-blur-sm';
+
+const cardClassName =
+  'rounded-[28px] border border-slate-200/70 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]';
+
+const SweetAlert = ({
+  isOpen,
+  onClose,
+  onConfirm,
+  title,
+  text,
+  type = 'info',
+  showCancel = false,
+}) => {
+  if (!isOpen) return null;
+
+  const buttonClassName = {
+    success: 'bg-emerald-600 hover:bg-emerald-700',
+    error: 'bg-rose-600 hover:bg-rose-700',
+    warning: 'bg-amber-500 hover:bg-amber-600',
+    info: 'bg-blue-600 hover:bg-blue-700',
+  }[type];
 
   return (
-    <div className="bg-white p-6">
-      <div className="flex items-center justify-between mb-6 pb-4 border-b">
-        <h2 className="text-2xl font-semibold flex items-center">
-          <PlusCircle className="mr-3" />
-          {query ? 'Edit Support Query' : 'Create New Support Query'}
-        </h2>
-        <button onClick={onCancel} className="p-2 hover:bg-gray-100 rounded-lg">
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">Query Information</h4>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Subject *</label>
-            <input
-              type="text"
-              value={formData.subject}
-              onChange={(e) => handleChange('subject', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Brief description of the issue"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Message *</label>
-            <textarea
-              value={formData.message}
-              onChange={(e) => handleChange('message', e.target.value)}
-              rows={5}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Detailed description of the issue"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Category</label>
-            <select
-              value={formData.category}
-              onChange={(e) => handleChange('category', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="general">General</option>
-              <option value="technical">Technical</option>
-              <option value="billing">Billing</option>
-              <option value="account">Account</option>
-              <option value="feature_request">Feature Request</option>
-            </select>
-          </div>
+    <div className={modalBackdropClassName}>
+      <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+        <div className="mb-6">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            {type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Notice'}
+          </p>
+          <h3 className="mt-2 text-xl font-semibold text-slate-900">{title}</h3>
+          {text ? <p className="mt-2 text-sm leading-6 text-slate-600">{text}</p> : null}
         </div>
 
-        {/* Right Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">User Information</h4>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">User Name *</label>
-            <input
-              type="text"
-              value={formData.user_name}
-              onChange={(e) => handleChange('user_name', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="User's full name"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">User Email *</label>
-            <input
-              type="email"
-              value={formData.user_email}
-              onChange={(e) => handleChange('user_email', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="user@example.com"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Priority</label>
-            <select
-              value={formData.priority}
-              onChange={(e) => handleChange('priority', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+        <div className="flex justify-end gap-3">
+          {showCancel ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
+              Cancel
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={onConfirm}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white transition ${buttonClassName}`}
+          >
+            {showCancel ? 'Confirm' : 'OK'}
+          </button>
         </div>
-      </div>
-
-      <div className="mt-6 pt-6 border-t flex justify-end space-x-3">
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-        >
-          {loading ? 'Saving...' : (
-            <>
-              <Save className="w-4 h-4 mr-2" />
-              Save Query
-            </>
-          )}
-        </button>
       </div>
     </div>
   );
 };
 
-// Query Details Component
-const QueryDetails = ({ query, onEdit, onBack, onSave, editMode, loading }) => {
-  const [editData, setEditData] = useState(query);
-  const [responseMessage, setResponseMessage] = useState('');
+const StatusBadge = ({ status }) => (
+  <span
+    className={`inline-flex min-w-24 items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold ${
+      statusBadgeStyles[status] || 'bg-slate-100 text-slate-600 border-slate-200'
+    }`}
+  >
+    {formatStatus(status)}
+  </span>
+);
+
+const PriorityBadge = ({ priority, priorityMap = {} }) => {
+  const colorClass =
+    priorityMap[priority]?.color ||
+    defaultPriorityBadgeStyles[priority] ||
+    'bg-slate-100 text-slate-600 border-slate-200';
+  const label = priorityMap[priority]?.label || priority || 'medium';
+  return (
+    <span className={`inline-flex min-w-20 items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold capitalize ${colorClass}`}>
+      {label}
+    </span>
+  );
+};
+
+const InputField = ({ label, children, helper }) => (
+  <label className="block">
+    <span className="mb-2 block text-sm font-semibold text-slate-700">{label}</span>
+    {children}
+    {helper ? <span className="mt-2 block text-xs text-slate-500">{helper}</span> : null}
+  </label>
+);
+
+const inputClassName =
+  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+
+const QueryFormModal = ({ isOpen, loading, onClose, onSubmit, priorities = [] }) => {
+  const [formData, setFormData] = useState({
+    user_id: '',
+    subject: '',
+    message: '',
+    priority: 'medium',
+    attachment_url: '',
+  });
+
+  useEffect(() => {
+    if (!isOpen) {
+      setFormData({
+        user_id: '',
+        subject: '',
+        message: '',
+        priority: 'medium',
+        attachment_url: '',
+      });
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    onSubmit({
+      user_id: Number.parseInt(formData.user_id, 10),
+      subject: formData.subject.trim(),
+      message: formData.message.trim(),
+      priority: formData.priority,
+      attachment_url: formData.attachment_url.trim(),
+    });
+  };
+
+  return (
+    <div className={modalBackdropClassName}>
+      <div className="w-full max-w-2xl rounded-[30px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">New Query</p>
+            <h3 className="mt-1 text-2xl font-semibold text-slate-900">Add Support Query</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6 px-6 py-6">
+          <div className="grid gap-5 md:grid-cols-2">
+            <InputField
+              label="User ID"
+              helper="The current backend requires a numeric user ID when creating a support query."
+            >
+              <input
+                type="number"
+                min="1"
+                required
+                value={formData.user_id}
+                onChange={(event) =>
+                  setFormData((previous) => ({ ...previous, user_id: event.target.value }))
+                }
+                className={inputClassName}
+                placeholder="Enter user ID"
+              />
+            </InputField>
+
+            <InputField label="Priority">
+              <select
+                value={formData.priority}
+                onChange={(event) =>
+                  setFormData((previous) => ({ ...previous, priority: event.target.value }))
+                }
+                className={inputClassName}
+              >
+                {priorities.length > 0
+                  ? priorities.map((p) => (
+                      <option key={p.value} value={p.value}>{p.label}</option>
+                    ))
+                  : (
+                    <>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </>
+                  )}
+              </select>
+            </InputField>
+          </div>
+
+          <InputField label="Subject">
+            <input
+              type="text"
+              required
+              value={formData.subject}
+              onChange={(event) =>
+                setFormData((previous) => ({ ...previous, subject: event.target.value }))
+              }
+              className={inputClassName}
+              placeholder="Brief summary of the issue"
+            />
+          </InputField>
+
+          <InputField label="Message">
+            <textarea
+              required
+              rows={5}
+              value={formData.message}
+              onChange={(event) =>
+                setFormData((previous) => ({ ...previous, message: event.target.value }))
+              }
+              className={`${inputClassName} resize-none`}
+              placeholder="Describe the issue in detail"
+            />
+          </InputField>
+
+          <InputField
+            label="Attachment URL"
+            helper="You can paste one path, or multiple storage paths/URLs separated by new lines."
+          >
+            <textarea
+              rows={4}
+              value={formData.attachment_url}
+              onChange={(event) =>
+                setFormData((previous) => ({ ...previous, attachment_url: event.target.value }))
+              }
+              className={`${inputClassName} resize-none`}
+              placeholder="Paste one or more storage paths or public document URLs"
+            />
+          </InputField>
+
+          <div className="flex justify-end gap-3 border-t border-slate-200 pt-6">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="inline-flex items-center rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <PlusCircle className="mr-2 h-4 w-4" />}
+              Create Query
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const AttachmentPreviewModal = ({ preview, onClose, onSelectAttachment }) => {
+  if (!preview.isOpen) return null;
+
+  const activeAttachment = preview.attachments?.[preview.activeAttachmentIndex] || null;
+  const previewKind = getAttachmentPreviewKind({
+    contentType: preview.contentType,
+    fileName: preview.fileName,
+  });
+
+  return (
+    <div className={modalBackdropClassName}>
+      <div className="flex h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-[30px] bg-white shadow-2xl">
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-5">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+              Attachment Preview
+            </p>
+            <h3 className="mt-2 truncate text-xl font-semibold text-slate-900">
+              {preview.fileName || activeAttachment?.file_name || 'Support attachment'}
+            </h3>
+            <p className="mt-1 text-sm text-slate-500">
+              {preview.attachments?.length || 0} attachment{preview.attachments?.length === 1 ? '' : 's'}
+              {preview.contentType ? ` • ${preview.contentType}` : ''}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close attachment preview"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden bg-slate-50">
+          {preview.attachments?.length > 1 ? (
+            <aside className="w-full max-w-[320px] overflow-y-auto border-r border-slate-200 bg-white/85 px-4 py-5">
+              <div className="mb-4 px-2">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                  Files
+                </p>
+              </div>
+              <div className="space-y-2">
+                {preview.attachments.map((attachment, index) => (
+                  <button
+                    key={attachment.id || `${attachment.file_name}-${index}`}
+                    type="button"
+                    onClick={() => onSelectAttachment(index)}
+                    className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
+                      index === preview.activeAttachmentIndex
+                        ? 'border-blue-200 bg-blue-50 shadow-sm'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="truncate text-sm font-semibold text-slate-900">
+                      {attachment.file_name}
+                    </div>
+                    <div className="mt-1 truncate text-xs text-slate-500">{attachment.attachment_url}</div>
+                  </button>
+                ))}
+              </div>
+            </aside>
+          ) : null}
+
+          <div className="flex-1 overflow-auto px-6 py-6">
+            {preview.loading ? (
+              <div className="flex h-full min-h-[24rem] items-center justify-center">
+                <div className="inline-flex items-center rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm">
+                  <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                  Loading attachment preview...
+                </div>
+              </div>
+            ) : preview.error ? (
+              <div className="mx-auto flex h-full min-h-[24rem] max-w-2xl flex-col items-center justify-center rounded-[28px] border border-amber-200 bg-white px-8 py-10 text-center shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-amber-500">
+                  Preview Unavailable
+                </p>
+                <h4 className="mt-3 text-2xl font-semibold text-slate-900">
+                  This attachment could not be previewed
+                </h4>
+                <p className="mt-4 text-sm leading-7 text-slate-600">{preview.error}</p>
+                <p className="mt-4 text-sm leading-7 text-slate-500">
+                  If the message mentions storage access, the backend service account still needs
+                  `storage.objects.get` permission for this file.
+                </p>
+              </div>
+            ) : preview.objectUrl || preview.textContent ? (
+              <div className="h-full min-h-[24rem] rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm">
+                {previewKind === 'image' ? (
+                  <div className="flex h-full items-center justify-center overflow-auto rounded-[22px] bg-slate-100 p-4">
+                    <img
+                      src={preview.objectUrl}
+                      alt={preview.fileName || 'Attachment preview'}
+                      className="max-h-[66vh] w-auto max-w-full rounded-2xl object-contain"
+                    />
+                  </div>
+                ) : previewKind === 'pdf' ? (
+                  <iframe
+                    title={preview.fileName || 'Attachment preview'}
+                    src={preview.objectUrl}
+                    className="h-[68vh] w-full rounded-[22px] border border-slate-200"
+                  />
+                ) : previewKind === 'text' ? (
+                  <div className="h-[68vh] overflow-auto rounded-[22px] border border-slate-200 bg-slate-950 p-5">
+                    <pre className="whitespace-pre-wrap break-words text-sm leading-7 text-slate-100">
+                      {preview.textContent || 'Text preview is empty.'}
+                    </pre>
+                  </div>
+                ) : previewKind === 'office' ? (
+                  <div className="flex h-full min-h-[24rem] flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300 bg-slate-50 px-8 text-center">
+                    <p className="text-lg font-semibold text-slate-800">
+                      Word documents can be downloaded or opened in a new tab.
+                    </p>
+                    <p className="mt-3 max-w-xl text-sm leading-7 text-slate-500">
+                      Browsers usually do not render `.doc` or `.docx` files inline from protected
+                      blob URLs, so this preview keeps the file available through the actions below.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[24rem] flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-300 bg-slate-50 px-8 text-center">
+                    <p className="text-lg font-semibold text-slate-800">
+                      Inline preview is not available for this file type.
+                    </p>
+                    <p className="mt-3 max-w-xl text-sm leading-7 text-slate-500">
+                      The file was fetched successfully, but the browser cannot render this format
+                      directly inside the dashboard preview.
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 px-6 py-4">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+          >
+            Close
+          </button>
+
+          {preview.objectUrl ? (
+            <>
+              <a
+                href={preview.objectUrl}
+                download={preview.fileName || 'attachment'}
+                className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+              >
+                Download
+              </a>
+              <a
+                href={preview.objectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+              >
+                <ExternalLink className="mr-2 h-4 w-4" />
+                Open in New Tab
+              </a>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const QueryDetailPage = ({
+  query,
+  loading,
+  onBack,
+  onDelete,
+  onArchive,
+  onOpenAttachment,
+  onUpdateStatus,
+  priorityMap = {},
+  priorities = [],
+}) => {
+  const [nextStatus, setNextStatus] = useState('open');
+  const [nextPriority, setNextPriority] = useState('medium');
+  const [statusNote, setStatusNote] = useState('');
 
   useEffect(() => {
     if (query) {
-      setEditData(query);
+      setNextStatus(query.status || 'open');
+      setNextPriority(query.priority || 'medium');
+      setStatusNote('');
     }
   }, [query]);
 
-  const handleChange = (field, value) => {
-    setEditData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = () => {
-    if (!editData || !editData.id) {
-      alert('Query ID is missing. Please refresh and try again.');
-      return;
-    }
-    onSave(editData);
-  };
-
-  const handleStatusUpdate = async (newStatus) => {
-    if (!query || !query.id) return;
-    
-    const updateData = {
-      status: newStatus,
-      admin_message: responseMessage || `Status updated to ${newStatus}`
-    };
-    
-    try {
-      await supportApiService.updateQuery(query.id, updateData);
-      // Refresh the query data
-      onSave({ ...query, ...updateData });
-      setResponseMessage('');
-    } catch (error) {
-      console.error('Error updating status:', error);
-    }
-  };
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-50 text-yellow-600 border-yellow-200';
-      case 'in_progress': return 'bg-blue-50 text-blue-600 border-blue-200';
-      case 'resolved': return 'bg-green-50 text-green-600 border-green-200';
-      case 'closed': return 'bg-gray-50 text-gray-600 border-gray-200';
-      default: return 'bg-gray-50 text-gray-600 border-gray-200';
-    }
-  };
-
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'low': return 'bg-green-50 text-green-600';
-      case 'medium': return 'bg-yellow-50 text-yellow-600';
-      case 'high': return 'bg-orange-50 text-orange-600';
-      case 'urgent': return 'bg-red-50 text-red-600';
-      default: return 'bg-gray-50 text-gray-600';
-    }
-  };
-
   if (!query) return null;
 
+  const attachments = Array.isArray(query.attachments) ? query.attachments : [];
+
   return (
-    <div className="bg-white">
-      <div className="flex items-center justify-between mb-6 pb-4 border-b">
-        <h2 className="text-2xl font-semibold flex items-center">
-          <MessageCircle className="mr-3" />
-          Query Details
-        </h2>
-        <div className="flex space-x-2">
-          <button onClick={onBack} className="px-4 py-2 border rounded-lg hover:bg-gray-50">
-            Back to List
-          </button>
-          {editMode ? (
-            <>
-              <button
-                onClick={handleSave}
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center"
-              >
-                {loading ? 'Saving...' : <><Save className="w-4 h-4 mr-1" />Save</>}
-              </button>
-              <button onClick={() => onEdit(false)} className="px-4 py-2 border rounded-lg">
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button onClick={() => onEdit(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center">
-              <Edit className="w-4 h-4 mr-1" />Edit
+    <section className="space-y-6">
+      <div className={`${cardClassName} overflow-hidden`}>
+        <div className="flex flex-col gap-5 border-b border-slate-200 px-6 py-6 lg:flex-row lg:items-center lg:justify-between lg:px-7">
+          <div className="flex items-start gap-4">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-50"
+              title="Back to queries"
+            >
+              <ArrowLeft className="h-5 w-5" />
             </button>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content - Left Column */}
-        <div className="lg:col-span-2 space-y-6">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <div className="flex items-start justify-between mb-4">
-              <div>
-                <h3 className="text-lg font-semibold">{query.subject}</h3>
-                <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
-                  <span className="flex items-center">
-                    <User className="w-4 h-4 mr-1" />
-                    {query.user_name}
-                  </span>
-                  <span className="flex items-center">
-                    <Mail className="w-4 h-4 mr-1" />
-                    {query.user_email}
-                  </span>
-                  <span className="flex items-center">
-                    <Calendar className="w-4 h-4 mr-1" />
-                    {new Date(query.created_at || Date.now()).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                <span className={`px-2 py-1 rounded text-xs font-semibold border ${getStatusColor(query.status)}`}>
-                  {query.status || 'pending'}
-                </span>
-                <span className={`px-2 py-1 rounded text-xs font-semibold ${getPriorityColor(query.priority)}`}>
-                  {query.priority || 'medium'}
-                </span>
-              </div>
-            </div>
-            
-            <div className="mb-4">
-              <h4 className="font-medium mb-2">Message:</h4>
-              <p className="text-gray-700 bg-white rounded p-3 border">
-                {query.message}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Query Details
               </p>
-            </div>
-
-            {query.admin_message && (
-              <div className="mb-4">
-                <h4 className="font-medium mb-2 text-blue-600">Admin Response:</h4>
-                <p className="text-gray-700 bg-blue-50 rounded p-3 border border-blue-200">
-                  {query.admin_message}
-                </p>
+              <h1 className="mt-2 text-[1.9rem] font-semibold tracking-tight text-slate-950">
+                {query.subject}
+              </h1>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <StatusBadge status={query.status} />
+                <PriorityBadge priority={query.priority} priorityMap={priorityMap} />
+                <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+                  <Ticket className="mr-1.5 h-3.5 w-3.5" />
+                  {query.ticket_number || `SUP-${query.id}`}
+                </span>
               </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            {query.status === 'closed' ? (
+              <button
+                type="button"
+                onClick={() => onDelete(query)}
+                className="inline-flex items-center rounded-2xl border border-rose-200 px-4 py-2.5 text-sm font-semibold text-rose-600 transition hover:bg-rose-50"
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete Query
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onArchive(query)}
+                className="inline-flex items-center rounded-2xl border border-amber-200 px-4 py-2.5 text-sm font-semibold text-amber-700 transition hover:bg-amber-50"
+              >
+                <Archive className="mr-2 h-4 w-4" />
+                Archive Query
+              </button>
             )}
           </div>
-
-          {/* Quick Response Section */}
-          <div className="bg-white border rounded-lg p-4">
-            <h4 className="font-medium mb-4 flex items-center">
-              <Send className="w-4 h-4 mr-2" />
-              Send Response & Update Status
-            </h4>
-            
-            <div className="space-y-4">
-              <textarea
-                value={responseMessage}
-                onChange={(e) => setResponseMessage(e.target.value)}
-                rows={4}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                placeholder="Type your response message here..."
-              />
-              
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => handleStatusUpdate('in_progress')}
-                  className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center text-sm"
-                  disabled={loading}
-                >
-                  <RefreshCw className="w-4 h-4 mr-1" />
-                  Mark In Progress
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate('resolved')}
-                  className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center text-sm"
-                  disabled={loading}
-                >
-                  <CheckCircle className="w-4 h-4 mr-1" />
-                  Mark Resolved
-                </button>
-                <button
-                  onClick={() => handleStatusUpdate('closed')}
-                  className="px-3 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center text-sm"
-                  disabled={loading}
-                >
-                  <X className="w-4 h-4 mr-1" />
-                  Close Query
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
 
-        {/* Sidebar - Right Column */}
-        <div className="space-y-4">
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-medium mb-3">Query Information</h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-gray-600">ID:</span>
-                <span>#{query.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Category:</span>
-                <span className="capitalize">{query.category || 'general'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-600">Created:</span>
-                <span>{new Date(query.created_at || Date.now()).toLocaleDateString()}</span>
-              </div>
-              {query.updated_at && (
-                <div className="flex justify-between">
-                  <span className="text-gray-600">Updated:</span>
-                  <span>{new Date(query.updated_at).toLocaleDateString()}</span>
+        <div className="grid gap-6 px-6 py-6 lg:grid-cols-[1.5fr_0.95fr] lg:px-7">
+          <div className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <User className="h-4 w-4" />
+                  User
                 </div>
+                <p className="mt-4 text-lg font-semibold text-slate-900">{query.user_name}</p>
+                <p className="mt-1 text-sm text-slate-500">{query.user_email || 'No email available'}</p>
+                <p className="mt-3 text-sm text-slate-500">User ID: {query.user_id || '-'}</p>
+              </div>
+
+              <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+                <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  <CalendarDays className="h-4 w-4" />
+                  Timeline
+                </div>
+                <p className="mt-4 text-sm text-slate-600">Created: {formatDate(query.created_at)}</p>
+                <p className="mt-2 text-sm text-slate-600">Updated: {formatDate(query.updated_at)}</p>
+                <p className="mt-2 text-sm text-slate-600">Category: {query.category}</p>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Message
+              </p>
+              <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-5 text-sm leading-7 text-slate-700">
+                {query.message || 'No message provided.'}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Attachment
+              </p>
+              {attachments.length > 0 ? (
+                <div className="mt-4 space-y-4">
+                  <p className="text-sm text-slate-500">
+                    {attachments.length} attachment{attachments.length === 1 ? '' : 's'} available for this query.
+                  </p>
+                  <div className="grid gap-3">
+                    {attachments.map((attachment, index) => (
+                      <div
+                        key={attachment.id || `${attachment.file_name}-${index}`}
+                        className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4"
+                      >
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                          <div className="min-w-0 truncate text-sm font-semibold text-slate-800">
+                            {attachment.file_name}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => onOpenAttachment(query, index)}
+                            className="inline-flex shrink-0 items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+                          >
+                            <ExternalLink className="mr-2 h-4 w-4" />
+                            Preview
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <p className="mt-4 text-sm text-slate-500">No attachment was provided for this query.</p>
               )}
             </div>
           </div>
 
-          {/* FAQ Section */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-medium mb-3">Helpful Resources</h4>
-            <div className="space-y-2 text-sm">
-              <a href="#" className="block text-blue-600 hover:text-blue-800">
-                Password Reset Guide
-              </a>
-              <a href="#" className="block text-blue-600 hover:text-blue-800">
-                Subscription Management
-              </a>
-              <a href="#" className="block text-blue-600 hover:text-blue-800">
-                Technical Troubleshooting
-              </a>
-              <a href="#" className="block text-blue-600 hover:text-blue-800">
-                Contact Information
-              </a>
-            </div>
-          </div>
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              onUpdateStatus(query.id, {
+                status: nextStatus,
+                priority: nextPriority,
+                admin_message: statusNote.trim(),
+              });
+            }}
+            className="rounded-3xl border border-slate-200 bg-white p-6"
+          >
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">
+              Update Status
+            </p>
 
-          {/* Contact Info */}
-          <div className="bg-gray-50 rounded-lg p-4">
-            <h4 className="font-medium mb-3">Contact Information</h4>
-            <div className="space-y-2 text-sm">
-              <div className="flex items-center">
-                <Mail className="w-4 h-4 mr-2 text-gray-600" />
-                <span>support@nexintel.com</span>
-              </div>
-              <div className="flex items-center">
-                <Phone className="w-4 h-4 mr-2 text-gray-600" />
-                <span>+1 (123) 456-7890</span>
-              </div>
+            <div className="mt-5 space-y-5">
+              <InputField label="Status">
+                <select
+                  value={nextStatus}
+                  onChange={(event) => setNextStatus(event.target.value)}
+                  className={inputClassName}
+                >
+                  <option value="open">Open</option>
+                  <option value="pending">Pending</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </InputField>
+
+              <InputField label="Priority">
+                <select
+                  value={nextPriority}
+                  onChange={(event) => setNextPriority(event.target.value)}
+                  className={inputClassName}
+                >
+                  {priorities.length > 0
+                    ? priorities.map((p) => (
+                        <option key={p.value} value={p.value}>{p.label}</option>
+                      ))
+                    : (
+                      <>
+                        <option value="low">Low</option>
+                        <option value="medium">Medium</option>
+                        <option value="high">High</option>
+                        <option value="urgent">Urgent</option>
+                      </>
+                    )}
+                </select>
+              </InputField>
+
+              <InputField
+                label="Status Note"
+                helper="This note is included in the email sent to the user whenever the query status changes."
+              >
+                <textarea
+                  rows={6}
+                  value={statusNote}
+                  onChange={(event) => setStatusNote(event.target.value)}
+                  className={`${inputClassName} resize-none`}
+                  placeholder="Add a short update for the user"
+                />
+              </InputField>
             </div>
-          </div>
+
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              >
+                Back
+              </button>
+              <button
+                type="submit"
+                disabled={loading}
+                className="inline-flex flex-1 items-center justify-center rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+              >
+                {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save Update
+              </button>
+            </div>
+          </form>
         </div>
       </div>
-    </div>
+    </section>
   );
 };
 
-// Main Support Help Component
 const SupportHelp = () => {
+  const navigate = useNavigate();
+  const { queryId } = useParams();
+  const previewObjectUrlRef = useRef('');
+
   const [queries, setQueries] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState('list');
+  const [priorities, setPriorities] = useState([]);
   const [selectedQuery, setSelectedQuery] = useState(null);
-  const [editMode, setEditMode] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [apiLoading, setApiLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [apiLoading, setApiLoading] = useState(false);
-  
-  // Sweet Alert State
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [activeTab, setActiveTab] = useState('active');
+  const [attachmentPreview, setAttachmentPreview] = useState({
+    isOpen: false,
+    loading: false,
+    query: null,
+    attachments: [],
+    activeAttachmentIndex: 0,
+    objectUrl: '',
+    contentType: '',
+    fileName: '',
+    error: '',
+    textContent: '',
+  });
   const [alert, setAlert] = useState({
     isOpen: false,
     title: '',
     text: '',
     type: 'info',
     showCancel: false,
-    onConfirm: () => {}
+    onConfirm: () => {},
   });
 
-  const itemsPerPage = 5;
+  const closeAlert = () => {
+    setAlert((previous) => ({ ...previous, isOpen: false }));
+  };
 
-  const showAlert = (config) => {
-    setAlert({
-      isOpen: true,
-      onConfirm: () => {
-        config.onConfirm?.();
-        setAlert(prev => ({ ...prev, isOpen: false }));
-      },
-      ...config
+  const revokeAttachmentPreviewObjectUrl = () => {
+    if (previewObjectUrlRef.current) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+      previewObjectUrlRef.current = '';
+    }
+  };
+
+  const closeAttachmentPreview = () => {
+    revokeAttachmentPreviewObjectUrl();
+    setAttachmentPreview({
+      isOpen: false,
+      loading: false,
+      query: null,
+      attachments: [],
+      activeAttachmentIndex: 0,
+      objectUrl: '',
+      contentType: '',
+      fileName: '',
+      error: '',
+      textContent: '',
     });
   };
 
-  const closeAlert = () => {
-    setAlert(prev => ({ ...prev, isOpen: false }));
+  const showAlert = ({ onConfirm, ...config }) => {
+    setAlert({
+      isOpen: true,
+      onConfirm: () => {
+        if (onConfirm) onConfirm();
+        closeAlert();
+      },
+      ...config,
+    });
   };
 
-  // Load queries
+  // Build a map { value -> { label, color } } for fast badge lookup
+  const priorityMap = priorities.reduce((acc, p) => {
+    acc[p.value] = { label: p.label, color: p.color };
+    return acc;
+  }, {});
+
   const loadQueries = async () => {
     setLoading(true);
+
     try {
       const response = await supportApiService.fetchQueries();
-      const queriesData = response.data || response;
-      setQueries(Array.isArray(queriesData) ? queriesData : []);
+      const normalizedQueries = readPayload(response);
+
+      logSupportEvent('loadQueries:parsed-response', {
+        isArray: Array.isArray(normalizedQueries),
+        totalQueries: Array.isArray(normalizedQueries) ? normalizedQueries.length : 0,
+        rawResponseType: Array.isArray(response) ? 'array' : typeof response,
+        rawResponse: response,
+      });
+      logSupportTableSnapshot(normalizedQueries);
+      setQueries(normalizedQueries);
     } catch (error) {
+      logSupportEvent(
+        'loadQueries:failed',
+        {
+          message: error.message,
+          status: error.status,
+          traceId: error.traceId,
+          payload: error.payload,
+          url: error.url,
+        },
+        'error'
+      );
       showAlert({
         type: 'error',
-        title: 'Error',
-        text: 'Failed to load support queries'
+        title: 'Unable to Load Queries',
+        text:
+          error.status === 403
+            ? `Access denied while loading support queries. Current role: ${
+                localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || 'unknown'
+              }.`
+            : error.payload?.message || 'The support query list could not be fetched from the server.',
       });
+      setQueries([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    logSupportEvent('page:init', {
+      apiBaseUrl: API_BASE_URL,
+      supportEndpoint: supportApiService.baseURL,
+      userRole: localStorage.getItem('userRole') || sessionStorage.getItem('userRole') || 'unknown',
+      hasToken: Boolean(getStoredToken()),
+      routeQueryId: queryId || null,
+      backendMode: API_BASE_URL.includes('localhost') ? 'local' : 'remote',
+    });
+
+    supportApiService.fetchPriorities()
+      .then((data) => {
+        const active = Array.isArray(data) ? data.filter((p) => p.is_active) : [];
+        setPriorities(active);
+      })
+      .catch((err) => logSupportEvent('priorities:load:failed', { message: err.message }, 'warn'));
+
     loadQueries();
   }, []);
 
-  // Create query
-  const handleCreate = async (data) => {
-    setApiLoading(true);
-    try {
-      await supportApiService.createQuery(data);
-      showAlert({
-        type: 'success',
-        title: 'Success!',
-        text: 'Support query created successfully'
-      });
-      setCurrentView('list');
-      loadQueries();
-    } catch (error) {
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Failed to create support query'
-      });
-    } finally {
-      setApiLoading(false);
+  useEffect(() => () => revokeAttachmentPreviewObjectUrl(), []);
+
+  useEffect(() => {
+    let ignore = false;
+
+    if (!queryId) {
+      setSelectedQuery(null);
+      return () => {
+        ignore = true;
+      };
     }
+
+    const loadSelectedQuery = async () => {
+      setApiLoading(true);
+      try {
+        logSupportEvent('detail:load:start', { queryId });
+        const response = await supportApiService.getQuery(queryId);
+        const normalizedQuery = readPayload(response);
+
+        if (ignore) return;
+
+        logSupportEvent('detail:load:success', {
+          queryId,
+          ticketNumber: normalizedQuery.ticket_number,
+          attachmentResolved: Boolean(normalizedQuery.resolved_attachment_url),
+        });
+        setSelectedQuery(normalizedQuery);
+      } catch (error) {
+        if (ignore) return;
+        logSupportEvent(
+          'detail:load:failed',
+          {
+            queryId,
+            message: error.message,
+            status: error.status,
+            traceId: error.traceId,
+            payload: error.payload,
+          },
+          'error'
+        );
+        showAlert({
+          type: 'error',
+          title: 'Unable to Open Query',
+          text: error.payload?.message || 'The query details could not be loaded.',
+        });
+        navigate('/dashboard/support');
+      } finally {
+        if (!ignore) {
+          setApiLoading(false);
+        }
+      }
+    };
+
+    loadSelectedQuery();
+
+    return () => {
+      ignore = true;
+    };
+  }, [navigate, queryId]);
+
+  const filteredQueries = queries.filter((query) => {
+    const haystack = [
+      query.subject,
+      query.message,
+      query.user_name,
+      query.user_email,
+      query.user_id ? String(query.user_id) : '',
+      query.category,
+      query.ticket_number,
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    const matchesSearch = haystack.includes(search.trim().toLowerCase());
+    const matchesStatus = statusFilter === 'all' || query.status === statusFilter;
+    const matchesPriority = priorityFilter === 'all' || query.priority === priorityFilter;
+
+    return matchesSearch && matchesStatus && matchesPriority;
+  });
+
+  const activeFilteredQueries = filteredQueries.filter((query) => query.status !== 'closed');
+
+  const archivedFilteredQueries = queries.filter((query) => {
+    if (query.status !== 'closed') return false;
+    const haystack = [
+      query.subject,
+      query.message,
+      query.user_name,
+      query.user_email,
+      query.user_id ? String(query.user_id) : '',
+      query.ticket_number,
+    ]
+      .join(' ')
+      .toLowerCase();
+    return haystack.includes(search.trim().toLowerCase());
+  });
+
+  useEffect(() => {
+    logSupportEvent('queries:state-updated', {
+      totalQueries: queries.length,
+      filteredQueries: filteredQueries.length,
+      activeFilters: {
+        search,
+        statusFilter,
+        priorityFilter,
+      },
+      detailView: Boolean(queryId),
+    });
+  }, [filteredQueries.length, priorityFilter, queries, queryId, search, statusFilter]);
+
+  const clearFilters = () => {
+    setSearch('');
+    setStatusFilter('all');
+    setPriorityFilter('all');
   };
 
-  // View query details
-  const handleView = async (query) => {
-    try {
-      const response = await supportApiService.getQuery(query.id);
-      const queryData = response.data || response;
-      setSelectedQuery(queryData);
-      setCurrentView('details');
-      setEditMode(false);
-    } catch (error) {
+  const handleCreateQuery = async (payload) => {
+    if (!payload.user_id || !payload.subject || !payload.message) {
       showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Failed to load query details'
-      });
-    }
-  };
-
-  // Update query
-  const handleUpdate = async (data) => {
-    if (!selectedQuery || !selectedQuery.id) {
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Query ID is missing. Please refresh and try again.'
+        type: 'warning',
+        title: 'Missing Required Fields',
+        text: 'User ID, subject, and message are required to create a support query.',
       });
       return;
     }
 
     setApiLoading(true);
+
     try {
-      await supportApiService.updateQuery(selectedQuery.id, data);
+      const response = await supportApiService.createQuery(payload);
+      const newQuery = readPayload(response);
+      setQueries((previous) => [newQuery, ...previous]);
+      setShowCreateModal(false);
       showAlert({
         type: 'success',
-        title: 'Success!',
-        text: 'Query updated successfully'
+        title: 'Query Created',
+        text: 'The support query has been added successfully.',
       });
-      setEditMode(false);
-      loadQueries();
-      // Refresh current query
-      const response = await supportApiService.getQuery(selectedQuery.id);
-      const queryData = response.data || response;
-      setSelectedQuery(queryData);
     } catch (error) {
+      logSupportEvent(
+        'createQuery:failed',
+        {
+          message: error.message,
+          status: error.status,
+          traceId: error.traceId,
+          payload: error.payload,
+          requestPayload: payload,
+        },
+        'error'
+      );
       showAlert({
         type: 'error',
-        title: 'Error',
-        text: 'Failed to update query'
+        title: 'Create Failed',
+        text:
+          error.payload?.message ||
+          'The backend rejected the new support query. Please verify the user ID and try again.',
       });
     } finally {
       setApiLoading(false);
     }
   };
 
-  // Delete query
-  const handleDelete = (query) => {
+  const handleOpenDetails = (id) => {
+    logSupportEvent('detail:navigate', { queryId: id });
+    navigate(`/dashboard/support/${id}`);
+  };
+
+  const handleBackToList = () => {
+    logSupportEvent('detail:back-to-list', { queryId });
+    navigate('/dashboard/support');
+  };
+
+  const handleUpdateStatus = async (id, payload) => {
+    // Capture previous status BEFORE the API call so we can show accurate feedback
+    const previousStatus = selectedQuery?.status;
+    setApiLoading(true);
+
+    try {
+      const response = await supportApiService.updateQuery(id, payload);
+      const updatedQuery = readPayload(response);
+
+      // backend echoes status_changed; fall back to local comparison
+      const statusChanged =
+        updatedQuery.status_changed !== undefined
+          ? updatedQuery.status_changed
+          : String(previousStatus ?? '').toLowerCase() !== String(updatedQuery.status ?? '').toLowerCase();
+
+      logSupportEvent('updateQuery:success', {
+        queryId: id,
+        previousStatus,
+        nextStatus: updatedQuery.status,
+        statusChanged,
+        emailTarget: updatedQuery.user_email,
+      });
+
+      setQueries((previous) =>
+        previous.map((query) => (String(query.id) === String(id) ? updatedQuery : query))
+      );
+      setSelectedQuery(updatedQuery);
+
+      showAlert({
+        type: 'success',
+        title: 'Query Updated',
+        text: updatedQuery.email_sent
+          ? `Query updated successfully — a notification email has been sent to the user with your status note.`
+          : `Query details have been saved. No email was sent because the status didn't change and no note was provided.`,
+      });
+    } catch (error) {
+      logSupportEvent(
+        'updateQuery:failed',
+        {
+          queryId: id,
+          requestPayload: payload,
+          message: error.message,
+          status: error.status,
+          traceId: error.traceId,
+          responsePayload: error.payload,
+        },
+        'error'
+      );
+      showAlert({
+        type: 'error',
+        title: 'Update Failed',
+        text: error.payload?.message || 'The support query could not be updated.',
+      });
+    } finally {
+      setApiLoading(false);
+    }
+  };
+
+  const handleDeleteQuery = (query) => {
     showAlert({
       type: 'warning',
-      title: 'Are you sure?',
-      text: `This will permanently delete the query "${query.subject}".`,
+      title: 'Delete This Query?',
+      text: `This will permanently remove "${query.subject}".`,
       showCancel: true,
       onConfirm: async () => {
         setApiLoading(true);
+
         try {
           await supportApiService.deleteQuery(query.id);
+          setQueries((previous) => previous.filter((item) => item.id !== query.id));
+          if (String(selectedQuery?.id) === String(query.id)) {
+            setSelectedQuery(null);
+            navigate('/dashboard/support');
+          }
           showAlert({
             type: 'success',
-            title: 'Deleted!',
-            text: 'Query deleted successfully'
+            title: 'Query Deleted',
+            text: 'The support query has been removed.',
           });
-          loadQueries();
         } catch (error) {
+          logSupportEvent(
+            'deleteQuery:failed',
+            {
+              queryId: query.id,
+              message: error.message,
+              status: error.status,
+              traceId: error.traceId,
+              payload: error.payload,
+            },
+            'error'
+          );
           showAlert({
             type: 'error',
-            title: 'Error',
-            text: 'Failed to delete query'
+            title: 'Delete Failed',
+            text: error.payload?.message || 'The support query could not be deleted.',
           });
         } finally {
           setApiLoading(false);
         }
-      }
+      },
     });
   };
 
-  // Filter and paginate
-  const filteredQueries = queries.filter(query => {
-    const matchesSearch = query.subject?.toLowerCase().includes(search.toLowerCase()) ||
-                         query.user_name?.toLowerCase().includes(search.toLowerCase()) ||
-                         query.user_email?.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || query.status === statusFilter;
-    const matchesPriority = priorityFilter === 'all' || query.priority === priorityFilter;
-    
-    return matchesSearch && matchesStatus && matchesPriority;
-  });
+  const handleArchiveQuery = (query) => {
+    showAlert({
+      type: 'warning',
+      title: 'Archive This Query?',
+      text: `"${query.subject}" will be moved to the archive.`,
+      showCancel: true,
+      onConfirm: async () => {
+        setApiLoading(true);
+        try {
+          const response = await supportApiService.updateQuery(query.id, { status: 'closed' });
+          const updatedQuery = readPayload(response);
+          setQueries((previous) =>
+            previous.map((item) => (String(item.id) === String(query.id) ? updatedQuery : item))
+          );
+          if (String(selectedQuery?.id) === String(query.id)) {
+            setSelectedQuery(updatedQuery);
+            navigate('/dashboard/support');
+          }
+          showAlert({
+            type: 'success',
+            title: 'Query Archived',
+            text: 'The support query has been moved to the archive.',
+          });
+        } catch (error) {
+          logSupportEvent('archiveQuery:failed', { queryId: query.id, message: error.message }, 'error');
+          showAlert({
+            type: 'error',
+            title: 'Archive Failed',
+            text: error.payload?.message || 'The support query could not be archived.',
+          });
+        } finally {
+          setApiLoading(false);
+        }
+      },
+    });
+  };
 
-  const totalPages = Math.ceil(filteredQueries.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedQueries = filteredQueries.slice(startIndex, startIndex + itemsPerPage);
+  const loadAttachmentPreview = async (query, attachmentIndex = 0) => {
+    const attachments = Array.isArray(query?.attachments) ? query.attachments : [];
+    const selectedAttachment = attachments[attachmentIndex];
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'pending': return 'bg-yellow-50 text-yellow-600 border-yellow-200';
-      case 'in_progress': return 'bg-blue-50 text-blue-600 border-blue-200';
-      case 'resolved': return 'bg-green-50 text-green-600 border-green-200';
-      case 'closed': return 'bg-gray-50 text-gray-600 border-gray-200';
-      default: return 'bg-gray-50 text-gray-600 border-gray-200';
+    if (!selectedAttachment) {
+      showAlert({
+        type: 'warning',
+        title: 'Attachment Missing',
+        text: 'The selected attachment could not be found in this support query record.',
+      });
+      return;
+    }
+
+    revokeAttachmentPreviewObjectUrl();
+    setAttachmentPreview({
+      isOpen: true,
+      loading: true,
+      query,
+      attachments,
+      activeAttachmentIndex: attachmentIndex,
+      objectUrl: '',
+      contentType: '',
+      fileName: selectedAttachment.file_name || getAttachmentFileName(selectedAttachment),
+      error: '',
+      textContent: '',
+    });
+
+    try {
+      const previewResponse = await supportApiService.getAttachmentPreview(query.id, attachmentIndex);
+      const objectUrl = URL.createObjectURL(previewResponse.blob);
+      const fileName = previewResponse.fileName || getAttachmentFileName(selectedAttachment);
+      const previewKind = getAttachmentPreviewKind({
+        contentType: previewResponse.contentType,
+        fileName,
+      });
+      const textContent =
+        previewKind === 'text' ? await previewResponse.blob.text().catch(() => '') : '';
+
+      previewObjectUrlRef.current = objectUrl;
+
+      logSupportEvent('attachment:preview:success', {
+        queryId: query.id,
+        attachmentIndex,
+        contentType: previewResponse.contentType,
+        fileName,
+        blobSize: previewResponse.blob.size,
+      });
+
+      setAttachmentPreview({
+        isOpen: true,
+        loading: false,
+        query,
+        attachments,
+        activeAttachmentIndex: attachmentIndex,
+        objectUrl,
+        contentType: previewResponse.contentType,
+        fileName,
+        error: '',
+        textContent,
+      });
+    } catch (error) {
+      logSupportEvent(
+        'attachment:preview:failed',
+        {
+          queryId: query.id,
+          attachmentIndex,
+          message: error.message,
+          status: error.status,
+          traceId: error.traceId,
+          payload: error.payload,
+        },
+        'error'
+      );
+
+      setAttachmentPreview({
+        isOpen: true,
+        loading: false,
+        query,
+        attachments,
+        activeAttachmentIndex: attachmentIndex,
+        objectUrl: '',
+        contentType: '',
+        fileName: selectedAttachment.file_name || getAttachmentFileName(selectedAttachment),
+        error:
+          error.payload?.message ||
+          'The attachment preview could not be loaded. Check the backend support attachment logs for more detail.',
+        textContent: '',
+      });
     }
   };
 
-  const getPriorityColor = (priority) => {
-    switch (priority) {
-      case 'low': return 'bg-green-50 text-green-600';
-      case 'medium': return 'bg-yellow-50 text-yellow-600';
-      case 'high': return 'bg-orange-50 text-orange-600';
-      case 'urgent': return 'bg-red-50 text-red-600';
-      default: return 'bg-gray-50 text-gray-600';
-    }
+  const handleOpenAttachment = async (query, attachmentIndex = 0) => {
+    const selectedAttachment = Array.isArray(query?.attachments)
+      ? query.attachments[attachmentIndex]
+      : null;
+    logSupportEvent('attachment:open', {
+      queryId: query.id,
+      attachmentIndex,
+      attachmentCount: query.attachments?.length || 0,
+      rawAttachmentUrl: selectedAttachment?.attachment_url || query.attachment_url,
+      resolvedAttachmentUrl: resolveAttachmentHref(selectedAttachment || query),
+    });
+
+    await loadAttachmentPreview(query, attachmentIndex);
   };
 
-  if (loading) {
-    return (
-      <div className="p-6 bg-white rounded-xl shadow-lg">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-lg text-gray-600">Loading support queries...</div>
-        </div>
-      </div>
-    );
-  }
+  const handleSelectAttachmentPreview = async (attachmentIndex) => {
+    if (!attachmentPreview.query) return;
+
+    logSupportEvent('attachment:select', {
+      queryId: attachmentPreview.query.id,
+      nextAttachmentIndex: attachmentIndex,
+    });
+
+    await loadAttachmentPreview(attachmentPreview.query, attachmentIndex);
+  };
+
+  const isFiltering = Boolean(search) || statusFilter !== 'all' || priorityFilter !== 'all';
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-lg">
+    <>
       <SweetAlert {...alert} onClose={closeAlert} />
-      
-      {currentView === 'create' && (
-        <QueryForm
-          onSave={handleCreate}
-          onCancel={() => setCurrentView('list')}
-          loading={apiLoading}
-        />
-      )}
+      <AttachmentPreviewModal
+        preview={attachmentPreview}
+        onClose={closeAttachmentPreview}
+        onSelectAttachment={handleSelectAttachmentPreview}
+      />
 
-      {currentView === 'details' && (
-        <QueryDetails
-          query={selectedQuery}
-          onEdit={setEditMode}
-          onBack={() => setCurrentView('list')}
-          onSave={handleUpdate}
-          editMode={editMode}
-          loading={apiLoading}
-        />
-      )}
+      <QueryFormModal
+        isOpen={showCreateModal}
+        loading={apiLoading}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreateQuery}
+        priorities={priorities}
+      />
 
-      {currentView === 'list' && (
-        <>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-semibold flex items-center">
-              <MessageCircle className="mr-3" />
-              Support & Help Management
-            </h2>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-5 h-5 text-gray-600" />
-                <input
-                  type="text"
-                  placeholder="Search queries..."
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
+      {queryId ? (
+        apiLoading && !selectedQuery ? (
+          <section className={`${cardClassName} px-6 py-20 text-center`}>
+            <div className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+              Loading query details...
+            </div>
+          </section>
+        ) : selectedQuery ? (
+          <QueryDetailPage
+            query={selectedQuery}
+            loading={apiLoading}
+            onBack={handleBackToList}
+            onDelete={handleDeleteQuery}
+            onArchive={handleArchiveQuery}
+            onOpenAttachment={handleOpenAttachment}
+            onUpdateStatus={handleUpdateStatus}
+            priorityMap={priorityMap}
+            priorities={priorities}
+          />
+        ) : (
+          <section className={`${cardClassName} px-6 py-20 text-center`}>
+            <p className="text-lg font-semibold text-slate-700">Query not found</p>
+            <button
+              type="button"
+              onClick={handleBackToList}
+              className="mt-4 inline-flex items-center rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back to Support List
+            </button>
+          </section>
+        )
+      ) : (
+        <section className={`${cardClassName} overflow-hidden`}>
+          <div className="flex flex-col gap-6 px-6 py-6 lg:px-7">
+            {/* Header */}
+            <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-900">
+                  <CircleHelp className="h-6 w-6" />
+                </div>
+                <div>
+                  <h1 className="text-[1.9rem] font-semibold tracking-tight text-slate-950">
+                    Support &amp; Help Management
+                  </h1>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Track incoming support requests and update their progress.
+                  </p>
+                </div>
               </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => {
-                  setStatusFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="pending">Pending</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </select>
-              <select
-                value={priorityFilter}
-                onChange={(e) => {
-                  setPriorityFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
-                className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Priority</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border transition ${
+                    isFiltering
+                      ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                      : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'
+                  }`}
+                  title="Clear filters"
+                >
+                  <Filter className="h-5 w-5" />
+                </button>
+
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(event) => setSearch(event.target.value)}
+                    placeholder="Search queries..."
+                    className="h-11 w-full rounded-2xl border border-slate-300 bg-white pl-11 pr-4 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 lg:w-60"
+                  />
+                </label>
+
+                {activeTab === 'active' ? (
+                  <>
+                    <select
+                      value={statusFilter}
+                      onChange={(event) => setStatusFilter(event.target.value)}
+                      className="h-11 rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="open">Open</option>
+                      <option value="pending">Pending</option>
+                      <option value="in_progress">In Progress</option>
+                      <option value="resolved">Resolved</option>
+                    </select>
+
+                    <select
+                      value={priorityFilter}
+                      onChange={(event) => setPriorityFilter(event.target.value)}
+                      className="h-11 rounded-2xl border border-slate-300 bg-white px-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    >
+                      <option value="all">All Priority</option>
+                      {priorities.length > 0
+                        ? priorities.map((p) => (
+                            <option key={p.value} value={p.value}>{p.label}</option>
+                          ))
+                        : (
+                          <>
+                            <option value="low">Low</option>
+                            <option value="medium">Medium</option>
+                            <option value="high">High</option>
+                            <option value="urgent">Urgent</option>
+                          </>
+                        )}
+                    </select>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 rounded-2xl border border-slate-200 bg-slate-50 p-1 w-fit">
               <button
-                onClick={() => setCurrentView('create')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
+                type="button"
+                onClick={() => { setActiveTab('active'); clearFilters(); }}
+                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition ${
+                  activeTab === 'active'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
               >
-                <PlusCircle className="w-4 h-4 mr-2" />
-                Add Query
+                <MessageSquareText className="h-4 w-4" />
+                Active Queries
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  activeTab === 'active' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {queries.filter((q) => q.status !== 'closed').length}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => { setActiveTab('archive'); clearFilters(); }}
+                className={`inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-semibold transition ${
+                  activeTab === 'archive'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                <Archive className="h-4 w-4" />
+                Archive
+                <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                  activeTab === 'archive' ? 'bg-amber-100 text-amber-700' : 'bg-slate-200 text-slate-600'
+                }`}>
+                  {queries.filter((q) => q.status === 'closed').length}
+                </span>
               </button>
             </div>
-          </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border rounded-lg">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Subject</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">User</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Priority</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Category</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Created</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {paginatedQueries.map((query) => (
-                  <tr key={query.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm">#{query.id}</td>
-                    <td className="px-4 py-3">
-                      <div className="max-w-xs truncate" title={query.subject}>
-                        {query.subject}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <div>
-                        <div className="font-medium">{query.user_name}</div>
-                        <div className="text-gray-500 text-xs">{query.user_email}</div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold border ${getStatusColor(query.status)}`}>
-                        {(query.status || 'pending').replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${getPriorityColor(query.priority)}`}>
-                        {query.priority || 'medium'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm capitalize">{query.category || 'general'}</td>
-                    <td className="px-4 py-3 text-sm">
-                      {new Date(query.created_at || Date.now()).toLocaleDateString()}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleView(query)}
-                          className="p-1 border rounded hover:bg-gray-50"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(query)}
-                          className="p-1 border border-red-300 text-red-600 rounded hover:bg-red-50"
-                          disabled={apiLoading}
-                          title="Delete Query"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {paginatedQueries.length === 0 && (
-                  <tr>
-                    <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
-                      No queries found
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+            {/* Active Queries Table */}
+            {activeTab === 'active' ? (
+              <div className="overflow-hidden rounded-[24px] border border-slate-300/80">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse">
+                    <thead className="bg-slate-50/80">
+                      <tr className="text-left">
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">ID</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Subject</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">User</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Status</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Priority</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Ticket</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Created</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {loading ? (
+                        <tr>
+                          <td colSpan="8" className="px-6 py-16 text-center">
+                            <div className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+                              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                              Loading support queries...
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
 
-          {filteredQueries.length > 0 && (
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-700">
-                Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredQueries.length)} of {filteredQueries.length} entries
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCurrentPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className={`flex items-center px-3 py-2 text-sm border rounded-lg ${
-                    currentPage === 1
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <ChevronLeft className="w-4 h-4 mr-1" />
-                  Previous
-                </button>
-                
-                <div className="flex space-x-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-2 text-sm border rounded-lg ${
-                        currentPage === page
-                          ? 'bg-blue-50 border-blue-500 text-blue-600'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
+                      {!loading && activeFilteredQueries.length > 0
+                        ? activeFilteredQueries.map((query) => (
+                            <tr key={query.id} className="transition hover:bg-slate-50/80">
+                              <td className="px-4 py-4 text-sm font-semibold text-slate-700">#{query.id}</td>
+                              <td className="px-4 py-4 text-sm text-slate-800">
+                                <div className="max-w-xs">
+                                  <p className="truncate font-medium">{query.subject}</p>
+                                  <p className="mt-1 truncate text-xs text-slate-500">{query.message}</p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm text-slate-700">
+                                <div className="max-w-[12rem]">
+                                  <p className="truncate font-medium">{query.user_name}</p>
+                                  <p className="mt-1 truncate text-xs text-slate-500">
+                                    {query.user_email || (query.user_id ? `ID ${query.user_id}` : '-')}
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm"><StatusBadge status={query.status} /></td>
+                              <td className="px-4 py-4 text-sm"><PriorityBadge priority={query.priority} priorityMap={priorityMap} /></td>
+                              <td className="px-4 py-4 text-sm text-slate-600">{query.ticket_number || `SUP-${query.id}`}</td>
+                              <td className="px-4 py-4 text-sm text-slate-600">{formatDate(query.created_at)}</td>
+                              <td className="px-4 py-4 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDetails(query.id)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100"
+                                    title="View query"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleArchiveQuery(query)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-amber-200 text-amber-600 transition hover:bg-amber-50"
+                                    title="Archive query"
+                                  >
+                                    <Archive className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        : null}
+
+                      {!loading && activeFilteredQueries.length === 0 ? (
+                        <tr>
+                          <td colSpan="8" className="px-6 py-20 text-center">
+                            <div className="mx-auto flex max-w-sm flex-col items-center">
+                              <div className="rounded-2xl bg-slate-100 p-4 text-slate-500">
+                                <MessageSquareText className="h-7 w-7" />
+                              </div>
+                              <p className="mt-5 text-lg font-medium text-slate-600">No active queries found</p>
+                              <p className="mt-2 text-sm text-slate-500">
+                                Try adjusting the search or filter options, or add a new query.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
                 </div>
-                
-                <button
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className={`flex items-center px-3 py-2 text-sm border rounded-lg ${
-                    currentPage === totalPages
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </button>
               </div>
-            </div>
-          )}
-        </>
+            ) : null}
+
+            {/* Archive Table */}
+            {activeTab === 'archive' ? (
+              <div className="overflow-hidden rounded-[24px] border border-slate-300/80">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full border-collapse">
+                    <thead className="bg-amber-50/60">
+                      <tr className="text-left">
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">ID</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Subject</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">User</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Priority</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Ticket</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Closed</th>
+                        <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 bg-white">
+                      {loading ? (
+                        <tr>
+                          <td colSpan="7" className="px-6 py-16 text-center">
+                            <div className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+                              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
+                              Loading archived queries...
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+
+                      {!loading && archivedFilteredQueries.length > 0
+                        ? archivedFilteredQueries.map((query) => (
+                            <tr key={query.id} className="transition hover:bg-slate-50/80">
+                              <td className="px-4 py-4 text-sm font-semibold text-slate-700">#{query.id}</td>
+                              <td className="px-4 py-4 text-sm text-slate-800">
+                                <div className="max-w-xs">
+                                  <p className="truncate font-medium">{query.subject}</p>
+                                  <p className="mt-1 truncate text-xs text-slate-500">{query.message}</p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm text-slate-700">
+                                <div className="max-w-[12rem]">
+                                  <p className="truncate font-medium">{query.user_name}</p>
+                                  <p className="mt-1 truncate text-xs text-slate-500">
+                                    {query.user_email || (query.user_id ? `ID ${query.user_id}` : '-')}
+                                  </p>
+                                </div>
+                              </td>
+                              <td className="px-4 py-4 text-sm"><PriorityBadge priority={query.priority} priorityMap={priorityMap} /></td>
+                              <td className="px-4 py-4 text-sm text-slate-600">{query.ticket_number || `SUP-${query.id}`}</td>
+                              <td className="px-4 py-4 text-sm text-slate-600">{formatDate(query.updated_at)}</td>
+                              <td className="px-4 py-4 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenDetails(query.id)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:bg-slate-100"
+                                    title="View query"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteQuery(query)}
+                                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-rose-200 text-rose-600 transition hover:bg-rose-50"
+                                    title="Delete query permanently"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))
+                        : null}
+
+                      {!loading && archivedFilteredQueries.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" className="px-6 py-20 text-center">
+                            <div className="mx-auto flex max-w-sm flex-col items-center">
+                              <div className="rounded-2xl bg-slate-100 p-4 text-slate-500">
+                                <Archive className="h-7 w-7" />
+                              </div>
+                              <p className="mt-5 text-lg font-medium text-slate-600">No archived queries</p>
+                              <p className="mt-2 text-sm text-slate-500">
+                                Closed queries will appear here.
+                              </p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </section>
       )}
-    </div>
+    </>
   );
 };
 

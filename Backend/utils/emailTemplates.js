@@ -166,6 +166,77 @@ const escapeHtml = (text) => {
   return text.replace(/[&<>"']/g, m => map[m]);
 };
 
+const getQueryStatusUpdateEmailTemplate = (
+  recipientName,
+  subject,
+  status,
+  adminMessage = '',
+  ticketNumber = ''
+) => {
+  const statusLabel = String(status || 'open')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+  const safeRecipientName = escapeHtml(recipientName || 'User');
+  const safeSubject = escapeHtml(subject || 'Support Query');
+  const safeAdminMessage = escapeHtml(adminMessage || 'Our support team is actively reviewing your request.');
+  const safeTicketNumber = escapeHtml(ticketNumber || 'Pending');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Support Query Status Updated</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f8fafc;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+    <div style="max-width:640px;margin:24px auto;padding:0 16px;">
+      <div style="background:#ffffff;border:1px solid #e2e8f0;border-radius:20px;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,0.08);">
+        <div style="padding:28px 32px;background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);color:#ffffff;">
+          <div style="font-size:12px;letter-spacing:0.16em;text-transform:uppercase;opacity:0.8;">Support Update</div>
+          <h1 style="margin:10px 0 0;font-size:28px;line-height:1.2;font-weight:700;">Your support query is now ${escapeHtml(statusLabel)}</h1>
+        </div>
+        <div style="padding:28px 32px;">
+          <p style="margin:0 0 18px;font-size:15px;line-height:1.7;">Hello ${safeRecipientName},</p>
+          <p style="margin:0 0 22px;font-size:15px;line-height:1.7;">
+            The support request for <strong>${safeSubject}</strong> has been updated by our admin team.
+          </p>
+
+          <div style="border:1px solid #dbeafe;background:#f8fbff;border-radius:18px;padding:20px 22px;margin:0 0 22px;">
+            <div style="margin-bottom:12px;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Query Snapshot</div>
+            <table style="width:100%;border-collapse:collapse;">
+              <tr>
+                <td style="padding:6px 0;font-size:14px;color:#64748b;">Ticket Number</td>
+                <td style="padding:6px 0;font-size:14px;font-weight:600;color:#0f172a;text-align:right;">${safeTicketNumber}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:14px;color:#64748b;">Subject</td>
+                <td style="padding:6px 0;font-size:14px;font-weight:600;color:#0f172a;text-align:right;">${safeSubject}</td>
+              </tr>
+              <tr>
+                <td style="padding:6px 0;font-size:14px;color:#64748b;">Current Status</td>
+                <td style="padding:6px 0;font-size:14px;font-weight:700;color:#2563eb;text-align:right;">${escapeHtml(statusLabel)}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div style="margin:0 0 22px;">
+            <div style="margin-bottom:10px;font-size:12px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:#64748b;">Admin Note</div>
+            <div style="border:1px solid #e2e8f0;border-radius:16px;padding:16px 18px;background:#ffffff;font-size:14px;line-height:1.7;color:#334155;">
+              ${safeAdminMessage}
+            </div>
+          </div>
+
+          <p style="margin:0;font-size:14px;line-height:1.7;color:#475569;">
+            If you need further help, please reply through the support portal or contact our support team.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+};
+
 module.exports = {
-  getFirmApprovalEmailTemplate
+  getFirmApprovalEmailTemplate,
+  getQueryStatusUpdateEmailTemplate,
 };

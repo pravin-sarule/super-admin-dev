@@ -52,7 +52,10 @@ const storage = new Storage({
   projectId: process.env.GCS_PROJECT_ID,
 });
 
-const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+const supportBucketName = process.env.SUPPORT_GCS_BUCKET_NAME || process.env.GCS_BUCKET_NAME;
+const bucket = storage.bucket(supportBucketName);
+
+console.log(`📦 Support attachments bucket configured: ${supportBucketName}`);
 
 // Multer setup
 const multer = Multer({

@@ -82,6 +82,7 @@ function App() {
             <Route path="documents" element={<DocumentManagement />} />
             <Route path="citation-management" element={<CitationManagement />} />
             <Route path="support" element={<SupportHelp />} />
+            <Route path="support/:queryId" element={<SupportHelp />} />
           </Route>
         </Route>
 

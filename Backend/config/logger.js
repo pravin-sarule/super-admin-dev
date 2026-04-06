@@ -10,6 +10,19 @@ const logFormat = printf(({ level, message, timestamp, requestId, layer, ...meta
     if (meta.durationMs !== undefined) log += ` (${meta.durationMs}ms)`;
     if (meta.stack) log += `\n${meta.stack}`;
     if (meta.query) log += ` | query: ${meta.query}`;
+
+    const metaForPrint = { ...meta };
+    delete metaForPrint.durationMs;
+    delete metaForPrint.stack;
+    delete metaForPrint.query;
+
+    if (Object.keys(metaForPrint).length > 0) {
+        try {
+            log += ` | meta: ${JSON.stringify(metaForPrint)}`;
+        } catch (error) {
+            log += ` | meta: [unserializable: ${error.message}]`;
+        }
+    }
     return log;
 });
 

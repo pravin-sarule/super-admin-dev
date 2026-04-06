@@ -16,6 +16,7 @@ const sequelize = require('./config/sequelize');
 require('./models/template');
 require('./models/userTemplateUsage');
 require('./models/support_query');
+require('./models/support_priority');
 
 // --- Routes ---
 const authRoutes = require('./routes/authRoutes');
@@ -24,6 +25,7 @@ const userRoutes = require('./routes/userRoutes');
 const adminTemplateRoutes = require('./routes/adminTemplateRoutes');
 const planRoutes = require('./routes/planRoutes');
 const supportQueryRoutes = require('./routes/supportQueryRoutes');
+const supportPriorityRoutes = require('./routes/supportPriorityRoutes');
 const secretRoutes = require('./routes/secretManagerRoutes');
 const contentRoutes = require('./routes/contentRoutes');
 const draftPool = require('./config/draftDB');
@@ -113,8 +115,11 @@ app.use('/api/citation-admin', citationAdminRoutes(citationPool, pool, docPool))
 console.log('📌 /api/admin/plans     → Using Payment DB (paymentPool)');
 app.use('/api/admin/plans', planRoutes(paymentPool));
 
-console.log('📌 /api/support-queries → Using Main DB (pool)');
+console.log('📌 /api/support-queries   → Using Main DB (pool)');
 app.use('/api/support-queries', supportQueryRoutes(pool));
+
+console.log('📌 /api/support-priorities → Using Support DB (supportSequelize)');
+app.use('/api/support-priorities', supportPriorityRoutes(pool));
 
 console.log('📌 /api/secrets        → Using docDB (docPool) ✨');
 app.use('/api/secrets', secretRoutes(docPool));
@@ -600,6 +605,48 @@ const initializeSummarizationChatConfigTable = async () => {
   }
 };
 
+// --- Initialize support_priorities table in Support DB ---
+const supportSequelize = require('./config/supportSequelize');
+
+const DEFAULT_PRIORITIES = [
+  { value: 'low',    label: 'Low',    color: 'bg-emerald-50 text-emerald-700 border-emerald-200', display_order: 1 },
+  { value: 'medium', label: 'Medium', color: 'bg-amber-50 text-amber-700 border-amber-200',       display_order: 2 },
+  { value: 'high',   label: 'High',   color: 'bg-orange-50 text-orange-700 border-orange-200',    display_order: 3 },
+  { value: 'urgent', label: 'Urgent', color: 'bg-rose-50 text-rose-700 border-rose-200',          display_order: 4 },
+];
+
+const initializeSupportPrioritiesTable = async () => {
+  try {
+    await supportSequelize.query(`
+      CREATE TABLE IF NOT EXISTS support_priorities (
+        id            SERIAL PRIMARY KEY,
+        value         VARCHAR(50)  NOT NULL UNIQUE,
+        label         VARCHAR(100) NOT NULL,
+        color         VARCHAR(200) NOT NULL DEFAULT 'bg-slate-100 text-slate-600 border-slate-200',
+        display_order INTEGER      NOT NULL DEFAULT 0,
+        is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+        created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    // Seed default priorities — skip if already present
+    for (const p of DEFAULT_PRIORITIES) {
+      await supportSequelize.query(
+        `INSERT INTO support_priorities (value, label, color, display_order, is_active, created_at, updated_at)
+         VALUES (:value, :label, :color, :display_order, TRUE, NOW(), NOW())
+         ON CONFLICT (value) DO NOTHING;`,
+        { replacements: p }
+      );
+    }
+
+    console.log('✅ support_priorities table ready with default seed data');
+  } catch (error) {
+    console.error('❌ Error initializing support_priorities table:', error.message);
+    throw error;
+  }
+};
+
 // --- Start server ---
 const startServer = async () => {
   try {
@@ -613,6 +660,7 @@ const startServer = async () => {
     await initializeLlmModelParametersTable();
     await initializeLlmChatConfigTable();
     await initializeSummarizationChatConfigTable();
+    await initializeSupportPrioritiesTable();
 
     const PORT = process.env.PORT || 4000;
     const server = app.listen(PORT, () => {
