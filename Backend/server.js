@@ -65,7 +65,8 @@ const app = express();
 const allowedOrigins = [
   'http://localhost:3001',
   'http://localhost:4000',
-  'https://nexintel-super-admin.netlify.app'
+  'https://nexintel-super-admin.netlify.app',
+  'https://super-admin-dev.netlify.app'
 ];
 
 app.use(cors({
