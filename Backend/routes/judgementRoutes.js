@@ -22,6 +22,12 @@ function buildHeaders(req, extraHeaders = {}) {
   };
 }
 
+function hasMeaningfulBody(data) {
+  if (data == null) return false;
+  if (typeof data === 'string') return data.trim().length > 0;
+  return true;
+}
+
 async function forward(req, res, next, options) {
   const startedAt = Date.now();
 
@@ -85,12 +91,24 @@ async function forward(req, res, next, options) {
       path: options.path,
       durationMs: Date.now() - startedAt,
       upstreamStatus: error.response?.status,
-      upstreamData: error.response?.data || null,
+      upstreamData: error.response?.data ?? null,
       stack: error.stack,
     });
 
     if (error.response) {
-      return res.status(error.response.status).json(error.response.data);
+      res.setHeader('x-request-id', req.requestId || '');
+
+      if (hasMeaningfulBody(error.response.data)) {
+        return res.status(error.response.status).json(error.response.data);
+      }
+
+      return res.status(error.response.status).json({
+        success: false,
+        message: 'Judgement service returned an empty error response',
+        upstreamStatus: error.response.status,
+        upstreamPath: options.path,
+        requestId: req.requestId || null,
+      });
     }
 
     return next({

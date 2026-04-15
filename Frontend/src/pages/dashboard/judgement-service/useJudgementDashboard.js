@@ -31,7 +31,7 @@ function getClientErrorMeta(error) {
     requestMethod: error?.config?.method ? String(error.config.method).toUpperCase() : null,
     requestUrl: error?.config?.url || error?.request?.responseURL || null,
     requestParams: error?.config?.params || null,
-    responseData: error?.response?.data || null,
+    responseData: error?.response?.data ?? null,
     responseHeaders: headers,
     requestId: headers['x-request-id'] || headers['X-Request-Id'] || null,
   };
