@@ -9,6 +9,34 @@ import {
 
 const MAX_UPLOAD_FILES = Math.max(1, Number(import.meta.env.VITE_JUDGEMENT_UPLOAD_MAX_FILES || 100));
 
+function normalizeErrorHeaders(headers) {
+  if (!headers) return {};
+  if (typeof headers.toJSON === 'function') return headers.toJSON();
+
+  try {
+    return { ...headers };
+  } catch (_) {
+    return {};
+  }
+}
+
+function getClientErrorMeta(error) {
+  const headers = normalizeErrorHeaders(error?.response?.headers);
+
+  return {
+    message: error?.message || null,
+    code: error?.code || null,
+    status: error?.response?.status || null,
+    statusText: error?.response?.statusText || null,
+    requestMethod: error?.config?.method ? String(error.config.method).toUpperCase() : null,
+    requestUrl: error?.config?.url || error?.request?.responseURL || null,
+    requestParams: error?.config?.params || null,
+    responseData: error?.response?.data || null,
+    responseHeaders: headers,
+    requestId: headers['x-request-id'] || headers['X-Request-Id'] || null,
+  };
+}
+
 export default function useJudgementDashboard() {
   const [uploads, setUploads] = useState([]);
   const [summary, setSummary] = useState(null);
@@ -91,7 +119,11 @@ export default function useJudgementDashboard() {
       clearTransientDashboardError();
     } catch (error) {
       if (!silent) {
-        console.error('[JudgementManagement] Failed to load dashboard', error);
+        console.error('[JudgementManagement] Failed to load dashboard', {
+          silent,
+          search,
+          ...getClientErrorMeta(error),
+        });
         setFeedback({
           tone: 'error',
           message: error.response?.data?.message || error.message || 'Failed to load judgement dashboard',
@@ -118,7 +150,10 @@ export default function useJudgementDashboard() {
       });
     } catch (error) {
       if (!silent) {
-        console.error('[JudgementManagement] Failed to load dependency health', error);
+        console.error('[JudgementManagement] Failed to load dependency health', {
+          silent,
+          ...getClientErrorMeta(error),
+        });
       }
 
       setDependencyHealth({
@@ -162,7 +197,10 @@ export default function useJudgementDashboard() {
     try {
       await refreshSelectedDetail(documentId);
     } catch (error) {
-      console.error('[JudgementManagement] Failed to load detail', error);
+      console.error('[JudgementManagement] Failed to load detail', {
+        documentId,
+        ...getClientErrorMeta(error),
+      });
       setFeedback({
         tone: 'error',
         message: error.response?.data?.message || error.message || 'Failed to load judgement detail',
@@ -212,7 +250,11 @@ export default function useJudgementDashboard() {
       try {
         await refreshSelectedDetail(selectedDocumentId, { preserveMetadataDraft: true });
       } catch (error) {
-        console.error('[JudgementManagement] Poll detail refresh failed', error);
+        console.error('[JudgementManagement] Poll detail refresh failed', {
+          documentId: selectedDocumentId,
+          preserveMetadataDraft: true,
+          ...getClientErrorMeta(error),
+        });
       }
     }, 4000);
 
@@ -326,7 +368,15 @@ export default function useJudgementDashboard() {
         await loadDetail(response.uploads?.[0]?.documentId || response.upload.documentId);
       }
     } catch (error) {
-      console.error('[JudgementManagement] Upload failed', error);
+      console.error('[JudgementManagement] Upload failed', {
+        sourceUrl: sourceUrl || null,
+        selectedFiles: uploadFiles.map((file) => ({
+          name: file.name,
+          size: file.size,
+          type: file.type,
+        })),
+        ...getClientErrorMeta(error),
+      });
       setFeedback({
         tone: 'error',
         message: error.response?.data?.message || error.message || 'Upload failed',
@@ -353,7 +403,11 @@ export default function useJudgementDashboard() {
       await refreshSelectedDetail(selectedDocumentId);
       await loadDashboard({ silent: true });
     } catch (error) {
-      console.error('[JudgementManagement] Metadata update failed', error);
+      console.error('[JudgementManagement] Metadata update failed', {
+        documentId: selectedDocumentId,
+        payload: normalizeMetadataPayload(metadataForm),
+        ...getClientErrorMeta(error),
+      });
       setFeedback({
         tone: 'error',
         message: error.response?.data?.message || error.message || 'Failed to update metadata',
@@ -379,7 +433,10 @@ export default function useJudgementDashboard() {
       await loadDashboard({ silent: true });
       await refreshSelectedDetail(selectedDocumentId);
     } catch (error) {
-      console.error('[JudgementManagement] Reprocess failed', error);
+      console.error('[JudgementManagement] Reprocess failed', {
+        documentId: selectedDocumentId,
+        ...getClientErrorMeta(error),
+      });
       setFeedback({
         tone: 'error',
         message: error.response?.data?.message || error.message || 'Failed to reprocess judgment',
@@ -402,7 +459,10 @@ export default function useJudgementDashboard() {
 
       await loadDashboard({ silent: true });
     } catch (error) {
-      console.error('[JudgementManagement] Reprocess failed', error);
+      console.error('[JudgementManagement] Reprocess failed', {
+        scope: 'all_failed_judgments',
+        ...getClientErrorMeta(error),
+      });
       setFeedback({
         tone: 'error',
         message: error.response?.data?.message || error.message || 'Failed to reprocess failed judgments',
@@ -441,6 +501,10 @@ export default function useJudgementDashboard() {
       
       loadDashboard({ silent: true });
     } catch (err) {
+      console.error('[JudgementManagement] Delete failed', {
+        documentId,
+        ...getClientErrorMeta(err),
+      });
       setFeedback({ type: 'error', message: err.message || 'Failed to delete judgment' });
     }
   };
@@ -460,6 +524,10 @@ export default function useJudgementDashboard() {
       
       loadDashboard({ silent: true });
     } catch (err) {
+      console.error('[JudgementManagement] Archive failed', {
+        documentId,
+        ...getClientErrorMeta(err),
+      });
       setFeedback({ type: 'error', message: err.message || 'Failed to archive judgment' });
     }
   };
