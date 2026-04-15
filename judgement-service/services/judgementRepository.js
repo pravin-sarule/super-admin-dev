@@ -8,6 +8,23 @@ let listUploadsSchemaCache = {
   expiresAt: 0,
   value: null,
 };
+const LIST_UPLOAD_SELECT_COLUMNS = [
+  'ju.document_id',
+  'ju.judgment_uuid',
+  'ju.canonical_id',
+  'ju.original_filename',
+  'ju.status',
+  'ju.total_pages',
+  'ju.text_pages_count',
+  'ju.ocr_pages_count',
+  'ju.ocr_batches_count',
+  'ju.last_progress_message',
+  'ju.error_message',
+  'ju.processing_started_at',
+  'ju.processing_completed_at',
+  'ju.created_at',
+  'ju.updated_at',
+];
 
 function getPgErrorMeta(error) {
   if (!error) return {};
@@ -122,6 +139,7 @@ async function getListUploadsSchemaState({ forceRefresh = false } = {}) {
 function buildListUploadsQuery({ search = '', status = 'all', schemaState }) {
   const conditions = [];
   const values = [];
+  const uploadSelectClause = LIST_UPLOAD_SELECT_COLUMNS.join(',\n        ');
   const selectCaseName = schemaState.canJoinJudgments ? 'j.case_name' : 'NULL::TEXT AS case_name';
   const selectCourtCode = schemaState.canJoinJudgments ? 'j.court_code' : 'NULL::VARCHAR(20) AS court_code';
   const selectYear = schemaState.canJoinJudgments ? 'j.year' : 'NULL::SMALLINT AS year';
@@ -161,7 +179,7 @@ function buildListUploadsQuery({ search = '', status = 'all', schemaState }) {
     values,
     query: `
       SELECT
-        ju.*,
+        ${uploadSelectClause},
         ${selectCaseName},
         ${selectCourtCode},
         ${selectYear},

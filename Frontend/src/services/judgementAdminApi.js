@@ -1,7 +1,8 @@
 import axios from 'axios';
-import { BACKEND_ORIGIN, getToken } from '../config';
+import { BACKEND_ORIGIN, JUDGEMENT_SERVICE_ORIGIN, getToken } from '../config';
 
-const API_BASE_URL = `${BACKEND_ORIGIN}/api/judgements-admin`;
+const PROXY_API_BASE_URL = `${BACKEND_ORIGIN}/api/judgements-admin`;
+const DIRECT_API_BASE_URL = `${JUDGEMENT_SERVICE_ORIGIN}/api/judgements`;
 
 function getNowMs() {
   if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
@@ -56,6 +57,24 @@ function summarizePayload(data) {
   return data;
 }
 
+function buildDirectUrl(url) {
+  if (!url) return DIRECT_API_BASE_URL;
+  if (String(url).startsWith(PROXY_API_BASE_URL)) {
+    return String(url).replace(PROXY_API_BASE_URL, DIRECT_API_BASE_URL);
+  }
+  return url;
+}
+
+function shouldRetryDirect(error, transport) {
+  if (transport === 'direct') return false;
+
+  if (!JUDGEMENT_SERVICE_ORIGIN) return false;
+
+  if (!error.response) return true;
+
+  return Number(error.response.status) >= 500;
+}
+
 function authHeaders(extra = {}) {
   const token = getToken();
   return {
@@ -68,30 +87,39 @@ async function performRequest(label, config) {
   const startedAt = getNowMs();
   const method = String(config.method || 'GET').toUpperCase();
   const tokenPresent = Boolean(getToken());
+  const transport = config._judgementTransport || 'proxy';
+  const effectiveUrl = transport === 'direct' ? buildDirectUrl(config.url) : config.url;
+  const requestConfig = {
+    ...config,
+    url: effectiveUrl,
+  };
 
   console.debug(`[JudgementAdminApi] ${label} request started`, {
     label,
     method,
-    url: config.url,
+    transport,
+    url: effectiveUrl,
     backendOrigin: BACKEND_ORIGIN,
-    params: config.params || null,
-    responseType: config.responseType || 'json',
+    judgementServiceOrigin: JUDGEMENT_SERVICE_ORIGIN,
+    params: requestConfig.params || null,
+    responseType: requestConfig.responseType || 'json',
     tokenPresent,
   });
 
   try {
-    const response = await axios(config);
+    const response = await axios(requestConfig);
 
     console.debug(`[JudgementAdminApi] ${label} request succeeded`, {
       label,
       method,
-      url: config.url,
+      transport,
+      url: effectiveUrl,
       status: response.status,
       durationMs: getDurationMs(startedAt),
       requestId: getRequestId(response.headers),
       responseHeaders: normalizeHeaders(response.headers),
       responsePreview:
-        config.responseType === 'blob' ? summarizePayload(response.data) : undefined,
+        requestConfig.responseType === 'blob' ? summarizePayload(response.data) : undefined,
     });
 
     return response.data;
@@ -102,9 +130,11 @@ async function performRequest(label, config) {
     console.error('Failure summary', {
       label,
       method,
-      url: config.url,
+      transport,
+      url: effectiveUrl,
       backendOrigin: BACKEND_ORIGIN,
-      params: config.params || null,
+      judgementServiceOrigin: JUDGEMENT_SERVICE_ORIGIN,
+      params: requestConfig.params || null,
       durationMs: getDurationMs(startedAt),
       tokenPresent,
       code: error.code || null,
@@ -118,12 +148,29 @@ async function performRequest(label, config) {
     console.error('Response headers', responseHeaders);
     console.error('Axios config', {
       method: error.config?.method || method,
-      url: error.config?.url || config.url,
+      url: error.config?.url || effectiveUrl,
       baseURL: error.config?.baseURL || null,
-      params: error.config?.params || config.params || null,
+      params: error.config?.params || requestConfig.params || null,
       timeout: error.config?.timeout ?? null,
     });
     console.groupEnd();
+
+    if (shouldRetryDirect(error, transport)) {
+      console.warn(`[JudgementAdminApi] ${label} retrying direct judgement-service request`, {
+        label,
+        failedTransport: transport,
+        retryTransport: 'direct',
+        proxyUrl: effectiveUrl,
+        directUrl: buildDirectUrl(config.url),
+        status: error.response?.status || null,
+        code: error.code || null,
+      });
+
+      return performRequest(label, {
+        ...config,
+        _judgementTransport: 'direct',
+      });
+    }
 
     throw error;
   }
@@ -133,7 +180,7 @@ class JudgementAdminApi {
   async list(params = {}) {
     return performRequest('list', {
       method: 'GET',
-      url: API_BASE_URL,
+      url: PROXY_API_BASE_URL,
       params,
       headers: authHeaders(),
     });
@@ -142,7 +189,7 @@ class JudgementAdminApi {
   async summary() {
     return performRequest('summary', {
       method: 'GET',
-      url: `${API_BASE_URL}/summary`,
+      url: `${PROXY_API_BASE_URL}/summary`,
       headers: authHeaders(),
     });
   }
@@ -150,7 +197,7 @@ class JudgementAdminApi {
   async dependencyHealth() {
     return performRequest('dependencyHealth', {
       method: 'GET',
-      url: `${API_BASE_URL}/dependencies/health`,
+      url: `${PROXY_API_BASE_URL}/dependencies/health`,
       headers: authHeaders(),
     });
   }
@@ -166,7 +213,7 @@ class JudgementAdminApi {
 
     return performRequest('upload', {
       method: 'POST',
-      url: `${API_BASE_URL}/upload`,
+      url: `${PROXY_API_BASE_URL}/upload`,
       data: formData,
       headers: authHeaders(),
     });
@@ -175,7 +222,7 @@ class JudgementAdminApi {
   async detail(documentId) {
     return performRequest('detail', {
       method: 'GET',
-      url: `${API_BASE_URL}/${documentId}`,
+      url: `${PROXY_API_BASE_URL}/${documentId}`,
       headers: authHeaders(),
     });
   }
@@ -183,7 +230,7 @@ class JudgementAdminApi {
   async status(documentId) {
     return performRequest('status', {
       method: 'GET',
-      url: `${API_BASE_URL}/${documentId}/status`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/status`,
       headers: authHeaders(),
     });
   }
@@ -191,7 +238,7 @@ class JudgementAdminApi {
   async getPagePdfBlob(documentId, pageNumber) {
     return performRequest('getPagePdfBlob', {
       method: 'GET',
-      url: `${API_BASE_URL}/${documentId}/pages/${pageNumber}/pdf`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/pages/${pageNumber}/pdf`,
       headers: authHeaders(),
       responseType: 'blob',
     });
@@ -200,7 +247,7 @@ class JudgementAdminApi {
   async getPageOcrLayout(documentId, pageNumber) {
     return performRequest('getPageOcrLayout', {
       method: 'GET',
-      url: `${API_BASE_URL}/${documentId}/pages/${pageNumber}/ocr-layout`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/pages/${pageNumber}/ocr-layout`,
       headers: authHeaders(),
     });
   }
@@ -208,7 +255,7 @@ class JudgementAdminApi {
   async vectors(documentId, pointIds = []) {
     return performRequest('vectors', {
       method: 'GET',
-      url: `${API_BASE_URL}/${documentId}/vectors`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/vectors`,
       headers: authHeaders(),
       params: {
         pointIds: pointIds.join(','),
@@ -219,7 +266,7 @@ class JudgementAdminApi {
   async reprocess(documentId) {
     return performRequest('reprocess', {
       method: 'POST',
-      url: `${API_BASE_URL}/${documentId}/reprocess`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/reprocess`,
       data: {},
       headers: authHeaders(),
     });
@@ -228,7 +275,7 @@ class JudgementAdminApi {
   async reprocessFailed() {
     return performRequest('reprocessFailed', {
       method: 'POST',
-      url: `${API_BASE_URL}/reprocess-failed`,
+      url: `${PROXY_API_BASE_URL}/reprocess-failed`,
       data: {},
       headers: authHeaders(),
     });
@@ -237,7 +284,7 @@ class JudgementAdminApi {
   async updateMetadata(documentId, payload) {
     return performRequest('updateMetadata', {
       method: 'PUT',
-      url: `${API_BASE_URL}/${documentId}/metadata`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/metadata`,
       data: payload,
       headers: authHeaders({
         'Content-Type': 'application/json',
@@ -248,7 +295,7 @@ class JudgementAdminApi {
   async archiveJudgment(documentId) {
     return performRequest('archiveJudgment', {
       method: 'PUT',
-      url: `${API_BASE_URL}/${documentId}/archive`,
+      url: `${PROXY_API_BASE_URL}/${documentId}/archive`,
       data: {},
       headers: authHeaders(),
     });
@@ -257,7 +304,7 @@ class JudgementAdminApi {
   async deleteJudgment(documentId) {
     return performRequest('deleteJudgment', {
       method: 'DELETE',
-      url: `${API_BASE_URL}/${documentId}`,
+      url: `${PROXY_API_BASE_URL}/${documentId}`,
       headers: authHeaders(),
     });
   }

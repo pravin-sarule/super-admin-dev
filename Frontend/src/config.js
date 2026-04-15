@@ -2,6 +2,7 @@ import axios from 'axios';
 
 // Defaults: Cloud Run super-admin backend & template analyzer. Override with VITE_* in .env for local dev.
 const DEFAULT_API_BASE = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+const DEFAULT_JUDGEMENT_SERVICE_ORIGIN = 'https://judgement-service-120280829617.asia-south1.run.app';
 
 /** All dashboard routes are mounted under `/api/...` on the backend. Accept env with or without `/api`. */
 function normalizeApiBaseUrl(raw) {
@@ -11,6 +12,12 @@ function normalizeApiBaseUrl(raw) {
   return noTrailingSlashes.endsWith('/api') ? noTrailingSlashes : `${noTrailingSlashes}/api`;
 }
 
+function normalizeOriginUrl(raw, fallback) {
+  const base = String(raw ?? '').trim();
+  if (!base) return fallback;
+  return base.replace(/\/+$/, '');
+}
+
 const API_BASE_URL =
   typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL
     ? normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL)
@@ -18,6 +25,14 @@ const API_BASE_URL =
 
 /** Backend origin without `/api` (document gateway, etc.) */
 export const BACKEND_ORIGIN = String(API_BASE_URL).replace(/\/api\/?$/, '');
+
+/** Direct judgement-service origin for proxy fallback. Accepts env with or without path. */
+export const JUDGEMENT_SERVICE_ORIGIN = normalizeOriginUrl(
+  typeof import.meta !== 'undefined' && import.meta.env?.VITE_JUDGEMENT_SERVICE_URL
+    ? String(import.meta.env.VITE_JUDGEMENT_SERVICE_URL).replace(/\/api\/judgements\/?$/, '').replace(/\/api\/?$/, '')
+    : '',
+  DEFAULT_JUDGEMENT_SERVICE_ORIGIN
+);
 
 /** Template Analyzer Agent (Cloud Run) */
 export const TEMPLATE_ANALYZER_BASE_URL =
