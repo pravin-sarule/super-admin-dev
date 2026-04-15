@@ -38,6 +38,7 @@ const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
 const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
 const fileRoutes = require('./routes/fileRoutes');
+const judgementRoutes = require('./routes/judgementRoutes');
 const citationAdminRoutes = require('./routes/citation_routes');
 const userAdminRoutes = require('./routes/user_routes/users.routes');
 const llmChatConfigRoutes = require('./routes/llmChatConfigRoutes');
@@ -142,6 +143,9 @@ app.use('/api/token-usage', tokenUsageRoutes(pool));
 
 console.log('📌 /api/file → Using Main DB (pool) ✨');
 app.use('/api/file', fileRoutes(pool));
+
+console.log('📌 /api/judgements-admin → Proxying protected admin uploads to judgement-service ✨');
+app.use('/api/judgements-admin', judgementRoutes(pool));
 
 // --- Health Check (no auth required) ---
 app.get('/api/admin/health', async (req, res) => {
@@ -724,7 +728,6 @@ const startServer = async () => {
 };
 
 startServer();
-
 
 
 

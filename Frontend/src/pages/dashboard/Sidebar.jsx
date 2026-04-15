@@ -19,6 +19,7 @@ import {
   UserCheck, // Added for Judge
   FileCheck, // Added for Document Management
   BookMarked, // Added for Citation Management
+  FileUp,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -92,6 +93,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Document Management',
       path: '/dashboard/documents',
       icon: FileCheck,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Judgement Upload',
+      path: '/dashboard/judgements',
+      icon: FileUp,
       roles: ['super-admin']
     },
     // {

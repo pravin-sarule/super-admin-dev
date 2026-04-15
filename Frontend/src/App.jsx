@@ -16,6 +16,7 @@ import SystemPromptManagement from './pages/dashboard/SystemPromptManagement';
 import AgentList from './pages/dashboard/agent-prompt';
 import LLMManagement from './pages/dashboard/LLMManagement';
 import DocumentManagement from './pages/dashboard/DocumentManagement';
+import JudgementManagement from './pages/dashboard/JudgementManagement';
 import CitationManagement from './pages/dashboard/CitationManagement';
 import AddCaseType from './pages/dashboard/content/AddCaseType';
 import AddCourt from './pages/dashboard/content/AddCourt';
@@ -80,6 +81,7 @@ function App() {
             <Route path="system-prompts" element={<SystemPromptManagement />} />
             <Route path="llm-management" element={<LLMManagement />} />
             <Route path="documents" element={<DocumentManagement />} />
+            <Route path="judgements" element={<JudgementManagement />} />
             <Route path="citation-management" element={<CitationManagement />} />
             <Route path="support" element={<SupportHelp />} />
             <Route path="support/:queryId" element={<SupportHelp />} />
