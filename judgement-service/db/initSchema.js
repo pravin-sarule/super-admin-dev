@@ -3,8 +3,25 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Schema');
 
+async function ensureColumns(tableName, columnDefinitions = []) {
+  for (const definition of columnDefinitions) {
+    await pool.query(`
+      ALTER TABLE ${tableName}
+      ADD COLUMN IF NOT EXISTS ${definition};
+    `);
+  }
+}
+
 async function initializeSchema() {
   logger.step('Initializing database schema');
+
+  const identityResult = await pool.query(`
+    SELECT
+      current_database() AS database_name,
+      current_user AS database_user
+  `);
+
+  logger.info('Connected to database', identityResult.rows[0] || {});
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS judgments (
@@ -164,45 +181,66 @@ async function initializeSchema() {
   `);
 
   // Backfill columns for databases created from older schema versions.
-  await pool.query(`
-    ALTER TABLE judgments
-    ADD COLUMN IF NOT EXISTS status VARCHAR(40) DEFAULT 'uploaded';
-  `);
-
-  await pool.query(`
-    ALTER TABLE judgments
-    ADD COLUMN IF NOT EXISTS citation_data JSONB DEFAULT '{}'::jsonb;
-  `);
-
-  await pool.query(`
-    ALTER TABLE judgments
-    ADD COLUMN IF NOT EXISTS ocr_info JSONB DEFAULT '{}'::jsonb;
-  `);
-
-  await pool.query(`
-    ALTER TABLE judgments
-    ADD COLUMN IF NOT EXISTS qdrant_collection VARCHAR(100);
-  `);
+  await ensureColumns('judgments', [
+    'canonical_id VARCHAR(200)',
+    'case_name TEXT',
+    "court_code VARCHAR(20) DEFAULT 'UNKNOWN'",
+    'court_tier VARCHAR(10)',
+    'judgment_date DATE',
+    'year SMALLINT',
+    "doc_type VARCHAR(20) DEFAULT 'judgment'",
+    'outcome VARCHAR(50)',
+    'bench_size SMALLINT',
+    'bench_type VARCHAR(20)',
+    'source_type VARCHAR(20)',
+    'verification_status VARCHAR(20)',
+    'confidence_score DECIMAL(4,3)',
+    'citation_frequency INT DEFAULT 0',
+    'qdrant_vector_id BIGINT',
+    'neo4j_node_id BIGINT',
+    'es_doc_id TEXT',
+    "citation_data JSONB DEFAULT '{}'::jsonb",
+    "status VARCHAR(40) DEFAULT 'uploaded'",
+    "ocr_info JSONB DEFAULT '{}'::jsonb",
+    'qdrant_collection VARCHAR(100)',
+    'ingested_at TIMESTAMPTZ DEFAULT NOW()',
+    'last_verified_at TIMESTAMPTZ',
+    'created_at TIMESTAMPTZ DEFAULT NOW()',
+    'updated_at TIMESTAMPTZ DEFAULT NOW()',
+  ]);
 
   await pool.query(`
     ALTER TABLE judgments
     ALTER COLUMN es_doc_id TYPE TEXT;
   `);
 
-  await pool.query(`
-    ALTER TABLE judgment_uploads
-    ADD COLUMN IF NOT EXISTS error_message TEXT;
-  `);
-
-  await pool.query(`
-    ALTER TABLE judgment_uploads
-    ADD COLUMN IF NOT EXISTS last_progress_message TEXT;
-  `);
-
-  await pool.query(`
-    ALTER TABLE judgment_uploads
-    ADD COLUMN IF NOT EXISTS pipeline_metrics JSONB DEFAULT '{}'::jsonb;
-  `);
+  await ensureColumns('judgment_uploads', [
+    'judgment_uuid UUID',
+    'canonical_id VARCHAR(200)',
+    'original_filename TEXT',
+    'source_url TEXT',
+    'storage_bucket TEXT',
+    'storage_path TEXT',
+    'storage_uri TEXT',
+    "status VARCHAR(40) DEFAULT 'uploaded'",
+    'admin_user_id INTEGER',
+    'admin_role TEXT',
+    'total_pages INTEGER DEFAULT 0',
+    'text_pages_count INTEGER DEFAULT 0',
+    'ocr_pages_count INTEGER DEFAULT 0',
+    'ocr_batches_count INTEGER DEFAULT 0',
+    'merged_text TEXT',
+    "metadata JSONB DEFAULT '{}'::jsonb",
+    "pipeline_metrics JSONB DEFAULT '{}'::jsonb",
+    'es_doc_id TEXT',
+    'qdrant_collection VARCHAR(100)',
+    'last_progress_message TEXT',
+    'error_message TEXT',
+    'processing_started_at TIMESTAMPTZ',
+    'processing_completed_at TIMESTAMPTZ',
+    'created_at TIMESTAMPTZ DEFAULT NOW()',
+    'updated_at TIMESTAMPTZ DEFAULT NOW()',
+  ]);
 
   await pool.query(`
     ALTER TABLE judgment_uploads
