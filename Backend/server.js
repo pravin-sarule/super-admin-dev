@@ -130,6 +130,8 @@ app.use('/api/token-usage', tokenUsageRoutes(pool));
 console.log('📌 /api/file → Using Main DB (pool) ✨');
 app.use('/api/file', fileRoutes(pool));
 
+const judgementServiceBaseUrl = String(process.env.JUDGEMENT_SERVICE_URL || 'http://localhost:8095').replace(/\/+$/, '');
+console.log(`🔗 Judgement service base URL: ${judgementServiceBaseUrl}`);
 console.log('📌 /api/judgements-admin → Proxying protected admin uploads to judgement-service ✨');
 app.use('/api/judgements-admin', judgementRoutes(pool));
 
@@ -714,7 +716,6 @@ const startServer = async () => {
 };
 
 startServer();
-
 
 
 

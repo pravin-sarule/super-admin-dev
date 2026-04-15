@@ -1,5 +1,32 @@
 const { v4: uuidv4 } = require('uuid');
 const pool = require('../config/db');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Repository');
+const LIST_UPLOADS_SCHEMA_CACHE_TTL_MS = 60 * 1000;
+let listUploadsSchemaCache = {
+  expiresAt: 0,
+  value: null,
+};
+
+function getPgErrorMeta(error) {
+  if (!error) return {};
+
+  return {
+    pg_code: error.code || null,
+    pg_severity: error.severity || null,
+    pg_detail: error.detail || null,
+    pg_hint: error.hint || null,
+    pg_schema: error.schema || null,
+    pg_table: error.table || null,
+    pg_column: error.column || null,
+    pg_constraint: error.constraint || null,
+    pg_position: error.position || null,
+    pg_internal_position: error.internalPosition || null,
+    pg_where: error.where || null,
+    pg_routine: error.routine || null,
+  };
+}
 
 function mapUploadRow(row) {
   if (!row) return null;
@@ -30,6 +57,120 @@ function mapUploadRow(row) {
     processingCompletedAt: row.processing_completed_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function isSchemaDriftError(error) {
+  return ['42P01', '42703'].includes(error?.code);
+}
+
+async function getListUploadsSchemaState({ forceRefresh = false } = {}) {
+  const now = Date.now();
+  if (!forceRefresh && listUploadsSchemaCache.value && listUploadsSchemaCache.expiresAt > now) {
+    return listUploadsSchemaCache.value;
+  }
+
+  const result = await pool.query(`
+    SELECT table_name, column_name
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND (
+        (table_name = 'judgment_uploads' AND column_name IN ('judgment_uuid', 'canonical_id'))
+        OR (
+          table_name = 'judgments'
+          AND column_name IN ('judgment_uuid', 'case_name', 'court_code', 'year', 'judgment_date')
+        )
+      )
+  `);
+
+  const columnsByTable = new Map();
+
+  result.rows.forEach((row) => {
+    const existing = columnsByTable.get(row.table_name) || new Set();
+    existing.add(row.column_name);
+    columnsByTable.set(row.table_name, existing);
+  });
+
+  const uploadColumns = columnsByTable.get('judgment_uploads') || new Set();
+  const judgmentColumns = columnsByTable.get('judgments') || new Set();
+  const requiredJudgmentColumns = ['judgment_uuid', 'case_name', 'court_code', 'year', 'judgment_date'];
+
+  const schemaState = {
+    hasUploadsJudgmentUuid: uploadColumns.has('judgment_uuid'),
+    hasUploadsCanonicalId: uploadColumns.has('canonical_id'),
+    hasJudgmentsMetadata:
+      requiredJudgmentColumns.every((columnName) => judgmentColumns.has(columnName)),
+  };
+
+  schemaState.canJoinJudgments =
+    schemaState.hasUploadsJudgmentUuid && schemaState.hasJudgmentsMetadata;
+
+  listUploadsSchemaCache = {
+    value: schemaState,
+    expiresAt: now + LIST_UPLOADS_SCHEMA_CACHE_TTL_MS,
+  };
+
+  logger.flow('Resolved upload listing schema state', {
+    forceRefresh,
+    schemaState,
+    discoveredColumns: result.rows,
+  });
+
+  return schemaState;
+}
+
+function buildListUploadsQuery({ search = '', status = 'all', schemaState }) {
+  const conditions = [];
+  const values = [];
+  const selectCaseName = schemaState.canJoinJudgments ? 'j.case_name' : 'NULL::TEXT AS case_name';
+  const selectCourtCode = schemaState.canJoinJudgments ? 'j.court_code' : 'NULL::VARCHAR(20) AS court_code';
+  const selectYear = schemaState.canJoinJudgments ? 'j.year' : 'NULL::SMALLINT AS year';
+  const selectJudgmentDate = schemaState.canJoinJudgments
+    ? 'j.judgment_date'
+    : 'NULL::DATE AS judgment_date';
+
+  if (status && status !== 'all') {
+    values.push(status);
+    conditions.push(`ju.status = $${values.length}`);
+  }
+
+  if (search) {
+    values.push(`%${String(search).trim().toLowerCase()}%`);
+
+    const searchableFields = [
+      `LOWER(ju.original_filename) LIKE $${values.length}`,
+    ];
+
+    if (schemaState.canJoinJudgments) {
+      searchableFields.push(`LOWER(COALESCE(j.case_name, '')) LIKE $${values.length}`);
+    }
+
+    if (schemaState.hasUploadsCanonicalId) {
+      searchableFields.push(`LOWER(COALESCE(ju.canonical_id, '')) LIKE $${values.length}`);
+    }
+
+    conditions.push(`(${searchableFields.join('\n      OR ')})`);
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const joinClause = schemaState.canJoinJudgments
+    ? 'LEFT JOIN judgments j ON j.judgment_uuid = ju.judgment_uuid'
+    : '';
+
+  return {
+    values,
+    query: `
+      SELECT
+        ju.*,
+        ${selectCaseName},
+        ${selectCourtCode},
+        ${selectYear},
+        ${selectJudgmentDate}
+      FROM judgment_uploads ju
+      ${joinClause}
+      ${whereClause}
+      ORDER BY ju.created_at DESC
+    `,
   };
 }
 
@@ -99,48 +240,104 @@ async function getUpload(documentId) {
 }
 
 async function listUploads({ search = '', status = 'all' } = {}) {
-  const conditions = [];
-  const values = [];
+  const startedAt = Date.now();
+  const normalizedSearch = String(search || '').trim();
+  let schemaState = await getListUploadsSchemaState();
 
-  if (status && status !== 'all') {
-    values.push(status);
-    conditions.push(`ju.status = $${values.length}`);
+  try {
+    const { query, values } = buildListUploadsQuery({
+      search: normalizedSearch,
+      status,
+      schemaState,
+    });
+
+    logger.flow('Executing upload listing query', {
+      status,
+      search: normalizedSearch,
+      hasSearch: Boolean(normalizedSearch),
+      schemaState,
+      queryMode: schemaState.canJoinJudgments ? 'full_join' : 'uploads_only',
+      query,
+      values,
+    });
+
+    const result = await pool.query(query, values);
+
+    logger.flow('Upload listing query succeeded', {
+      status,
+      search: normalizedSearch,
+      durationMs: Date.now() - startedAt,
+      rowCount: result.rowCount,
+      schemaState,
+      queryMode: schemaState.canJoinJudgments ? 'full_join' : 'uploads_only',
+    });
+
+    if (!schemaState.canJoinJudgments || !schemaState.hasUploadsCanonicalId) {
+      logger.warn('Listing uploads with reduced schema compatibility', schemaState);
+    }
+
+    return result.rows.map((row) => ({
+      ...mapUploadRow(row),
+      caseName: row.case_name,
+      courtCode: row.court_code,
+      year: row.year,
+      judgmentDate: row.judgment_date,
+    }));
+  } catch (error) {
+    logger.error('Upload listing query failed', error, {
+      status,
+      search: normalizedSearch,
+      durationMs: Date.now() - startedAt,
+      schemaState,
+      ...getPgErrorMeta(error),
+    });
+
+    if (!isSchemaDriftError(error)) {
+      throw error;
+    }
+
+    logger.warn('Detected schema drift while listing uploads, retrying with refreshed schema state', {
+      status,
+      search: normalizedSearch,
+      ...getPgErrorMeta(error),
+    });
+
+    schemaState = await getListUploadsSchemaState({ forceRefresh: true });
+    const { query, values } = buildListUploadsQuery({
+      search: normalizedSearch,
+      status,
+      schemaState,
+    });
+
+    logger.flow('Retrying upload listing query after schema refresh', {
+      status,
+      search: normalizedSearch,
+      schemaState,
+      queryMode: schemaState.canJoinJudgments ? 'full_join' : 'uploads_only',
+      query,
+      values,
+    });
+
+    const result = await pool.query(query, values);
+
+    logger.warn('Listing uploads after schema compatibility fallback', schemaState);
+    logger.flow('Upload listing fallback query succeeded', {
+      status,
+      search: normalizedSearch,
+      durationMs: Date.now() - startedAt,
+      rowCount: result.rowCount,
+      schemaState,
+      queryMode: schemaState.canJoinJudgments ? 'full_join' : 'uploads_only',
+    });
+
+    return result.rows.map((row) => ({
+      ...mapUploadRow(row),
+      caseName: row.case_name,
+      courtCode: row.court_code,
+      year: row.year,
+      judgmentDate: row.judgment_date,
+    }));
   }
-
-  if (search) {
-    values.push(`%${String(search).trim().toLowerCase()}%`);
-    conditions.push(`(
-      LOWER(ju.original_filename) LIKE $${values.length}
-      OR LOWER(COALESCE(j.case_name, '')) LIKE $${values.length}
-      OR LOWER(COALESCE(ju.canonical_id, '')) LIKE $${values.length}
-    )`);
-  }
-
-  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-
-  const result = await pool.query(
-    `
-      SELECT
-        ju.*,
-        j.case_name,
-        j.court_code,
-        j.year,
-        j.judgment_date
-      FROM judgment_uploads ju
-      LEFT JOIN judgments j ON j.judgment_uuid = ju.judgment_uuid
-      ${whereClause}
-      ORDER BY ju.created_at DESC
-    `,
-    values
-  );
-
-  return result.rows.map((row) => ({
-    ...mapUploadRow(row),
-    caseName: row.case_name,
-    courtCode: row.court_code,
-    year: row.year,
-    judgmentDate: row.judgment_date,
-  }));
 }
 
 async function getSummary() {
