@@ -643,6 +643,19 @@ const initializeSupportPrioritiesTable = async () => {
 // --- Start server ---
 const startServer = async () => {
   try {
+    // Start listening immediately so Cloud Run startup probe passes
+    const PORT = process.env.PORT || 4000;
+    const server = app.listen(PORT, () => {
+      console.log('\n' + '='.repeat(60));
+      console.log('🚀 SERVER STARTED SUCCESSFULLY');
+      console.log('='.repeat(60));
+      console.log(`🌐 Server running on port: ${PORT}`);
+      console.log(`📊 Main Database: ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[1] || 'Connected'}`);
+      console.log(`📄 docDB Database: ${process.env.DOCDB_URL?.split('@')[1]?.split('/')[1] || 'Connected'}`);
+      console.log('='.repeat(60) + '\n');
+    });
+
+    // Run DB initialization after port is open (avoids Cloud Run startup probe timeout)
     await sequelize.sync({ alter: true });
     console.log('✅ Sequelize Database synced!');
 
@@ -654,17 +667,6 @@ const startServer = async () => {
     await initializeLlmChatConfigTable();
     await initializeSummarizationChatConfigTable();
     await initializeSupportPrioritiesTable();
-
-    const PORT = process.env.PORT || 4000;
-    const server = app.listen(PORT, () => {
-      console.log('\n' + '='.repeat(60));
-      console.log('🚀 SERVER STARTED SUCCESSFULLY');
-      console.log('='.repeat(60));
-      console.log(`🌐 Server running on port: ${PORT}`);
-      console.log(`📊 Main Database: ${process.env.DATABASE_URL?.split('@')[1]?.split('/')[1] || 'Connected'}`);
-      console.log(`📄 docDB Database: ${process.env.DOCDB_URL?.split('@')[1]?.split('/')[1] || 'Connected'}`);
-      console.log('='.repeat(60) + '\n');
-    });
 
     const shutdown = async (signal) => {
       console.log(`\n⚠️  ${signal} received. Closing server...`);
