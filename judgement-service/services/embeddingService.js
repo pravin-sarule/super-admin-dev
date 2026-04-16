@@ -46,7 +46,9 @@ function projectVector(values, targetDims = EMBEDDING_DIMENSION) {
   return normalizeVector(projected);
 }
 
-async function embedBatchViaGemini(texts) {
+async function embedBatchViaGemini(texts, options = {}) {
+  const taskType = options.taskType || 'RETRIEVAL_DOCUMENT';
+
   const response = await axios.post(
     `https://generativelanguage.googleapis.com/v1beta/${EMBEDDING_MODEL}:batchEmbedContents`,
     {
@@ -55,7 +57,7 @@ async function embedBatchViaGemini(texts) {
         content: {
           parts: [{ text }],
         },
-        taskType: 'RETRIEVAL_DOCUMENT',
+        taskType,
       })),
     },
     {
@@ -93,14 +95,16 @@ function coerceBatchVectors(texts, embeddedVectors, batchNumber) {
   });
 }
 
-async function generateEmbeddings(texts) {
+async function generateEmbeddings(texts, options = {}) {
   const safeTexts = texts.map((text) => String(text || '').slice(0, 10000));
   const vectors = [];
+  const taskType = options.taskType || 'RETRIEVAL_DOCUMENT';
 
   logger.step('Generating embeddings for chunks', {
     texts: safeTexts.length,
     batchSize: BATCH_SIZE,
     model: EMBEDDING_MODEL,
+    taskType,
   });
 
   for (let index = 0; index < safeTexts.length; index += BATCH_SIZE) {
@@ -112,7 +116,7 @@ async function generateEmbeddings(texts) {
         throw new Error('GOOGLE_API_KEY is not configured');
       }
 
-      const embedded = await embedBatchViaGemini(batch);
+      const embedded = await embedBatchViaGemini(batch, { taskType });
       if (embedded.length !== batch.length) {
         throw new Error(`Embedding count mismatch: expected ${batch.length}, got ${embedded.length}`);
       }
@@ -120,12 +124,14 @@ async function generateEmbeddings(texts) {
       logger.info('Embedding batch complete', {
         batchNumber,
         batchSize: batch.length,
+        taskType,
       });
     } catch (error) {
       logger.warn('Gemini embedding failed, using deterministic fallback', {
         batchNumber,
         batchSize: batch.length,
         reason: error.message,
+        taskType,
       });
       vectors.push(...batch.map((text) => hashEmbedding(text)));
     }
@@ -134,6 +140,7 @@ async function generateEmbeddings(texts) {
   logger.info('Embedding generation complete', {
     vectors: vectors.length,
     model: EMBEDDING_MODEL,
+    taskType,
   });
 
   return {

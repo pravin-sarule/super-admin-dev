@@ -17,6 +17,7 @@ import AgentList from './pages/dashboard/agent-prompt';
 import LLMManagement from './pages/dashboard/LLMManagement';
 import DocumentManagement from './pages/dashboard/DocumentManagement';
 import JudgementManagement from './pages/dashboard/JudgementManagement';
+import JudgementSearch from './pages/dashboard/JudgementSearch';
 import CitationManagement from './pages/dashboard/CitationManagement';
 import AddCaseType from './pages/dashboard/content/AddCaseType';
 import AddCourt from './pages/dashboard/content/AddCourt';
@@ -82,6 +83,7 @@ function App() {
             <Route path="llm-management" element={<LLMManagement />} />
             <Route path="documents" element={<DocumentManagement />} />
             <Route path="judgements" element={<JudgementManagement />} />
+            <Route path="judgement-search" element={<JudgementSearch />} />
             <Route path="citation-management" element={<CitationManagement />} />
             <Route path="support" element={<SupportHelp />} />
             <Route path="support/:queryId" element={<SupportHelp />} />

@@ -8,6 +8,10 @@ const internalServiceKey =
   process.env.JUDGEMENT_INTERNAL_API_KEY ||
   process.env.INTERNAL_SERVICE_KEY ||
   '';
+const judmentApiKey =
+  process.env.JUDMENT_API_KEY ||
+  process.env.JUDGEMENT_API_KEY ||
+  '';
 const proxyTimeoutMs = Math.max(60000, Number(process.env.JUDGEMENT_PROXY_TIMEOUT_MS || 600000));
 
 function buildHeaders(req, extraHeaders = {}) {
@@ -26,6 +30,18 @@ function hasMeaningfulBody(data) {
   if (data == null) return false;
   if (typeof data === 'string') return data.trim().length > 0;
   return true;
+}
+
+function buildJudmentApiHeaders(req, extraHeaders = {}) {
+  return {
+    'x-admin-user-id': req.user?.id != null ? String(req.user.id) : '',
+    'x-admin-role': req.user?.role || '',
+    'x-admin-email': req.user?.email || '',
+    'x-request-id': req.requestId || '',
+    ...(internalServiceKey ? { 'x-internal-service-key': internalServiceKey } : {}),
+    ...(judmentApiKey ? { 'x-api-key': judmentApiKey } : {}),
+    ...extraHeaders,
+  };
 }
 
 async function forward(req, res, next, options) {
@@ -120,6 +136,86 @@ async function forward(req, res, next, options) {
   }
 }
 
+async function forwardJudmentApi(req, res, next, options) {
+  const startedAt = Date.now();
+
+  try {
+    logger.info('Forwarding admin judgment search request to judment-api', {
+      requestId: req.requestId,
+      layer: 'JUDMENT_SEARCH_PROXY',
+      method: options.method,
+      path: options.path,
+      adminUserId: req.user?.id,
+      adminRole: req.user?.role,
+      serviceBaseUrl,
+    });
+
+    const response = await axios({
+      method: options.method,
+      url: `${serviceBaseUrl}${options.path}`,
+      params: options.params,
+      data: options.data,
+      headers: buildJudmentApiHeaders(req, options.headers),
+      timeout: options.timeoutMs || proxyTimeoutMs,
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+
+    logger.info('judment-api request completed', {
+      requestId: req.requestId,
+      layer: 'JUDMENT_SEARCH_PROXY',
+      method: options.method,
+      path: options.path,
+      statusCode: response.status,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return res.status(response.status).json(response.data);
+  } catch (error) {
+    logger.error(`judment-api request failed: ${error.message}`, {
+      requestId: req.requestId,
+      layer: 'JUDMENT_SEARCH_PROXY',
+      method: options.method,
+      path: options.path,
+      durationMs: Date.now() - startedAt,
+      upstreamStatus: error.response?.status,
+      upstreamData: error.response?.data ?? null,
+      stack: error.stack,
+    });
+
+    if ([401, 403].includes(Number(error.response?.status || 0))) {
+      return next({
+        statusCode: 502,
+        code: 'JUDMENT_API_AUTH_FAILED',
+        message: 'Judment search API authentication failed on backend',
+        details: error.response?.data || error.message,
+      });
+    }
+
+    if (error.response) {
+      res.setHeader('x-request-id', req.requestId || '');
+
+      if (hasMeaningfulBody(error.response.data)) {
+        return res.status(error.response.status).json(error.response.data);
+      }
+
+      return res.status(error.response.status).json({
+        success: false,
+        message: 'Judment API returned an empty error response',
+        upstreamStatus: error.response.status,
+        upstreamPath: options.path,
+        requestId: req.requestId || null,
+      });
+    }
+
+    return next({
+      statusCode: error.statusCode || 502,
+      code: 'JUDMENT_API_UNAVAILABLE',
+      message: error.message || 'Judment API is unavailable',
+    });
+  }
+}
+
 module.exports = (pool) => {
   const router = express.Router();
 
@@ -131,6 +227,50 @@ module.exports = (pool) => {
     forward(req, res, next, {
       method: 'GET',
       path: '/api/judgements/summary',
+    })
+  );
+
+  router.post('/search/hybrid', (req, res, next) =>
+    forwardJudmentApi(req, res, next, {
+      method: 'POST',
+      path: '/api/judment-api/search/hybrid',
+      data: req.body,
+      headers: {
+        'content-type': 'application/json',
+      },
+      timeoutMs: Math.max(proxyTimeoutMs, 240000),
+    })
+  );
+
+  router.post('/search/semantic', (req, res, next) =>
+    forwardJudmentApi(req, res, next, {
+      method: 'POST',
+      path: '/api/judment-api/search/semantic',
+      data: req.body,
+      headers: {
+        'content-type': 'application/json',
+      },
+      timeoutMs: Math.max(proxyTimeoutMs, 240000),
+    })
+  );
+
+  router.post('/search/full-text', (req, res, next) =>
+    forwardJudmentApi(req, res, next, {
+      method: 'POST',
+      path: '/api/judment-api/search/full-text',
+      data: req.body,
+      headers: {
+        'content-type': 'application/json',
+      },
+      timeoutMs: Math.max(proxyTimeoutMs, 240000),
+    })
+  );
+
+  router.get('/search/analytics', (req, res, next) =>
+    forwardJudmentApi(req, res, next, {
+      method: 'GET',
+      path: '/api/judment-api/analytics',
+      params: req.query,
     })
   );
 

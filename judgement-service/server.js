@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
 const judgementRoutes = require('./routes/judgementRoutes');
+const judmentApiRoutes = require('./judment_api/routes');
 const initializeSchema = require('./db/initSchema');
 const errorHandler = require('./middleware/errorHandler');
 const { createLogger } = require('./utils/logger');
@@ -61,6 +62,7 @@ app.get('/health', async (req, res) => {
   });
 });
 
+app.use('/api/judment-api', judmentApiRoutes);
 app.use('/api/judgements', judgementRoutes);
 app.use(errorHandler);
 

@@ -20,6 +20,7 @@ import {
   FileCheck, // Added for Document Management
   BookMarked, // Added for Citation Management
   FileUp,
+  Search,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -99,6 +100,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Judgement Upload',
       path: '/dashboard/judgements',
       icon: FileUp,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Judgement Search',
+      path: '/dashboard/judgement-search',
+      icon: Search,
       roles: ['super-admin']
     },
     // {

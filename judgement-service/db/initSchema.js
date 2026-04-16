@@ -166,6 +166,33 @@ async function initializeSchema() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS judgment_api_analytics (
+      request_id UUID PRIMARY KEY,
+      endpoint TEXT NOT NULL,
+      search_mode VARCHAR(40) NOT NULL,
+      query_text TEXT,
+      filters JSONB DEFAULT '{}'::jsonb,
+      semantic_limit INTEGER,
+      text_limit INTEGER,
+      score_threshold DOUBLE PRECISION,
+      phrase_match BOOLEAN DEFAULT FALSE,
+      api_key_fingerprint VARCHAR(64),
+      status_code INTEGER,
+      success BOOLEAN NOT NULL DEFAULT TRUE,
+      result_count INTEGER DEFAULT 0,
+      embedding_duration_ms INTEGER,
+      qdrant_duration_ms INTEGER,
+      elastic_duration_ms INTEGER,
+      db_duration_ms INTEGER,
+      signed_url_duration_ms INTEGER,
+      total_duration_ms INTEGER,
+      error_message TEXT,
+      response_summary JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_judgment_uploads_status_created_at
     ON judgment_uploads (status, created_at DESC);
   `);
@@ -178,6 +205,16 @@ async function initializeSchema() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_judgment_chunks_judgment_uuid
     ON judgment_chunks (judgment_uuid, chunk_index);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_judgment_api_analytics_created_at
+    ON judgment_api_analytics (created_at DESC);
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_judgment_api_analytics_endpoint_created_at
+    ON judgment_api_analytics (endpoint, created_at DESC);
   `);
 
   // Backfill columns for databases created from older schema versions.
@@ -240,6 +277,30 @@ async function initializeSchema() {
     'processing_completed_at TIMESTAMPTZ',
     'created_at TIMESTAMPTZ DEFAULT NOW()',
     'updated_at TIMESTAMPTZ DEFAULT NOW()',
+  ]);
+
+  await ensureColumns('judgment_api_analytics', [
+    'endpoint TEXT',
+    "search_mode VARCHAR(40) DEFAULT 'unknown'",
+    'query_text TEXT',
+    "filters JSONB DEFAULT '{}'::jsonb",
+    'semantic_limit INTEGER',
+    'text_limit INTEGER',
+    'score_threshold DOUBLE PRECISION',
+    'phrase_match BOOLEAN DEFAULT FALSE',
+    'api_key_fingerprint VARCHAR(64)',
+    'status_code INTEGER',
+    'success BOOLEAN DEFAULT TRUE',
+    'result_count INTEGER DEFAULT 0',
+    'embedding_duration_ms INTEGER',
+    'qdrant_duration_ms INTEGER',
+    'elastic_duration_ms INTEGER',
+    'db_duration_ms INTEGER',
+    'signed_url_duration_ms INTEGER',
+    'total_duration_ms INTEGER',
+    'error_message TEXT',
+    "response_summary JSONB DEFAULT '{}'::jsonb",
+    'created_at TIMESTAMPTZ DEFAULT NOW()',
   ]);
 
   await pool.query(`

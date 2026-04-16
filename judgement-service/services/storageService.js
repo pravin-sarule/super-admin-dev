@@ -69,6 +69,30 @@ async function downloadBuffer(path) {
   return contents;
 }
 
+async function getSignedReadUrl(path, expiresMinutes = 60) {
+  if (!path) return null;
+
+  logger.flow('Generating signed read URL for object storage file', {
+    bucket: bucketName,
+    path,
+    expiresMinutes,
+  });
+
+  const [url] = await bucket.file(path).getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + Math.max(1, Number(expiresMinutes || 60)) * 60 * 1000,
+  });
+
+  logger.info('Signed read URL generated', {
+    bucket: bucketName,
+    path,
+    expiresMinutes,
+  });
+
+  return url;
+}
+
 function createJudgementUploadStorage() {
   return {
     _handleFile(req, file, callback) {
@@ -191,6 +215,7 @@ module.exports = {
   uploadBuffer,
   uploadJson,
   downloadBuffer,
+  getSignedReadUrl,
   sanitizeFilename,
   deleteDocumentDirectory,
 };

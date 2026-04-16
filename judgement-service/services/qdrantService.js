@@ -287,6 +287,53 @@ async function fetchPointsByIds(pointIds = []) {
   return points;
 }
 
+async function searchChunksByVector({
+  vector,
+  limit = 10,
+  scoreThreshold = null,
+  filter = null,
+} = {}) {
+  if (!QDRANT_URL) {
+    throw new Error('Qdrant URL is not configured');
+  }
+
+  if (!Array.isArray(vector) || !vector.length) {
+    throw new Error('A valid query vector is required for Qdrant search');
+  }
+
+  await ensureCollection();
+
+  const api = client();
+  const startedAt = Date.now();
+  logger.flow('Searching Qdrant chunks by vector', {
+    collection: COLLECTION_NAME,
+    limit,
+    scoreThreshold,
+    hasFilter: Boolean(filter),
+    timeoutMs: QDRANT_TIMEOUT_MS,
+  });
+
+  const response = await api.post(`/collections/${COLLECTION_NAME}/points/search`, {
+    vector,
+    limit,
+    with_payload: true,
+    with_vector: false,
+    ...(scoreThreshold != null ? { score_threshold: scoreThreshold } : {}),
+    ...(filter ? { filter } : {}),
+  });
+
+  const points = response.data?.result || [];
+
+  logger.info('Qdrant vector search completed', {
+    collection: COLLECTION_NAME,
+    limit,
+    returnedPoints: points.length,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return points;
+}
+
 async function deletePointsByJudgmentUuid(collectionName, judgmentUuid) {
   if (!QDRANT_URL || !judgmentUuid) return;
 
@@ -332,6 +379,7 @@ async function deletePointsByJudgmentUuid(collectionName, judgmentUuid) {
 module.exports = {
   checkQdrantHealth,
   fetchPointsByIds,
+  searchChunksByVector,
   upsertChunks,
   deletePointsByJudgmentUuid,
   COLLECTION_NAME,
