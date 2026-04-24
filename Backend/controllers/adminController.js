@@ -252,7 +252,117 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 const sendEmail = require('../utils/sendEmail');
+const SupportAdminProfile = require('../models/support_admin_profile');
 const { getAdminCreationEmailTemplate, getAdminDeletionEmailTemplate, getAdminUpdateEmailTemplate } = require('../utils/emailTemplates');
+const logger = require('../config/logger');
+const { summarizeValue } = require('../utils/logging.utils');
+
+const normalizeText = (value) => String(value || '').trim();
+
+const normalizeSupportQueue = (value, fallback = 'all') => {
+  const normalized = normalizeText(value).toLowerCase();
+  return ['all', 'assigned_to_me', 'my_team', 'unassigned', 'closed'].includes(normalized)
+    ? normalized
+    : fallback;
+};
+
+const buildSupportAdminProfilePayload = ({ adminId, teamName, defaultQueue, actorAdminId }) => ({
+  admin_id: Number(adminId),
+  manager_admin_id: Number(adminId),
+  team_name: teamName || 'Support Team',
+  is_team_manager: true,
+  can_manage_team: true,
+  can_view_all_tickets: true,
+  can_view_assigned_to_me: true,
+  can_view_team_tickets: true,
+  can_view_unassigned_tickets: true,
+  can_view_closed_tickets: true,
+  can_view_archived_tickets: false,
+  default_queue: normalizeSupportQueue(defaultQueue, 'all'),
+  is_active: true,
+});
+
+const isSuperAdminsPrimaryKeyConflict = (error) =>
+  error?.code === '23505' && String(error?.constraint || '').trim() === 'super_admins_pkey';
+
+const isMissingRelationError = (error) => {
+  const errorCode =
+    error?.original?.code ||
+    error?.parent?.code ||
+    error?.code ||
+    null;
+
+  return errorCode === '42P01' || /relation .* does not exist/i.test(String(error?.message || ''));
+};
+
+let ensureSupportAdminProfilesTablePromise = null;
+
+const ensureSupportAdminProfilesTable = async () => {
+  if (!ensureSupportAdminProfilesTablePromise) {
+    ensureSupportAdminProfilesTablePromise = SupportAdminProfile.sync()
+      .catch((error) => {
+        ensureSupportAdminProfilesTablePromise = null;
+        throw error;
+      });
+  }
+
+  return ensureSupportAdminProfilesTablePromise;
+};
+
+const fetchSupportAdminProfilesMap = async () => {
+  try {
+    await ensureSupportAdminProfilesTable();
+    const profiles = await SupportAdminProfile.findAll({ raw: true });
+    return new Map(profiles.map((profile) => [Number(profile.admin_id), profile]));
+  } catch (error) {
+    if (isMissingRelationError(error)) {
+      logger.warn('Support admin profiles table is not ready yet. Returning admins without support profile metadata.', {
+        layer: 'ADMIN_CONTROLLER',
+      });
+      return new Map();
+    }
+
+    throw error;
+  }
+};
+
+const syncSuperAdminsIdSequence = async (pool) => {
+  const sequenceResult = await pool.query(
+    `SELECT pg_get_serial_sequence('super_admins', 'id') AS sequence_name`
+  );
+
+  const sequenceName = sequenceResult.rows[0]?.sequence_name || null;
+  if (!sequenceName) return null;
+
+  await pool.query(
+    `SELECT setval($1::regclass, COALESCE((SELECT MAX(id) FROM super_admins), 0) + 1, false)`,
+    [sequenceName]
+  );
+
+  return sequenceName;
+};
+
+const insertAdminWithSequenceSync = async (pool, values) => {
+  await syncSuperAdminsIdSequence(pool);
+
+  const insertOnce = () =>
+    pool.query(
+      `INSERT INTO super_admins (name, email, password, role, role_id)
+       VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role`,
+      values
+    );
+
+  try {
+    return await insertOnce();
+  } catch (error) {
+    if (!isSuperAdminsPrimaryKeyConflict(error)) {
+      throw error;
+    }
+
+    await syncSuperAdminsIdSequence(pool);
+    return insertOnce();
+  }
+};
 
 module.exports = (pool) => {
 
@@ -260,8 +370,30 @@ module.exports = (pool) => {
   const createAdmin = async (req, res) => {
     try {
       const { name, email, password, role_name } = req.body;
+      const teamName = normalizeText(req.body.team_name || req.body.teamName);
+      const defaultQueue = normalizeSupportQueue(req.body.default_queue || req.body.defaultQueue, 'all');
+      logger.flow('Create admin request received', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'createAdmin',
+          role: role_name,
+        },
+        input: summarizeValue({
+          name,
+          email,
+          role_name,
+          team_name: teamName || null,
+          default_queue: defaultQueue,
+        }),
+      });
+
       if (!name || !email || !password || !role_name) {
         return res.status(400).json({ message: 'All fields are required' });
+      }
+
+      if (role_name === 'support-admin' && !teamName) {
+        return res.status(400).json({ message: 'Support admin must have a team / group name' });
       }
 
       const existingUser = await pool.query('SELECT * FROM super_admins WHERE email=$1', [email]);
@@ -277,12 +409,30 @@ module.exports = (pool) => {
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      const newAdminRes = await pool.query(
-        `INSERT INTO super_admins (name, email, password, role, role_id)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role`,
-        [name, email, hashedPassword, role_name, role_id]
-      );
+      const newAdminRes = await insertAdminWithSequenceSync(pool, [
+        name,
+        email,
+        hashedPassword,
+        role_name,
+        role_id,
+      ]);
       const newAdmin = newAdminRes.rows[0];
+
+      if (role_name === 'support-admin') {
+        await ensureSupportAdminProfilesTable();
+        await SupportAdminProfile.create({
+          ...buildSupportAdminProfilePayload({
+            adminId: newAdmin.id,
+            teamName: teamName || `${name} Team`,
+            defaultQueue,
+            actorAdminId: req.user?.id,
+          }),
+          created_by_admin_id: req.user?.id || null,
+          updated_by_admin_id: req.user?.id || null,
+          created_at: new Date(),
+          updated_at: new Date(),
+        });
+      }
 
       // Send admin creation email
       try {
@@ -292,17 +442,55 @@ module.exports = (pool) => {
           html: getAdminCreationEmailTemplate(name, email, password),
         });
       } catch (emailError) {
-        console.error('Error sending admin creation email:', emailError);
+        logger.errorWithContext('Failed to send admin creation email', emailError, {
+          requestId: req.requestId,
+          layer: 'ADMIN_CONTROLLER',
+          summary: {
+            action: 'createAdmin',
+            adminId: newAdmin.id,
+          },
+          context: {
+            email,
+          },
+        });
       }
+
+      logger.flow('Admin created successfully', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'createAdmin',
+          adminId: newAdmin.id,
+          role: role_name,
+        },
+        output: summarizeValue({
+          id: newAdmin.id,
+          name: newAdmin.name,
+          email: newAdmin.email,
+          team_name: role_name === 'support-admin' ? teamName || `${name} Team` : null,
+          default_queue: role_name === 'support-admin' ? defaultQueue : null,
+        }),
+      });
 
       return res.status(201).json({
         success: true,
         message: 'Admin created successfully',
-        admin: newAdminRes.rows[0],
+        admin: {
+          ...newAdminRes.rows[0],
+          team_name: role_name === 'support-admin' ? teamName || `${name} Team` : null,
+          default_queue: role_name === 'support-admin' ? defaultQueue : null,
+        },
       });
 
     } catch (error) {
-      console.error('Create Admin Error:', error.message);
+      logger.errorWithContext('Create admin failed', error, {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'createAdmin',
+        },
+        input: summarizeValue(req.body),
+      });
       return res.status(500).json({ success: false, message: 'Server Error' });
     }
   };
@@ -320,7 +508,6 @@ module.exports = (pool) => {
 // FETCH ALL ADMINS WITH ROLE DETAILS
 const fetchAdmins = async (req, res) => {
   try {
-    // Join super_admins with admin_roles to get full role info
     const query = `
       SELECT 
         a.id,
@@ -328,6 +515,7 @@ const fetchAdmins = async (req, res) => {
         a.email,
         a.role,
         a.role_id,
+        a.is_blocked,
         r.name AS role_name,
         r.description AS role_description,
         a.created_at,
@@ -337,15 +525,60 @@ const fetchAdmins = async (req, res) => {
       ORDER BY a.id DESC
     `;
 
-    const result = await pool.query(query);
+    const [result, supportProfilesByAdminId] = await Promise.all([
+      pool.query(query),
+      fetchSupportAdminProfilesMap(),
+    ]);
+
+    const admins = result.rows.map((admin) => {
+      const supportProfile = supportProfilesByAdminId.get(Number(admin.id));
+
+      return {
+        ...admin,
+        team_name: supportProfile?.team_name || null,
+        default_queue: supportProfile?.default_queue || null,
+        is_team_manager: Boolean(supportProfile?.is_team_manager),
+      };
+    });
+
+    logger.flow('Admin list loaded', {
+      requestId: req.requestId,
+      layer: 'ADMIN_CONTROLLER',
+      summary: {
+        action: 'fetchAdmins',
+        total: admins.length,
+        supportAdmins: admins.filter((admin) => admin.role === 'support-admin').length,
+      },
+    });
+    logger.table(
+      'Admin list preview',
+      admins.slice(0, 10).map((admin) => ({
+        id: admin.id,
+        name: admin.name,
+        email: admin.email,
+        role: admin.role,
+        team_name: admin.team_name || '-',
+        blocked: Boolean(admin.is_blocked),
+      })),
+      {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+      }
+    );
 
     return res.status(200).json({
       success: true,
-      total: result.rowCount,
-      admins: result.rows
+      total: admins.length,
+      admins,
     });
   } catch (error) {
-    console.error('Fetch Admins Error:', error.message);
+    logger.errorWithContext('Fetch admins failed', error, {
+      requestId: req.requestId,
+      layer: 'ADMIN_CONTROLLER',
+      summary: {
+        action: 'fetchAdmins',
+      },
+    });
     return res.status(500).json({
       success: false,
       message: 'Server Error',
@@ -359,6 +592,24 @@ const fetchAdmins = async (req, res) => {
     try {
       const { id } = req.params;
       const { name, email, password, role_name } = req.body;
+      const teamName = normalizeText(req.body.team_name || req.body.teamName);
+      const defaultQueue = normalizeSupportQueue(req.body.default_queue || req.body.defaultQueue, 'all');
+      logger.flow('Update admin request received', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'updateAdmin',
+          adminId: id,
+        },
+        input: summarizeValue({
+          name,
+          email,
+          role_name,
+          team_name: teamName || null,
+          default_queue: defaultQueue,
+          password_provided: Boolean(password),
+        }),
+      });
 
       const adminRes = await pool.query('SELECT * FROM super_admins WHERE id=$1', [id]);
       if (adminRes.rows.length === 0) {
@@ -393,6 +644,45 @@ const fetchAdmins = async (req, res) => {
       );
 
       const updatedAdmin = updatedAdminRes.rows[0];
+      const nextRole = role_name || adminRes.rows[0].role;
+      await ensureSupportAdminProfilesTable();
+      const existingProfile = await SupportAdminProfile.findOne({
+        where: { admin_id: Number(id) },
+      });
+
+      if (nextRole === 'support-admin') {
+        if (existingProfile) {
+          await existingProfile.update({
+            ...buildSupportAdminProfilePayload({
+              adminId: id,
+              teamName: teamName || existingProfile.team_name || `${updatedAdmin.name} Team`,
+              defaultQueue,
+              actorAdminId: req.user?.id,
+            }),
+            updated_by_admin_id: req.user?.id || null,
+            updated_at: new Date(),
+          });
+        } else {
+          await SupportAdminProfile.create({
+            ...buildSupportAdminProfilePayload({
+              adminId: id,
+              teamName: teamName || `${updatedAdmin.name} Team`,
+              defaultQueue,
+              actorAdminId: req.user?.id,
+            }),
+            created_by_admin_id: req.user?.id || null,
+            updated_by_admin_id: req.user?.id || null,
+            created_at: new Date(),
+            updated_at: new Date(),
+          });
+        }
+      } else if (existingProfile) {
+        await existingProfile.update({
+          is_active: false,
+          updated_by_admin_id: req.user?.id || null,
+          updated_at: new Date(),
+        });
+      }
 
       // Send admin update email
       try {
@@ -400,6 +690,7 @@ const fetchAdmins = async (req, res) => {
         if (name && name !== adminRes.rows[0].name) updatedFields.name = name;
         if (email && email !== adminRes.rows[0].email) updatedFields.email = email;
         if (role_name && role_name !== adminRes.rows[0].role) updatedFields.role = role_name;
+        if (teamName) updatedFields.team_name = teamName;
         if (password) updatedFields.password = password; // Include password if updated, as per user request.
 
         if (Object.keys(updatedFields).length > 0) {
@@ -410,17 +701,54 @@ const fetchAdmins = async (req, res) => {
           });
         }
       } catch (emailError) {
-        console.error('Error sending admin update email:', emailError);
+        logger.errorWithContext('Failed to send admin update email', emailError, {
+          requestId: req.requestId,
+          layer: 'ADMIN_CONTROLLER',
+          summary: {
+            action: 'updateAdmin',
+            adminId: id,
+          },
+        });
       }
+
+      logger.flow('Admin updated successfully', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'updateAdmin',
+          adminId: id,
+          role: nextRole,
+        },
+        output: summarizeValue({
+          id: updatedAdmin.id,
+          name: updatedAdmin.name,
+          email: updatedAdmin.email,
+          role: updatedAdmin.role,
+          team_name: nextRole === 'support-admin' ? teamName || null : null,
+          default_queue: nextRole === 'support-admin' ? defaultQueue : null,
+        }),
+      });
 
       return res.status(200).json({
         success: true,
         message: 'Admin updated successfully',
-        admin: updatedAdmin,
+        admin: {
+          ...updatedAdmin,
+          team_name: nextRole === 'support-admin' ? teamName || null : null,
+          default_queue: nextRole === 'support-admin' ? defaultQueue : null,
+        },
       });
 
     } catch (error) {
-      console.error('Update Admin Error:', error.message);
+      logger.errorWithContext('Update admin failed', error, {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'updateAdmin',
+          adminId: req.params.id,
+        },
+        input: summarizeValue(req.body),
+      });
       return res.status(500).json({ success: false, message: 'Server Error' });
     }
   };
@@ -429,6 +757,15 @@ const fetchAdmins = async (req, res) => {
   const deleteAdmin = async (req, res) => {
     try {
       const { id } = req.params;
+      logger.flow('Delete admin request received', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'deleteAdmin',
+          adminId: id,
+        },
+      });
+
       const adminRes = await pool.query('SELECT * FROM super_admins WHERE id=$1', [id]);
       if (adminRes.rows.length === 0) {
         return res.status(404).json({ message: 'Admin not found' });
@@ -445,13 +782,42 @@ const fetchAdmins = async (req, res) => {
           html: getAdminDeletionEmailTemplate(deletedAdmin.name, deletedAdmin.email),
         });
       } catch (emailError) {
-        console.error('Error sending admin deletion email:', emailError);
+        logger.errorWithContext('Failed to send admin deletion email', emailError, {
+          requestId: req.requestId,
+          layer: 'ADMIN_CONTROLLER',
+          summary: {
+            action: 'deleteAdmin',
+            adminId: id,
+          },
+        });
       }
+
+      logger.flow('Admin deleted successfully', {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'deleteAdmin',
+          adminId: id,
+        },
+        output: summarizeValue({
+          id: deletedAdmin.id,
+          name: deletedAdmin.name,
+          email: deletedAdmin.email,
+          role: deletedAdmin.role,
+        }),
+      });
 
       return res.status(200).json({ success: true, message: 'Admin deleted successfully' });
 
     } catch (error) {
-      console.error('Delete Admin Error:', error.message);
+      logger.errorWithContext('Delete admin failed', error, {
+        requestId: req.requestId,
+        layer: 'ADMIN_CONTROLLER',
+        summary: {
+          action: 'deleteAdmin',
+          adminId: req.params.id,
+        },
+      });
       return res.status(500).json({ success: false, message: 'Server Error' });
     }
   };

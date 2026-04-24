@@ -17,6 +17,7 @@ require('./models/template');
 require('./models/userTemplateUsage');
 require('./models/support_query');
 require('./models/support_priority');
+require('./models/support_admin_profile');
 
 // --- Routes ---
 const authRoutes = require('./routes/authRoutes');
@@ -26,6 +27,7 @@ const adminTemplateRoutes = require('./routes/adminTemplateRoutes');
 const planRoutes = require('./routes/planRoutes');
 const supportQueryRoutes = require('./routes/supportQueryRoutes');
 const supportPriorityRoutes = require('./routes/supportPriorityRoutes');
+const supportWorkspaceRoutes = require('./routes/support/workspace.routes');
 const secretRoutes = require('./routes/secretManagerRoutes');
 const contentRoutes = require('./routes/contentRoutes');
 const draftPool = require('./config/draftDB');
@@ -68,10 +70,6 @@ app.use(cors({
 // --- Middleware ---
 app.use(express.json());
 app.use(requestIdMiddleware);
-app.use((req, res, next) => {
-  console.log(`📥 Incoming Request: ${req.method} ${req.originalUrl}`);
-  next();
-});
 
 console.log('\n' + '='.repeat(60));
 console.log('🔧 INITIALIZING ROUTES WITH DATABASE CONNECTIONS');
@@ -108,6 +106,9 @@ app.use('/api/support-queries', supportQueryRoutes(pool));
 
 console.log('📌 /api/support-priorities → Using Support DB (supportSequelize)');
 app.use('/api/support-priorities', supportPriorityRoutes(pool));
+
+console.log('📌 /api/support-admin     → Using Support DB + Main DB auth');
+app.use('/api/support-admin', supportWorkspaceRoutes(pool));
 
 console.log('📌 /api/secrets        → Using docDB (docPool) ✨');
 app.use('/api/secrets', secretRoutes(docPool));
@@ -640,6 +641,99 @@ const initializeSupportPrioritiesTable = async () => {
   }
 };
 
+const initializeSupportWorkspaceSchema = async () => {
+  try {
+    await supportSequelize.query(`
+      CREATE TABLE IF NOT EXISTS support_admin_profiles (
+        id                        SERIAL PRIMARY KEY,
+        admin_id                  INTEGER      NOT NULL UNIQUE,
+        manager_admin_id          INTEGER,
+        team_name                 VARCHAR(120) NOT NULL DEFAULT 'Support Team',
+        is_team_manager           BOOLEAN      NOT NULL DEFAULT FALSE,
+        can_manage_team           BOOLEAN      NOT NULL DEFAULT FALSE,
+        can_view_all_tickets      BOOLEAN      NOT NULL DEFAULT FALSE,
+        can_view_assigned_to_me   BOOLEAN      NOT NULL DEFAULT TRUE,
+        can_view_team_tickets     BOOLEAN      NOT NULL DEFAULT FALSE,
+        can_view_unassigned_tickets BOOLEAN    NOT NULL DEFAULT FALSE,
+        can_view_closed_tickets   BOOLEAN      NOT NULL DEFAULT FALSE,
+        can_view_archived_tickets BOOLEAN      NOT NULL DEFAULT FALSE,
+        default_queue             VARCHAR(40)  NOT NULL DEFAULT 'assigned_to_me',
+        allowed_priorities        JSONB        NOT NULL DEFAULT '[]'::jsonb,
+        allowed_categories        JSONB        NOT NULL DEFAULT '[]'::jsonb,
+        assignment_preferences    JSONB        NOT NULL DEFAULT '{}'::jsonb,
+        created_by_admin_id       INTEGER,
+        updated_by_admin_id       INTEGER,
+        is_active                 BOOLEAN      NOT NULL DEFAULT TRUE,
+        created_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+        updated_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await supportSequelize.query(`
+      ALTER TABLE support_queries
+      ADD COLUMN IF NOT EXISTS category VARCHAR(100) NOT NULL DEFAULT 'general',
+      ADD COLUMN IF NOT EXISTS assigned_to_admin_id INTEGER,
+      ADD COLUMN IF NOT EXISTS assigned_by_admin_id INTEGER,
+      ADD COLUMN IF NOT EXISTS team_manager_admin_id INTEGER,
+      ADD COLUMN IF NOT EXISTS assignment_method VARCHAR(40),
+      ADD COLUMN IF NOT EXISTS internal_notes JSONB NOT NULL DEFAULT '[]'::jsonb,
+      ADD COLUMN IF NOT EXISTS last_activity_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ADD COLUMN IF NOT EXISTS closed_at TIMESTAMPTZ,
+      ADD COLUMN IF NOT EXISTS closed_by_admin_id INTEGER,
+      ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ;
+    `);
+
+    await supportSequelize.query(`
+      UPDATE support_queries
+      SET
+        category = COALESCE(NULLIF(TRIM(category), ''), 'general'),
+        internal_notes = COALESCE(internal_notes, '[]'::jsonb),
+        last_activity_at = COALESCE(last_activity_at, updated_at, created_at, NOW())
+      WHERE
+        category IS NULL
+        OR TRIM(category) = ''
+        OR internal_notes IS NULL
+        OR last_activity_at IS NULL;
+    `);
+
+    await supportSequelize.query(`
+      UPDATE support_queries
+      SET closed_by_admin_id = assigned_to_admin_id
+      WHERE
+        status = 'closed'
+        AND closed_at IS NOT NULL
+        AND closed_by_admin_id IS NULL
+        AND assigned_to_admin_id IS NOT NULL;
+    `);
+
+    await supportSequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_support_queries_assigned_to_admin_id
+      ON support_queries (assigned_to_admin_id);
+    `);
+    await supportSequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_support_queries_team_manager_admin_id
+      ON support_queries (team_manager_admin_id);
+    `);
+    await supportSequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_support_queries_status_archived_at
+      ON support_queries (status, archived_at);
+    `);
+    await supportSequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_support_queries_category
+      ON support_queries (category);
+    `);
+    await supportSequelize.query(`
+      CREATE INDEX IF NOT EXISTS idx_support_admin_profiles_manager_admin_id
+      ON support_admin_profiles (manager_admin_id);
+    `);
+
+    console.log('✅ support workspace schema ready');
+  } catch (error) {
+    console.error('❌ Error initializing support workspace schema:', error.message);
+    throw error;
+  }
+};
+
 // --- Start server ---
 const startServer = async () => {
   try {
@@ -666,6 +760,7 @@ const startServer = async () => {
     await initializeLlmModelParametersTable();
     await initializeLlmChatConfigTable();
     await initializeSummarizationChatConfigTable();
+    await initializeSupportWorkspaceSchema();
     await initializeSupportPrioritiesTable();
 
     const shutdown = async (signal) => {
@@ -718,21 +813,3 @@ const startServer = async () => {
 };
 
 startServer();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

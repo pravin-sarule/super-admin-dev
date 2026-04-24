@@ -26,6 +26,11 @@ const SupportQuery = sequelize.define('SupportQuery', {
     type: DataTypes.STRING(20),
     allowNull: false,
   },
+  category: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+    defaultValue: 'general',
+  },
   message: {
     type: DataTypes.TEXT,
     allowNull: false,
@@ -49,6 +54,44 @@ const SupportQuery = sequelize.define('SupportQuery', {
   status: {
     type: DataTypes.STRING(20),
     defaultValue: 'open', // open, in_progress, resolved, closed
+  },
+  assigned_to_admin_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  assigned_by_admin_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  team_manager_admin_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  assignment_method: {
+    type: DataTypes.STRING(40),
+    allowNull: true,
+  },
+  internal_notes: {
+    type: DataTypes.JSONB,
+    allowNull: false,
+    defaultValue: [],
+  },
+  last_activity_at: {
+    type: DataTypes.DATE,
+    allowNull: false,
+    defaultValue: DataTypes.NOW,
+  },
+  closed_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  closed_by_admin_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+  },
+  archived_at: {
+    type: DataTypes.DATE,
+    allowNull: true,
   },
   created_at: {
     type: DataTypes.DATE,

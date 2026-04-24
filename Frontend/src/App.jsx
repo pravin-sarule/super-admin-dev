@@ -86,6 +86,7 @@ function App() {
             <Route path="judgement-search" element={<JudgementSearch />} />
             <Route path="citation-management" element={<CitationManagement />} />
             <Route path="support" element={<SupportHelp />} />
+            <Route path="support/admin/:managerId" element={<SupportHelp />} />
             <Route path="support/:queryId" element={<SupportHelp />} />
           </Route>
         </Route>

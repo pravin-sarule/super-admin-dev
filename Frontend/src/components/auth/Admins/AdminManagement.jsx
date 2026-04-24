@@ -5,10 +5,32 @@ import { Eye, Lock, Unlock, Edit, Save, Mail, Shield, Hash, Filter, ChevronLeft,
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import CreateAdmin from './CreateAdmin'; // Import the CreateAdmin component
-import { ADMIN_GET_ALL_URL, ADMIN_GET_BY_ID_URL, ADMIN_CREATE_URL } from '../../../config';
-import { jwtDecode } from 'jwt-decode'; // Import jwt-decode
+import { ADMIN_GET_ALL_URL, ADMIN_GET_BY_ID_URL } from '../../../config';
+import { jwtDecode } from 'jwt-decode';
+import { createDebugLogger } from '../../../utils/debugLogger';
 
 const MySwal = withReactContent(Swal);
+const adminManagementLogger = createDebugLogger('AdminManagement');
+
+const normalizeRole = (value) => String(value || '').trim().replace(/_/g, '-').toLowerCase();
+
+const formatQueueLabel = (queue) => {
+  const normalized = String(queue || '').trim().toLowerCase();
+
+  switch (normalized) {
+    case 'assigned_to_me':
+      return 'Assigned To Me';
+    case 'my_team':
+      return 'My Team';
+    case 'unassigned':
+      return 'Unassigned';
+    case 'closed':
+      return 'Closed';
+    case 'all':
+    default:
+      return 'All Tickets';
+  }
+};
 
 const Toast = ({ isVisible, message, type = 'info', onClose, duration = 3000 }) => {
   useEffect(() => {
@@ -111,27 +133,24 @@ const AdminManagement = () => {
 
   const getUserRoleFromToken = () => {
     const token = getAuthToken();
-    if (token) {
-      try {
-        const base64Url = token.split('.')[1];
-        const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-        const jsonPayload = decodeURIComponent(atob(base64).split('').map(function(c) {
-          return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
-        }).join(''));
-        const decodedToken = JSON.parse(jsonPayload);
-        return decodedToken.role;
-      } catch (error) {
-        console.error('Error decoding token:', error);
-        return null;
-      }
+    if (!token) {
+      return null;
     }
-    return null;
+
+    try {
+      return normalizeRole(jwtDecode(token)?.role);
+    } catch (error) {
+      adminManagementLogger.error('token:decode:failed', error);
+      return null;
+    }
   };
+
+  const isSuperAdmin = normalizeRole(userRole) === 'super-admin';
 
   useEffect(() => {
     const role = getUserRoleFromToken();
     setUserRole(role);
-    console.log('Current user role:', role);
+    adminManagementLogger.event('viewer:role', { role });
     if (role) {
       fetchAdmins();
     }
@@ -164,7 +183,12 @@ const AdminManagement = () => {
       
       return await response.json();
     } catch (error) {
-      console.error('API call error:', error);
+      adminManagementLogger.error('api:request:failed', error, {
+        summary: {
+          endpoint,
+          method: config.method || 'GET',
+        },
+      });
       throw error;
     }
   };
@@ -173,23 +197,43 @@ const AdminManagement = () => {
     setLoading(true);
     try {
       const responseData = await apiCall(ADMIN_GET_ALL_URL);
-      console.log('Fetched admins response:', responseData);
       
       const adminsArray = responseData.admins || [];
 
       const transformedAdmins = adminsArray.map(admin => ({
         ...admin,
-        username: admin.name || 'N/A',
+        username: admin.name || admin.username || 'N/A',
         is_blocked: admin.is_blocked || false,
-        role: admin.role || 'admin',
+        role: normalizeRole(admin.role || admin.role_name || 'admin'),
+        team_name: admin.team_name || '',
+        default_queue: admin.default_queue || 'all',
         createdAt: admin.created_at,
         updatedAt: admin.updated_at
       }));
       
       setAdmins(transformedAdmins);
+      adminManagementLogger.flow('admins:loaded', {
+        summary: {
+          total: transformedAdmins.length,
+          supportAdmins: transformedAdmins.filter((admin) => admin.role === 'support-admin').length,
+        },
+        output: responseData,
+        table: transformedAdmins.map((admin) => ({
+          id: admin.id,
+          username: admin.username,
+          email: admin.email,
+          role: admin.role,
+          team_name: admin.team_name || '-',
+          status: admin.is_blocked ? 'Blocked' : 'Active',
+        })),
+      });
       showToast('Admins loaded successfully', 'success');
     } catch (error) {
-      console.error('Fetch admins error:', error);
+      adminManagementLogger.error('admins:load:failed', error, {
+        summary: {
+          endpoint: ADMIN_GET_ALL_URL,
+        },
+      });
       showToast(`Failed to fetch admins: ${error.message}`, 'error');
     } finally {
       setLoading(false);
@@ -211,9 +255,14 @@ const AdminManagement = () => {
             ? { ...a, is_blocked: !a.is_blocked }
             : a
         );
-        setAdmins(updatedAdmins);
-        
-        if (selectedAdmin && selectedAdmin.id === adminId) {
+      setAdmins(updatedAdmins);
+      adminManagementLogger.event('admin:block-toggle', {
+        adminId,
+        action,
+        nextState: updatedAdmins.find((entry) => entry.id === adminId)?.is_blocked ? 'blocked' : 'active',
+      });
+      
+      if (selectedAdmin && selectedAdmin.id === adminId) {
           const updatedAdmin = updatedAdmins.find(a => a.id === adminId);
           setSelectedAdmin(updatedAdmin);
           setEditedAdmin(updatedAdmin);
@@ -221,7 +270,12 @@ const AdminManagement = () => {
 
         showToast(`Admin ${action}ed successfully!`, 'success');
       } catch (error) {
-        console.error('Block/unblock error:', error);
+        adminManagementLogger.error('admin:block-toggle:failed', error, {
+          summary: {
+            adminId,
+            action,
+          },
+        });
         showToast(`Failed to ${action} admin: ${error.message}`, 'error');
       }
     }
@@ -233,17 +287,35 @@ const AdminManagement = () => {
       return;
     }
 
+    if (editedAdmin.role === 'support-admin' && !(editedAdmin.team_name || '').trim()) {
+      showToast('Support admin must have a team / group name', 'warning');
+      return;
+    }
+
     try {
       const updateData = {
         name: editedAdmin.username, // Changed to 'name'
         email: editedAdmin.email,
         role_name: editedAdmin.role, // Changed to 'role_name'
+        ...(editedAdmin.role === 'support-admin'
+          ? {
+              team_name: editedAdmin.team_name || '',
+              default_queue: editedAdmin.default_queue || 'all',
+            }
+          : {}),
         ...(editedAdmin.password && { password: editedAdmin.password })
       };
 
       await apiCall(`${ADMIN_GET_BY_ID_URL}/${editedAdmin.id}`, {
         method: 'PUT',
         body: JSON.stringify(updateData)
+      });
+      adminManagementLogger.flow('admin:updated', {
+        summary: {
+          adminId: editedAdmin.id,
+          role: editedAdmin.role,
+        },
+        input: updateData,
       });
 
       const updatedAdmins = admins.map(admin =>
@@ -255,7 +327,12 @@ const AdminManagement = () => {
 
       showToast('Admin updated successfully!', 'success');
     } catch (error) {
-      console.error('Save admin error:', error);
+      adminManagementLogger.error('admin:update:failed', error, {
+        summary: {
+          adminId: editedAdmin?.id || null,
+        },
+        input: editedAdmin,
+      });
       showToast(`Failed to update admin: ${error.message}`, 'error');
     }
   };
@@ -270,12 +347,20 @@ const AdminManagement = () => {
         });
 
         setAdmins(admins.filter(a => a.id !== adminId));
+        adminManagementLogger.event('admin:deleted', {
+          adminId,
+          username: admin?.username || null,
+        });
         showToast('Admin deleted successfully!', 'success');
         if (selectedAdmin && selectedAdmin.id === adminId) {
           handleBackToTable();
         }
       } catch (error) {
-        console.error('Delete admin error:', error);
+        adminManagementLogger.error('admin:delete:failed', error, {
+          summary: {
+            adminId,
+          },
+        });
         showToast(`Failed to delete admin: ${error.message}`, 'error');
       }
     }
@@ -317,7 +402,8 @@ const AdminManagement = () => {
         admin.id.toString().includes(searchTerm) ||
         (admin.username && admin.username.toLowerCase().includes(searchTerm)) ||
         (admin.email && admin.email.toLowerCase().includes(searchTerm)) ||
-        (admin.role && admin.role.toLowerCase().includes(searchTerm))
+        (admin.role && admin.role.toLowerCase().includes(searchTerm)) ||
+        (admin.team_name && admin.team_name.toLowerCase().includes(searchTerm))
       );
     });
   }, [admins, searchValue]);
@@ -340,7 +426,10 @@ const AdminManagement = () => {
       setEditedAdmin({ ...selectedAdmin });
     }
     setEditMode(!editMode);
-    console.log('Edit mode toggled. Current editMode:', !editMode);
+    adminManagementLogger.event('admin:edit-mode', {
+      adminId: selectedAdmin?.id || null,
+      editMode: !editMode,
+    });
   };
 
   const handleInputChange = (field, value) => {
@@ -394,7 +483,7 @@ const AdminManagement = () => {
               <Filter className="w-5 h-5 text-gray-600" />
               <input
                 type="text"
-                placeholder="Search by ID, Username, Email, or Role..."
+                placeholder="Search by ID, name, email, role, or group..."
                 value={searchValue}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-64"
@@ -426,6 +515,7 @@ const AdminManagement = () => {
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Username</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Email</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Role</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Team / Group</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Status</th>
                     <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">Actions</th>
                   </tr>
@@ -458,6 +548,9 @@ const AdminManagement = () => {
                             {admin.role || 'N/A'}
                           </div>
                         </td>
+                        <td className="px-4 py-2.5 whitespace-nowrap text-sm font-medium text-gray-900">
+                          {admin.team_name || '-'}
+                        </td>
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm font-semibold">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
                             admin.is_blocked 
@@ -483,7 +576,7 @@ const AdminManagement = () => {
                               <Edit className="w-4 h-4 mr-1" />
                               Edit
                             </button>
-                            {userRole === 'super_admin' && (
+                            {isSuperAdmin && (
                               <>
                                 <button
                                   onClick={() => handleBlockAdmin(admin.id)}
@@ -511,7 +604,7 @@ const AdminManagement = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                      <td colSpan="8" className="px-4 py-8 text-center text-gray-500">
                         No admins found matching your filter criteria.
                       </td>
                     </tr>
@@ -592,7 +685,7 @@ const AdminManagement = () => {
               >
                 Back to List
               </button>
-              {userRole === 'super_admin' && ( // Only super_admin can see edit/save/cancel buttons
+              {isSuperAdmin && (
                 editMode ? (
                   <>
                     <button
@@ -619,7 +712,7 @@ const AdminManagement = () => {
                   </button>
                 )
               )}
-              {userRole === 'super_admin' && (
+              {isSuperAdmin && (
                 <>
                   <button
                     onClick={() => handleBlockAdmin(selectedAdmin.id)}
@@ -658,7 +751,7 @@ const AdminManagement = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                    {editMode && userRole === 'super_admin' ? (
+                    {editMode && isSuperAdmin ? (
                       <input
                         type="text"
                         value={editedAdmin?.username || ''}
@@ -669,11 +762,10 @@ const AdminManagement = () => {
                     ) : (
                       <p className="text-sm text-gray-900">{selectedAdmin?.username || 'N/A'}</p>
                     )}
-                    {console.log('Name field - editMode:', editMode, 'userRole:', userRole, 'editedAdmin.username:', editedAdmin?.username)}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    {editMode && userRole === 'super_admin' ? (
+                    {editMode && isSuperAdmin ? (
                       <input
                         type="email"
                         value={editedAdmin?.email || ''}
@@ -686,18 +778,17 @@ const AdminManagement = () => {
                         <span className="text-sm text-gray-900">{selectedAdmin?.email || 'N/A'}</span>
                       </div>
                     )}
-                    {console.log('Email field - editMode:', editMode, 'userRole:', userRole, 'editedAdmin.email:', editedAdmin?.email)}
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                    {editMode && userRole === 'super_admin' ? (
+                    {editMode && isSuperAdmin ? (
                       <select
                         value={editedAdmin?.role || ''}
                         onChange={(e) => handleInputChange('role', e.target.value)}
                         className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-medium"
                       >
                         <option value="admin">Admin</option>
-                        <option value="super_admin">Super Admin</option>
+                        <option value="super-admin">Super Admin</option>
                         <option value="user-admin">User Admin</option>
                         <option value="support-admin">Support Admin</option>
                         <option value="account-admin">Account Admin</option>
@@ -708,8 +799,38 @@ const AdminManagement = () => {
                         <span className="text-sm text-gray-900">{selectedAdmin?.role || 'N/A'}</span>
                       </div>
                     )}
-                    {console.log('Role field - editMode:', editMode, 'userRole:', userRole, 'editedAdmin.role:', editedAdmin?.role)}
                   </div>
+                  {(selectedAdmin?.role === 'support-admin' || editedAdmin?.role === 'support-admin') && (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Team / Group</label>
+                        {editMode && isSuperAdmin ? (
+                          <input
+                            type="text"
+                            value={editedAdmin?.team_name || ''}
+                            onChange={(e) => handleInputChange('team_name', e.target.value)}
+                            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-medium"
+                            placeholder="Example: Pending Team"
+                          />
+                        ) : (
+                          <p className="text-sm text-gray-900">{selectedAdmin?.team_name || 'N/A'}</p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Default Queue</label>
+                        {editMode && isSuperAdmin ? (
+                          <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-900">
+                            All Tickets
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-900">{formatQueueLabel(selectedAdmin?.default_queue || 'all')}</p>
+                        )}
+                        <p className="mt-1 text-xs text-gray-500">
+                          Support admins start with full access to their own queue. Ticket distribution happens later inside Support Workspace.
+                        </p>
+                      </div>
+                    </>
+                  )}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
@@ -729,7 +850,7 @@ const AdminManagement = () => {
                     <p className="text-sm text-gray-900">{formatDate(selectedAdmin?.updatedAt)}</p>
                   </div>
                 </div>
-                {editMode && userRole === 'super_admin' && (
+                {editMode && isSuperAdmin && (
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
                     <input
@@ -739,7 +860,6 @@ const AdminManagement = () => {
                       placeholder="Enter new password (leave empty to keep current)"
                       className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-medium"
                     />
-                    {console.log('Password field - editMode:', editMode, 'userRole:', userRole, 'editedAdmin.password:', editedAdmin?.password)}
                   </div>
                 )}
               </div>

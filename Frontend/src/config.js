@@ -1,8 +1,14 @@
 import axios from 'axios';
 
-// Defaults: Cloud Run super-admin backend & template analyzer. Override with VITE_* in .env for local dev.
-const DEFAULT_API_BASE = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
+// Defaults: use local `/api` when running on localhost, otherwise fall back to Cloud Run.
+const DEFAULT_REMOTE_API_BASE = 'https://super-admin-backend-120280829617.asia-south1.run.app/api';
 const DEFAULT_JUDGEMENT_SERVICE_ORIGIN = 'https://judgement-service-120280829617.asia-south1.run.app';
+
+const shouldUseLocalApiByDefault =
+  typeof window !== 'undefined' &&
+  ['localhost', '127.0.0.1'].includes(String(window.location.hostname || '').trim().toLowerCase());
+
+const DEFAULT_API_BASE = shouldUseLocalApiByDefault ? '/api' : DEFAULT_REMOTE_API_BASE;
 
 /** All dashboard routes are mounted under `/api/...` on the backend. Accept env with or without `/api`. */
 function normalizeApiBaseUrl(raw) {

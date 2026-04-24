@@ -26,6 +26,21 @@ import {
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
   const location = useLocation();
   const [openMenu, setOpenMenu] = useState(null);
+  const username = localStorage.getItem('username') || 'Admin';
+  const roleLabel =
+    userRole === 'support-admin'
+      ? 'Support Admin'
+      : userRole === 'user-admin'
+        ? 'User Admin'
+        : userRole === 'account-admin'
+          ? 'Account Admin'
+          : 'Super Admin';
+  const initials = username
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part.charAt(0).toUpperCase())
+    .join('') || 'AD';
 
   const handleMenuToggle = (menuName) => {
     setOpenMenu(openMenu === menuName ? null : menuName);
@@ -179,14 +194,14 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
           <div className="flex items-center justify-between">
             <div className="flex items-center flex-1 min-w-0">
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
-                <span className="text-white font-bold text-sm">SA</span>
+                <span className="text-white font-bold text-sm">{initials}</span>
               </div>
               {isOpen && (
                 <div className="flex-1 min-w-0">
                   <h2 className="text-white font-bold text-base whitespace-nowrap overflow-hidden truncate">
-                    Super Admin
+                    {username}
                   </h2>
-                  <p className="text-xs text-slate-400 truncate">Admin Portal</p>
+                  <p className="text-xs text-slate-400 truncate">{roleLabel} Portal</p>
                 </div>
               )}
             </div>

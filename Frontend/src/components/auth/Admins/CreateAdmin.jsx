@@ -273,8 +273,10 @@ import { User, Mail, Lock, Shield, X, CheckCircle, AlertCircle, AlertTriangle, R
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import { ADMIN_CREATE_URL } from '../../../config';
+import { createDebugLogger } from '../../../utils/debugLogger';
 
 const MySwal = withReactContent(Swal);
+const createAdminLogger = createDebugLogger('CreateAdmin');
 
 const Toast = ({ isVisible, message, type = 'info', onClose, duration = 3000 }) => {
   useEffect(() => {
@@ -340,6 +342,7 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('user-admin');
+  const [teamName, setTeamName] = useState('');
   const [loading, setLoading] = useState(false);
 
   const [toast, setToast] = useState({
@@ -393,7 +396,12 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
       
       return await response.json();
     } catch (error) {
-      console.error('API call error:', error);
+      createAdminLogger.error('api:request:failed', error, {
+        summary: {
+          endpoint,
+          method: config.method || 'GET',
+        },
+      });
       throw error;
     }
   };
@@ -406,17 +414,46 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
       return;
     }
 
+    if (role === 'support-admin' && !teamName.trim()) {
+      showToast('Please add a team / group name for the support admin', 'warning');
+      return;
+    }
+
     setLoading(true);
 
     try {
-      const postData = { name: username, email, password, role_name: role }; // Send 'name' as username, 'role_name' as role
-      console.log('Sending data to API:', postData); // Log the data being sent
+      const postData = {
+        name: username,
+        email,
+        password,
+        role_name: role,
+        ...(role === 'support-admin'
+          ? {
+              team_name: teamName.trim(),
+              default_queue: 'all',
+            }
+          : {}),
+      };
+      createAdminLogger.flow('admin:create:submit', {
+        summary: {
+          role,
+        },
+        input: {
+          ...postData,
+          password: '[hidden]',
+        },
+      });
       const response = await apiCall(ADMIN_CREATE_URL, {
         method: 'POST',
         body: JSON.stringify(postData)
       });
       
-      console.log('Admin created successfully:', response);
+      createAdminLogger.flow('admin:create:success', {
+        summary: {
+          role,
+        },
+        output: response,
+      });
       MySwal.fire({
         icon: 'success',
         title: 'Success!',
@@ -427,7 +464,17 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
       });
       handleReset(); // Reset form fields after successful creation
     } catch (error) {
-      console.error('Create admin error:', error);
+      createAdminLogger.error('admin:create:failed', error, {
+        summary: {
+          role,
+        },
+        input: {
+          name: username,
+          email,
+          role,
+          team_name: teamName || null,
+        },
+      });
       MySwal.fire({
         icon: 'error',
         title: 'Error',
@@ -444,6 +491,7 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
     setEmail('');
     setPassword('');
     setRole('user-admin'); // Reset to default role
+    setTeamName('');
   };
 
   return (
@@ -560,6 +608,46 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
             Super Admin has full control including creating and managing other admins
           </p>
         </div>
+
+        {role === 'support-admin' ? (
+          <>
+            <div>
+              <label htmlFor="team_name" className="block text-sm font-medium text-gray-700 mb-1">
+                Team / Group Name <span className="text-red-500">*</span>
+              </label>
+              <div className="mt-1 relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <User className="h-5 w-5 text-gray-400" aria-hidden="true" />
+                </div>
+                <input
+                  type="text"
+                  name="team_name"
+                  id="team_name"
+                  className="focus:ring-blue-500 focus:border-blue-500 block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  placeholder="Example: Pending Team"
+                  value={teamName}
+                  onChange={(e) => setTeamName(e.target.value)}
+                  required
+                />
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Use this like a support group name. It helps analytics, filtering, and queue management.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Default Queue
+              </label>
+              <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-900">
+                All Tickets
+              </div>
+              <p className="mt-1 text-xs text-gray-500">
+                Super admin creates support admins with <span className="font-semibold">All Tickets</span> in their own queue by default. Ticket assignment can be managed later inside Support Workspace.
+              </p>
+            </div>
+          </>
+        ) : null}
 
         <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
           <button
