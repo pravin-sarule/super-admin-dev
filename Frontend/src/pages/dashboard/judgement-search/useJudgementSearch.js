@@ -11,11 +11,11 @@ function getErrorMessage(error) {
 
 export default function useJudgementSearch() {
   const [query, setQuery] = useState('');
-  const [chunkLimit, setChunkLimit] = useState(8);
+  const [chunkLimit, setChunkLimit] = useState(5);
   const [judgmentLimit, setJudgmentLimit] = useState(5);
-  const [scoreThreshold, setScoreThreshold] = useState('');
+  const [scoreThreshold, setScoreThreshold] = useState('0.65');
   const [phraseMatch, setPhraseMatch] = useState(false);
-  const [sourceScope, setSourceScope] = useState('admin_uploaded');
+  const [sourceScope, setSourceScope] = useState('all');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -51,7 +51,7 @@ export default function useJudgementSearch() {
     try {
       const response = await judgementSearchApi.hybrid({
         query: normalizedQuery,
-        chunkLimit: Number(chunkLimit) || 8,
+        chunkLimit: Number(chunkLimit) || 5,
         judgmentLimit: Number(judgmentLimit) || 5,
         scoreThreshold:
           scoreThreshold === '' || scoreThreshold == null

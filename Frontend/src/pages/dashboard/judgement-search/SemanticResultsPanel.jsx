@@ -1,4 +1,6 @@
-import { ExternalLink, Hash, Scale, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { Eye, Hash, Scale, Sparkles } from 'lucide-react';
+import PdfPreviewModal from './PdfPreviewModal';
 
 function sourceBucketClasses(sourceBucket) {
   if (sourceBucket === 'user_generated') {
@@ -28,7 +30,10 @@ const SemanticResultsPanel = ({
   requestedSourceScope = 'admin_uploaded',
   scopeCoverageMessage = '',
   unavailableReason = '',
-}) => (
+}) => {
+  const [preview, setPreview] = useState(null);
+
+  return (
   <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
     <div className="mb-4 flex items-center justify-between">
       <div>
@@ -45,7 +50,7 @@ const SemanticResultsPanel = ({
 
     {thresholdFallbackTriggered ? (
       <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-        No semantic chunks met the requested threshold, so the retriever fell back to the best cosine-similarity matches from Qdrant.
+        No semantic chunks met the requested threshold. Lower the threshold or rephrase the query.
       </div>
     ) : null}
 
@@ -110,15 +115,17 @@ const SemanticResultsPanel = ({
 
                 <div className="mt-4 flex flex-wrap gap-2">
                   {item.document.originalFileUrl ? (
-                    <a
-                      href={item.document.originalFileUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => setPreview({
+                        url: item.document.originalFileUrl,
+                        title: item.document.originalFilename || item.judgment.caseName || item.qdrantPayload.case_name,
+                      })}
                       className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
                     >
-                      <ExternalLink className="h-4 w-4" />
+                      <Eye className="h-4 w-4" />
                       Open Original
-                    </a>
+                    </button>
                   ) : null}
 
                   {item.judgment.judgmentUuid ? (
@@ -139,7 +146,14 @@ const SemanticResultsPanel = ({
         ))
       )}
     </div>
+
+    <PdfPreviewModal
+      url={preview?.url}
+      title={preview?.title}
+      onClose={() => setPreview(null)}
+    />
   </section>
-);
+  );
+};
 
 export default SemanticResultsPanel;

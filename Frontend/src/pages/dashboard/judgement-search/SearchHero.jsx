@@ -101,9 +101,12 @@ const SearchHero = ({
                 step="0.01"
                 value={scoreThreshold}
                 onChange={(event) => setScoreThreshold(event.target.value)}
-                placeholder="Leave blank to always return top semantic chunks"
+                placeholder="0.65"
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-400"
               />
+              <span className="mt-1 block text-xs text-slate-500">
+                Minimum cosine similarity (0–1) between your query and a chunk. Ideal: 0.60–0.70. Chunks scoring below this are dropped instead of shown as weak matches.
+              </span>
             </label>
 
             <label className="sm:col-span-2 flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-700">

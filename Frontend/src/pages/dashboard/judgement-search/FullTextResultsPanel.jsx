@@ -1,5 +1,7 @@
-import { ExternalLink, FileSearch, Quote } from 'lucide-react';
+import { useState } from 'react';
+import { Eye, FileSearch, Quote } from 'lucide-react';
 import { formatDate } from '../judgement-service/helpers';
+import PdfPreviewModal from './PdfPreviewModal';
 
 function sourceBucketClasses(sourceBucket) {
   if (sourceBucket === 'user_generated') {
@@ -13,7 +15,10 @@ function sourceBucketLabel(sourceBucket) {
   return sourceBucket === 'user_generated' ? 'User Generated' : 'Admin Uploaded';
 }
 
-const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uploaded' }) => (
+const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uploaded' }) => {
+  const [preview, setPreview] = useState(null);
+
+  return (
   <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
     <div className="mb-4 flex items-center justify-between">
       <div>
@@ -99,15 +104,17 @@ const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uplo
                 </div>
 
                 {item.document.originalFileUrl ? (
-                  <a
-                    href={item.document.originalFileUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  <button
+                    type="button"
+                    onClick={() => setPreview({
+                      url: item.document.originalFileUrl,
+                      title: item.document.originalFilename || item.judgment.caseName,
+                    })}
                     className="mt-4 inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100"
                   >
-                    <ExternalLink className="h-4 w-4" />
+                    <Eye className="h-4 w-4" />
                     Open Original
-                  </a>
+                  </button>
                 ) : null}
               </div>
             </div>
@@ -115,7 +122,14 @@ const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uplo
         ))
       )}
     </div>
+
+    <PdfPreviewModal
+      url={preview?.url}
+      title={preview?.title}
+      onClose={() => setPreview(null)}
+    />
   </section>
-);
+  );
+};
 
 export default FullTextResultsPanel;

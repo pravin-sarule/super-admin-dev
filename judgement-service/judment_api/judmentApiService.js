@@ -362,25 +362,14 @@ async function semanticSearch(payload = {}) {
   timings.embeddingMs = Date.now() - embeddingStartedAt;
 
   const qdrantStartedAt = Date.now();
-  let points = await searchChunksByVector({
+  const points = await searchChunksByVector({
     vector: embeddingResponse.vectors[0],
     limit,
     scoreThreshold,
     filter: buildQdrantFilter(filters),
   });
-  let appliedScoreThreshold = scoreThreshold;
-  let thresholdFallbackTriggered = false;
-
-  if (!points.length && scoreThreshold != null) {
-    points = await searchChunksByVector({
-      vector: embeddingResponse.vectors[0],
-      limit,
-      scoreThreshold: null,
-      filter: buildQdrantFilter(filters),
-    });
-    appliedScoreThreshold = null;
-    thresholdFallbackTriggered = true;
-  }
+  const appliedScoreThreshold = scoreThreshold;
+  const thresholdFallbackTriggered = false;
   timings.qdrantMs = Date.now() - qdrantStartedAt;
 
   const pointIds = points.map((point) => String(point.id));
@@ -442,6 +431,15 @@ async function semanticSearch(payload = {}) {
     );
   });
 
+  let unavailableReason = scope.semanticScopeCoverageMessage || '';
+  if (!results.length && !unavailableReason) {
+    if (scoreThreshold != null) {
+      unavailableReason = `No chunks scored above the similarity threshold of ${Number(scoreThreshold).toFixed(2)} for this query. Try lowering the threshold or rephrasing the query.`;
+    } else {
+      unavailableReason = 'No semantic chunks matched this query.';
+    }
+  }
+
   return {
     query,
     collection: COLLECTION_NAME,
@@ -458,6 +456,7 @@ async function semanticSearch(payload = {}) {
     effectiveSourceScope: scope.semanticEffectiveSourceScope,
     scopeCoverage: scope.semanticScopeCoverage,
     scopeCoverageMessage: scope.semanticScopeCoverageMessage,
+    unavailableReason,
     totalResults: results.length,
     timings,
     results,

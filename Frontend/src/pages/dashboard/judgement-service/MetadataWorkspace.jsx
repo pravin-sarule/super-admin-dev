@@ -1,7 +1,16 @@
 import React from 'react';
 import { LoaderCircle, RefreshCw, Save } from 'lucide-react';
 import { STATUS_STYLES } from './constants';
-import { formatDuration, prettyStatus } from './helpers';
+import { buildMetadataForm, formatDuration, prettyStatus } from './helpers';
+
+function isMetadataFormDirty(currentForm, pristineForm) {
+  if (!currentForm || !pristineForm) return false;
+  return Object.keys(pristineForm).some((key) => {
+    const current = String(currentForm[key] ?? '').trim();
+    const pristine = String(pristineForm[key] ?? '').trim();
+    return current !== pristine;
+  });
+}
 
 const MetadataWorkspace = ({
   cardClassName = '',
@@ -27,6 +36,8 @@ const MetadataWorkspace = ({
   const timingStages = Object.entries(pipelineMetrics.stages || {}).sort(
     (left, right) => (left[1]?.order || 0) - (right[1]?.order || 0)
   );
+  const pristineMetadataForm = buildMetadataForm(selectedDetail);
+  const metadataDirty = isMetadataFormDirty(metadataForm, pristineMetadataForm);
 
   return (
     <div className={`rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm ${cardClassName}`.trim()}>
@@ -173,16 +184,18 @@ const MetadataWorkspace = ({
           </label>
           </div>
 
-          <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            onClick={onSaveMetadata}
-            disabled={savingMetadata}
-            className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-          >
-            {savingMetadata ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-            Save Metadata
-          </button>
+          <div className="flex flex-wrap items-center gap-3">
+          {metadataDirty ? (
+            <button
+              type="button"
+              onClick={onSaveMetadata}
+              disabled={savingMetadata}
+              className="inline-flex items-center gap-2 rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              {savingMetadata ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              Save Changes
+            </button>
+          ) : null}
 
           <button
             type="button"
@@ -193,6 +206,16 @@ const MetadataWorkspace = ({
             {reprocessing ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Reprocess
           </button>
+
+          {metadataDirty ? (
+            <span className="text-xs font-medium text-amber-600">
+              Unsaved changes — click Save Changes to persist and re-index.
+            </span>
+          ) : (
+            <span className="text-xs text-slate-400">
+              Metadata was auto-saved during extraction. Edit any field above to enable saving.
+            </span>
+          )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-4">
