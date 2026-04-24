@@ -33,6 +33,12 @@ const PipelineMonitor = ({
       emptyMessage: 'No judgment documents are currently processing.',
     },
     {
+      key: 'duplicate',
+      label: 'Duplicates',
+      count: counts.duplicate,
+      emptyMessage: 'No duplicate uploads match the current search.',
+    },
+    {
       key: 'completed',
       label: 'Completed',
       count: counts.completed,
@@ -73,7 +79,7 @@ const PipelineMonitor = ({
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Pipeline Monitor</h2>
             <p className="text-sm text-slate-500">
-              Switch between current processing, completed, and failed judgments in one place.
+              Switch between current processing, duplicates, completed, and failed judgments in one place.
             </p>
           </div>
 
@@ -186,6 +192,11 @@ const PipelineMonitor = ({
                         {upload.courtCode || 'Court pending'}
                         {upload.year ? ` • ${upload.year}` : ''}
                       </div>
+                      {upload.status === 'duplicate_detected' && upload.lastProgressMessage ? (
+                        <div className="mt-2 text-xs font-medium text-amber-700">
+                          {upload.lastProgressMessage}
+                        </div>
+                      ) : null}
                     </td>
                     <td className="px-5 py-4 align-top">
                       <span

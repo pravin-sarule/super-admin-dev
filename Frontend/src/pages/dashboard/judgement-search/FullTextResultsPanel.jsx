@@ -1,7 +1,19 @@
 import { ExternalLink, FileSearch, Quote } from 'lucide-react';
 import { formatDate } from '../judgement-service/helpers';
 
-const FullTextResultsPanel = ({ results = [] }) => (
+function sourceBucketClasses(sourceBucket) {
+  if (sourceBucket === 'user_generated') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
+  return 'bg-blue-100 text-blue-700';
+}
+
+function sourceBucketLabel(sourceBucket) {
+  return sourceBucket === 'user_generated' ? 'User Generated' : 'Admin Uploaded';
+}
+
+const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uploaded' }) => (
   <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
     <div className="mb-4 flex items-center justify-between">
       <div>
@@ -14,6 +26,10 @@ const FullTextResultsPanel = ({ results = [] }) => (
         <FileSearch className="h-4 w-4" />
         {results.length} hits
       </div>
+    </div>
+
+    <div className="mb-4 text-xs font-medium uppercase tracking-wide text-slate-500">
+      Requested scope: {String(requestedSourceScope || 'admin_uploaded').replace(/_/g, ' ')}
     </div>
 
     <div className="space-y-4">
@@ -32,6 +48,9 @@ const FullTextResultsPanel = ({ results = [] }) => (
                   </h3>
                   <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-700">
                     Relevance {Math.round(Number(item.relevanceScore || 0))}/100
+                  </span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sourceBucketClasses(item.judgment.sourceBucket)}`}>
+                    {sourceBucketLabel(item.judgment.sourceBucket)}
                   </span>
                 </div>
 

@@ -257,6 +257,70 @@ async function getUpload(documentId) {
   return mapUploadRow(result.rows[0]);
 }
 
+async function getJudgmentsByUuids(judgmentUuids = []) {
+  const ids = Array.from(
+    new Set(
+      judgmentUuids
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!ids.length) return [];
+
+  const result = await pool.query(
+    `
+      SELECT
+        judgment_uuid,
+        canonical_id,
+        case_name,
+        court_code,
+        judgment_date,
+        year,
+        source_type,
+        status,
+        citation_data
+      FROM judgments
+      WHERE judgment_uuid = ANY($1::uuid[])
+    `,
+    [ids]
+  );
+
+  return result.rows;
+}
+
+async function listJudgmentIdentities({ excludeJudgmentUuid = null } = {}) {
+  const values = [];
+  const conditions = [];
+
+  if (excludeJudgmentUuid) {
+    values.push(excludeJudgmentUuid);
+    conditions.push(`judgment_uuid <> $${values.length}::uuid`);
+  }
+
+  const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  const result = await pool.query(
+    `
+      SELECT
+        judgment_uuid,
+        canonical_id,
+        case_name,
+        court_code,
+        judgment_date,
+        year,
+        source_type,
+        status,
+        citation_data
+      FROM judgments
+      ${whereClause}
+      ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST
+    `,
+    values
+  );
+
+  return result.rows;
+}
+
 async function listUploads({ search = '', status = 'all' } = {}) {
   const startedAt = Date.now();
   const normalizedSearch = String(search || '').trim();
@@ -367,6 +431,7 @@ async function getSummary() {
       COUNT(*) FILTER (WHERE status = 'ocr_processing')::int AS ocr_processing,
       COUNT(*) FILTER (WHERE status = 'indexing')::int AS indexing,
       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
+      COUNT(*) FILTER (WHERE status = 'duplicate_detected')::int AS duplicate_detected,
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed,
       COALESCE(SUM(total_pages), 0)::int AS total_pages,
       COALESCE(SUM(text_pages_count), 0)::int AS total_text_pages,
@@ -463,7 +528,54 @@ async function clearJudgmentArtifacts(documentId, judgmentUuid = null) {
 }
 
 async function upsertJudgment(payload) {
-  const result = await pool.query(
+  const values = [
+    payload.judgmentUuid,
+    payload.canonicalId,
+    payload.caseName,
+    payload.courtCode || 'UNKNOWN',
+    payload.judgmentDate || null,
+    payload.year || null,
+    payload.sourceType || 'admin-upload',
+    payload.verificationStatus || 'verified',
+    payload.confidenceScore || null,
+    payload.esDocId || null,
+    payload.status || 'ocr_done',
+    JSON.stringify(payload.ocrInfo || {}),
+    JSON.stringify(payload.citationData || {}),
+    payload.qdrantCollection || null,
+  ];
+
+  if (payload.judgmentUuid) {
+    const updateResult = await pool.query(
+      `
+        UPDATE judgments
+        SET
+          canonical_id = $2,
+          case_name = $3,
+          court_code = $4,
+          judgment_date = $5,
+          year = $6,
+          source_type = $7,
+          verification_status = $8,
+          confidence_score = $9,
+          es_doc_id = $10,
+          status = $11,
+          ocr_info = $12::jsonb,
+          citation_data = $13::jsonb,
+          qdrant_collection = $14,
+          updated_at = NOW()
+        WHERE judgment_uuid = $1
+        RETURNING *
+      `,
+      values
+    );
+
+    if (updateResult.rows[0]) {
+      return updateResult.rows[0];
+    }
+  }
+
+  const insertResult = await pool.query(
     `
       INSERT INTO judgments (
         judgment_uuid,
@@ -500,25 +612,10 @@ async function upsertJudgment(payload) {
         updated_at = NOW()
       RETURNING *
     `,
-    [
-      payload.judgmentUuid,
-      payload.canonicalId,
-      payload.caseName,
-      payload.courtCode || 'UNKNOWN',
-      payload.judgmentDate || null,
-      payload.year || null,
-      payload.sourceType || 'admin-upload',
-      payload.verificationStatus || 'verified',
-      payload.confidenceScore || null,
-      payload.esDocId || null,
-      payload.status || 'ocr_done',
-      JSON.stringify(payload.ocrInfo || {}),
-      JSON.stringify(payload.citationData || {}),
-      payload.qdrantCollection || null,
-    ]
+    values
   );
 
-  return result.rows[0];
+  return insertResult.rows[0];
 }
 
 async function replaceAliases(judgmentUuid, aliases = []) {
@@ -643,6 +740,40 @@ async function getUploadDetail(documentId) {
   };
 }
 
+async function countUploadsByJudgmentUuid(judgmentUuid, { excludeDocumentId = null } = {}) {
+  if (!judgmentUuid) return 0;
+
+  const values = [judgmentUuid];
+  const conditions = ['judgment_uuid = $1'];
+
+  if (excludeDocumentId) {
+    values.push(excludeDocumentId);
+    conditions.push(`document_id <> $${values.length}`);
+  }
+
+  const result = await pool.query(
+    `
+      SELECT COUNT(*)::int AS upload_count
+      FROM judgment_uploads
+      WHERE ${conditions.join(' AND ')}
+    `,
+    values
+  );
+
+  return Number(result.rows[0]?.upload_count || 0);
+}
+
+async function deleteJudgmentByUuid(judgmentUuid) {
+  if (!judgmentUuid) return false;
+
+  const result = await pool.query(
+    'DELETE FROM judgments WHERE judgment_uuid = $1',
+    [judgmentUuid]
+  );
+
+  return result.rowCount > 0;
+}
+
 async function deleteUploadAndJudgment(documentId) {
   const upload = await getUpload(documentId);
   if (!upload) return false;
@@ -652,7 +783,18 @@ async function deleteUploadAndJudgment(documentId) {
     await client.query('BEGIN');
 
     if (upload.judgmentUuid) {
-      await client.query('DELETE FROM judgments WHERE judgment_uuid = $1', [upload.judgmentUuid]);
+      const referenceCountResult = await client.query(
+        `
+          SELECT COUNT(*)::int AS upload_count
+          FROM judgment_uploads
+          WHERE judgment_uuid = $1 AND document_id <> $2
+        `,
+        [upload.judgmentUuid, documentId]
+      );
+
+      if (Number(referenceCountResult.rows[0]?.upload_count || 0) === 0) {
+        await client.query('DELETE FROM judgments WHERE judgment_uuid = $1', [upload.judgmentUuid]);
+      }
     }
 
     await client.query('DELETE FROM judgment_uploads WHERE document_id = $1', [documentId]);
@@ -683,5 +825,9 @@ module.exports = {
   markChunksIndexed,
   getChunks,
   getUploadDetail,
+  listJudgmentIdentities,
+  getJudgmentsByUuids,
+  countUploadsByJudgmentUuid,
+  deleteJudgmentByUuid,
   deleteUploadAndJudgment,
 };

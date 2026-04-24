@@ -12,6 +12,7 @@ const PAYLOAD_INDEX_FIELDS = [
   { fieldName: 'judgment_uuid', fieldSchema: 'keyword' },
   { fieldName: 'canonical_id', fieldSchema: 'keyword' },
   { fieldName: 'case_name', fieldSchema: 'keyword' },
+  { fieldName: 'source_type', fieldSchema: 'keyword' },
 ];
 const logger = createLogger('Qdrant');
 
@@ -46,6 +47,29 @@ function isSafeVerificationPoint(point = {}) {
     canonicalId === 'manual-pipeline-like-check' ||
     caseName === 'Manual pipeline-like check'
   );
+}
+
+function matchesPointFilter(point = {}, filter = null) {
+  if (!filter || !Array.isArray(filter.must) || !filter.must.length) {
+    return true;
+  }
+
+  const payload = point?.payload || {};
+
+  return filter.must.every((condition) => {
+    if (!condition?.key || !condition?.match || !Object.prototype.hasOwnProperty.call(condition.match, 'value')) {
+      return true;
+    }
+
+    const payloadValue = payload[condition.key];
+    const expectedValue = condition.match.value;
+
+    if (payloadValue == null) {
+      return false;
+    }
+
+    return String(payloadValue) === String(expectedValue);
+  });
 }
 
 async function recreateCollection(api) {
@@ -334,6 +358,282 @@ async function searchChunksByVector({
   return points;
 }
 
+async function countPoints({
+  collectionName = COLLECTION_NAME,
+  filter = null,
+  exact = true,
+} = {}) {
+  if (!QDRANT_URL) {
+    throw new Error('Qdrant URL is not configured');
+  }
+
+  await ensureCollection();
+
+  const api = client();
+  const startedAt = Date.now();
+
+  try {
+    const response = await api.post(`/collections/${collectionName}/points/count`, {
+      exact,
+      ...(filter ? { filter } : {}),
+    });
+
+    const count = Number(response.data?.result?.count || 0);
+
+    logger.info('Qdrant count completed', {
+      collection: collectionName,
+      count,
+      filtered: Boolean(filter),
+      durationMs: Date.now() - startedAt,
+    });
+
+    return count;
+  } catch (error) {
+    logger.warn('Qdrant count request failed, falling back to scroll-based count', {
+      collection: collectionName,
+      filtered: Boolean(filter),
+      upstreamStatus: error.response?.status || null,
+      durationMs: Date.now() - startedAt,
+      reason: error.message,
+    });
+
+    const points = await fetchAllPointsByFilter({
+      collectionName,
+      filter,
+      withPayload: true,
+      withVector: false,
+      skipEnsureCollection: true,
+    });
+
+    logger.info('Qdrant count fallback completed', {
+      collection: collectionName,
+      count: points.length,
+      filtered: Boolean(filter),
+      durationMs: Date.now() - startedAt,
+    });
+
+    return points.length;
+  }
+}
+
+async function scrollPoints({
+  collectionName = COLLECTION_NAME,
+  limit = 256,
+  filter = null,
+  offset = null,
+  withPayload = true,
+  withVector = false,
+  skipEnsureCollection = false,
+} = {}) {
+  if (!QDRANT_URL) {
+    throw new Error('Qdrant URL is not configured');
+  }
+
+  if (!skipEnsureCollection) {
+    await ensureCollection();
+  }
+
+  const api = client();
+  const response = await api.post(`/collections/${collectionName}/points/scroll`, {
+    limit,
+    with_payload: withPayload,
+    with_vector: withVector,
+    ...(filter ? { filter } : {}),
+    ...(offset != null ? { offset } : {}),
+  });
+
+  return {
+    points: response.data?.result?.points || [],
+    nextPageOffset: response.data?.result?.next_page_offset ?? null,
+  };
+}
+
+async function fetchAllPointsByFilter({
+  collectionName = COLLECTION_NAME,
+  filter = null,
+  withPayload = true,
+  withVector = false,
+  pageLimit = 256,
+  skipEnsureCollection = false,
+} = {}) {
+  if (!QDRANT_URL) {
+    throw new Error('Qdrant URL is not configured');
+  }
+
+  if (!skipEnsureCollection) {
+    await ensureCollection();
+  }
+
+  const api = client();
+  const startedAt = Date.now();
+
+  async function collectPages(activeFilter = null) {
+    const collected = [];
+    let offset = null;
+
+    while (true) {
+      const response = await api.post(`/collections/${collectionName}/points/scroll`, {
+        limit: pageLimit,
+        with_payload: withPayload,
+        with_vector: withVector,
+        ...(activeFilter ? { filter: activeFilter } : {}),
+        ...(offset != null ? { offset } : {}),
+      });
+
+      const points = response.data?.result?.points || [];
+      collected.push(...points);
+      offset = response.data?.result?.next_page_offset ?? null;
+
+      if (!offset || points.length === 0) {
+        break;
+      }
+    }
+
+    return collected;
+  }
+
+  try {
+    const points = await collectPages(filter);
+
+    logger.info('Qdrant filtered scroll completed', {
+      collection: collectionName,
+      points: points.length,
+      filtered: Boolean(filter),
+      durationMs: Date.now() - startedAt,
+    });
+
+    return points;
+  } catch (error) {
+    if (!filter) {
+      throw error;
+    }
+
+    logger.warn('Qdrant filtered scroll failed, retrying with local payload matching', {
+      collection: collectionName,
+      upstreamStatus: error.response?.status || null,
+      durationMs: Date.now() - startedAt,
+      reason: error.message,
+    });
+
+    const allPoints = await collectPages(null);
+    const filteredPoints = allPoints.filter((point) => matchesPointFilter(point, filter));
+
+    logger.info('Qdrant local payload filter fallback completed', {
+      collection: collectionName,
+      points: filteredPoints.length,
+      scannedPoints: allPoints.length,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return filteredPoints;
+  }
+}
+
+async function countPointsByCanonicalIds({
+  sourceType = null,
+  canonicalIds = [],
+  pageLimit = 512,
+} = {}) {
+  if (!QDRANT_URL) {
+    throw new Error('Qdrant URL is not configured');
+  }
+
+  const ids = Array.from(
+    new Set(
+      canonicalIds
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const counts = new Map(ids.map((id) => [id, 0]));
+  if (!ids.length) {
+    return counts;
+  }
+
+  await ensureCollection();
+
+  const api = client();
+  const startedAt = Date.now();
+  const must = [];
+
+  if (sourceType) {
+    must.push({ key: 'source_type', match: { value: sourceType } });
+  }
+  must.push({ key: 'canonical_id', match: { any: ids } });
+
+  let offset = null;
+  let totalScanned = 0;
+
+  try {
+    while (true) {
+      const response = await api.post(`/collections/${COLLECTION_NAME}/points/scroll`, {
+        limit: pageLimit,
+        with_payload: { include: ['canonical_id'] },
+        with_vector: false,
+        filter: { must },
+        ...(offset != null ? { offset } : {}),
+      });
+
+      const points = response.data?.result?.points || [];
+      totalScanned += points.length;
+
+      for (const point of points) {
+        const canonicalId = point?.payload?.canonical_id;
+        if (canonicalId && counts.has(canonicalId)) {
+          counts.set(canonicalId, (counts.get(canonicalId) || 0) + 1);
+        }
+      }
+
+      offset = response.data?.result?.next_page_offset ?? null;
+      if (!offset || points.length === 0) break;
+    }
+
+    logger.info('Qdrant grouped canonical_id counts completed', {
+      collection: COLLECTION_NAME,
+      canonicalIdsRequested: ids.length,
+      totalScanned,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return counts;
+  } catch (error) {
+    logger.warn('Qdrant grouped canonical_id counts failed, using match.any fallback', {
+      collection: COLLECTION_NAME,
+      canonicalIdsRequested: ids.length,
+      totalScanned,
+      reason: error.message,
+      upstreamStatus: error.response?.status || null,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return counts;
+  }
+}
+
+async function deletePointsByIds(collectionName, pointIds = []) {
+  if (!QDRANT_URL) return false;
+
+  const collection = collectionName || COLLECTION_NAME;
+  const ids = Array.from(
+    new Set(
+      pointIds
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!ids.length) {
+    return false;
+  }
+
+  const api = client();
+  await api.post(`/collections/${collection}/points/delete?wait=true`, {
+    points: ids,
+  });
+  return true;
+}
+
 async function deletePointsByJudgmentUuid(collectionName, judgmentUuid) {
   if (!QDRANT_URL || !judgmentUuid) return;
 
@@ -379,8 +679,13 @@ async function deletePointsByJudgmentUuid(collectionName, judgmentUuid) {
 module.exports = {
   checkQdrantHealth,
   fetchPointsByIds,
+  fetchAllPointsByFilter,
   searchChunksByVector,
+  countPoints,
+  countPointsByCanonicalIds,
+  scrollPoints,
   upsertChunks,
+  deletePointsByIds,
   deletePointsByJudgmentUuid,
   COLLECTION_NAME,
 };

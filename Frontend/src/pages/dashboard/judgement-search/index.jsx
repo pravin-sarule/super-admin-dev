@@ -19,22 +19,30 @@ const JudgementSearchDashboard = () => {
         phraseMatch={search.phraseMatch}
         query={search.query}
         scoreThreshold={search.scoreThreshold}
+        sourceScope={search.sourceScope}
         setChunkLimit={search.setChunkLimit}
         setJudgmentLimit={search.setJudgmentLimit}
         setPhraseMatch={search.setPhraseMatch}
         setQuery={search.setQuery}
         setScoreThreshold={search.setScoreThreshold}
+        setSourceScope={search.setSourceScope}
       />
 
       <SearchMetricCards result={search.result} />
 
       <SemanticResultsPanel
         results={search.result?.semantic?.results || []}
+        requestedSourceScope={search.result?.requestedSourceScope || search.sourceScope}
+        scopeCoverageMessage={search.result?.semantic?.scopeCoverageMessage}
+        unavailableReason={search.result?.semantic?.unavailableReason}
         thresholdFallbackTriggered={Boolean(search.result?.semantic?.thresholdFallbackTriggered)}
         appliedScoreThreshold={search.result?.semantic?.appliedScoreThreshold}
       />
 
-      <FullTextResultsPanel results={search.result?.fullText?.results || []} />
+      <FullTextResultsPanel
+        results={search.result?.fullText?.results || []}
+        requestedSourceScope={search.result?.requestedSourceScope || search.sourceScope}
+      />
 
       <AnalyticsPanel
         analytics={search.analytics}

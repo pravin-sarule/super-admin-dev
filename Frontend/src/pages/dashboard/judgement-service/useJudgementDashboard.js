@@ -70,12 +70,15 @@ export default function useJudgementDashboard() {
   const detailStatus = selectedDetail?.upload?.status || selectedUpload?.status;
   const textPreview = selectedDetail?.upload?.mergedText || '';
   const processingUploads = uploads.filter((upload) => isActivePipelineStatus(upload.status));
+  const duplicateUploads = uploads.filter((upload) => upload.status === 'duplicate_detected');
   const completedUploads = uploads.filter((upload) => upload.status === 'completed');
   const failedUploads = uploads.filter((upload) => upload.status === 'failed');
   const archivedUploads = uploads.filter((upload) => upload.status === 'archived');
   const visibleMonitorUploads =
     monitorView === 'completed'
       ? completedUploads
+      : monitorView === 'duplicate'
+        ? duplicateUploads
       : monitorView === 'failed'
         ? failedUploads
         : monitorView === 'archived'
@@ -547,6 +550,7 @@ export default function useJudgementDashboard() {
     dependencyHealthLoading,
     detailLoading,
     detailStatus,
+    duplicateUploads,
     feedback,
     failedUploads,
     handleArchive,

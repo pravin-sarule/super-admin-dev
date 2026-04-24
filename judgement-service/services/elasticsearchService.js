@@ -33,6 +33,16 @@ function requestConfig(timeoutMs) {
   };
 }
 
+function normalizeSourceTypes(sourceTypes = null) {
+  return Array.from(
+    new Set(
+      (Array.isArray(sourceTypes) ? sourceTypes : [])
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 async function checkElasticsearchHealth() {
   if (!ELASTICSEARCH_URL) {
     throw new Error('Elasticsearch URL is not configured');
@@ -210,11 +220,126 @@ async function deleteJudgmentDocument(docId) {
   }
 }
 
+async function getJudgmentDocument(docId) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const normalizedDocId = String(docId || '').trim();
+  if (!normalizedDocId) {
+    return null;
+  }
+
+  await ensureIndex();
+
+  const startedAt = Date.now();
+  logger.flow('Fetching full judgment from Elasticsearch', {
+    index: INDEX_NAME,
+    docId: normalizedDocId,
+    timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
+  });
+
+  try {
+    const response = await axios.get(
+      `${ELASTICSEARCH_URL}/${INDEX_NAME}/_doc/${encodeURIComponent(normalizedDocId)}`,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+
+    logger.info('Elasticsearch judgment fetch completed', {
+      index: INDEX_NAME,
+      docId: normalizedDocId,
+      durationMs: Date.now() - startedAt,
+      found: Boolean(response.data?.found),
+    });
+
+    if (!response.data?.found) {
+      return null;
+    }
+
+    return response.data._source || null;
+  } catch (error) {
+    if (error.response?.status === 404) {
+      logger.warn('Elasticsearch judgment not found', {
+        index: INDEX_NAME,
+        docId: normalizedDocId,
+      });
+      return null;
+    }
+
+    logger.error('Elasticsearch judgment fetch failed', error, {
+      index: INDEX_NAME,
+      docId: normalizedDocId,
+      timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
+      durationMs: Date.now() - startedAt,
+      upstreamStatus: error.response?.status || null,
+      upstreamData: error.response?.data || null,
+    });
+    throw error;
+  }
+}
+
+async function countJudgmentDocuments({ sourceTypes = null } = {}) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  await ensureIndex();
+
+  const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
+  const startedAt = Date.now();
+
+  logger.flow('Counting judgments in Elasticsearch', {
+    index: INDEX_NAME,
+    sourceTypes: normalizedSourceTypes.length ? normalizedSourceTypes : ['all'],
+    timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
+  });
+
+  try {
+    const response = await axios.post(
+      `${ELASTICSEARCH_URL}/${INDEX_NAME}/_count`,
+      {
+        query: normalizedSourceTypes.length
+          ? {
+            terms: {
+              source_type: normalizedSourceTypes,
+            },
+          }
+          : {
+            match_all: {},
+          },
+      },
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+
+    const count = Number(response.data?.count || 0);
+
+    logger.info('Elasticsearch judgment count completed', {
+      index: INDEX_NAME,
+      sourceTypes: normalizedSourceTypes.length ? normalizedSourceTypes : ['all'],
+      count,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return count;
+  } catch (error) {
+    logger.error('Elasticsearch judgment count failed', error, {
+      index: INDEX_NAME,
+      sourceTypes: normalizedSourceTypes.length ? normalizedSourceTypes : ['all'],
+      timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
+      durationMs: Date.now() - startedAt,
+      upstreamStatus: error.response?.status || null,
+      upstreamData: error.response?.data || null,
+    });
+    throw error;
+  }
+}
+
 async function searchJudgmentDocuments({
   query,
   limit = 10,
   phraseMatch = false,
   operator = 'and',
+  sourceTypes = null,
 } = {}) {
   if (!ELASTICSEARCH_URL) {
     throw new Error('Elasticsearch URL is not configured');
@@ -234,10 +359,59 @@ async function searchJudgmentDocuments({
     limit,
     phraseMatch,
     operator,
+    sourceTypes,
     timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
   });
 
   try {
+    const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
+    const baseQuery = phraseMatch
+      ? {
+        bool: {
+          should: [
+            {
+              match_phrase: {
+                full_text: {
+                  query: normalizedQuery,
+                  slop: 2,
+                },
+              },
+            },
+            {
+              match_phrase: {
+                case_name: {
+                  query: normalizedQuery,
+                  slop: 1,
+                },
+              },
+            },
+          ],
+          minimum_should_match: 1,
+        },
+      }
+      : {
+        multi_match: {
+          query: normalizedQuery,
+          fields: ['full_text^4', 'case_name^3', 'citations^2', 'canonical_id^2', 'court_code'],
+          type: 'best_fields',
+          operator,
+        },
+      };
+    const queryBody = normalizedSourceTypes.length
+      ? {
+        bool: {
+          must: [baseQuery],
+          filter: [
+            {
+              terms: {
+                source_type: normalizedSourceTypes,
+              },
+            },
+          ],
+        },
+      }
+      : baseQuery;
+
     const response = await axios.post(
       `${ELASTICSEARCH_URL}/${INDEX_NAME}/_search`,
       {
@@ -254,38 +428,7 @@ async function searchJudgmentDocuments({
           'status',
           'citations',
         ],
-        query: phraseMatch
-          ? {
-            bool: {
-              should: [
-                {
-                  match_phrase: {
-                    full_text: {
-                      query: normalizedQuery,
-                      slop: 2,
-                    },
-                  },
-                },
-                {
-                  match_phrase: {
-                    case_name: {
-                      query: normalizedQuery,
-                      slop: 1,
-                    },
-                  },
-                },
-              ],
-              minimum_should_match: 1,
-            },
-          }
-          : {
-            multi_match: {
-              query: normalizedQuery,
-              fields: ['full_text^4', 'case_name^3', 'citations^2', 'canonical_id^2', 'court_code'],
-              type: 'best_fields',
-              operator,
-            },
-          },
+        query: queryBody,
         highlight: {
           pre_tags: ['<mark>'],
           post_tags: ['</mark>'],
@@ -321,6 +464,7 @@ async function searchJudgmentDocuments({
       limit,
       phraseMatch,
       operator,
+      sourceTypes,
       timeoutMs: ELASTICSEARCH_TIMEOUT_MS,
       durationMs: Date.now() - startedAt,
       upstreamStatus: error.response?.status || null,
@@ -334,5 +478,7 @@ module.exports = {
   checkElasticsearchHealth,
   indexJudgmentDocument,
   deleteJudgmentDocument,
+  getJudgmentDocument,
+  countJudgmentDocuments,
   searchJudgmentDocuments,
 };

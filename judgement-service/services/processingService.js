@@ -15,11 +15,27 @@ const {
   processBatchPdfsAsync,
   resolveOcrMode,
 } = require('./documentAiService');
-const { extractMetadata } = require('./metadataService');
+const {
+  createCanonicalId,
+  extractMetadata,
+  isWeakCaseName,
+  normalizeCitationList,
+} = require('./metadataService');
 const { chunkTextSlidingWindow } = require('./chunkingService');
 const { generateEmbeddings, EMBEDDING_MODEL } = require('./embeddingService');
-const { indexJudgmentDocument } = require('./elasticsearchService');
-const { upsertChunks, COLLECTION_NAME } = require('./qdrantService');
+const {
+  deleteJudgmentDocument,
+  indexJudgmentDocument,
+} = require('./elasticsearchService');
+const {
+  deletePointsByJudgmentUuid,
+  upsertChunks,
+  COLLECTION_NAME,
+} = require('./qdrantService');
+const {
+  findPotentialDuplicateJudgments,
+  findContentFingerprintDuplicates,
+} = require('./duplicateDetectionService');
 const repository = require('./judgementRepository');
 const { createLogger } = require('../utils/logger');
 
@@ -45,7 +61,8 @@ const PIPELINE_STAGE_ORDER = {
   ocr_processing: 2,
   merge_text: 3,
   metadata_extract: 4,
-  indexing: 5,
+  duplicate_check: 5,
+  indexing: 6,
 };
 
 function chunkArray(items, size) {
@@ -342,6 +359,145 @@ async function persistChunks(documentId, judgmentUuid, chunks) {
   await repository.replaceChunks(documentId, judgmentUuid, chunks, EMBEDDING_MODEL);
 }
 
+function buildUploadMetadata(metadata, extra = {}) {
+  return {
+    ...metadata,
+    ...extra,
+  };
+}
+
+function normalizeAlternateCitations(value) {
+  if (Array.isArray(value)) {
+    return normalizeCitationList(value);
+  }
+
+  if (typeof value === 'string') {
+    return normalizeCitationList(
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+    );
+  }
+
+  return [];
+}
+
+function applyMetadataOverrides(extractedMetadata, existingMetadata = {}) {
+  const overrides = {};
+
+  if (String(existingMetadata.caseName || '').trim()) {
+    overrides.caseName = String(existingMetadata.caseName).trim();
+  }
+
+  if (String(existingMetadata.courtCode || '').trim()) {
+    overrides.courtCode = String(existingMetadata.courtCode).trim();
+  }
+
+  if (String(existingMetadata.judgmentDate || '').trim()) {
+    overrides.judgmentDate = String(existingMetadata.judgmentDate).trim();
+  }
+
+  if (existingMetadata.year != null && String(existingMetadata.year).trim() !== '') {
+    const year = Number(existingMetadata.year);
+    if (Number.isFinite(year)) {
+      overrides.year = year;
+    }
+  }
+
+  if (String(existingMetadata.primaryCitation || '').trim()) {
+    overrides.primaryCitation = String(existingMetadata.primaryCitation).trim();
+  }
+
+  const alternateCitations = normalizeAlternateCitations(existingMetadata.alternateCitations);
+  if (alternateCitations.length) {
+    overrides.alternateCitations = alternateCitations;
+  }
+
+  if (String(existingMetadata.sourceUrl || '').trim()) {
+    overrides.sourceUrl = String(existingMetadata.sourceUrl).trim();
+  }
+
+  const overrideKeys = Object.keys(overrides);
+  if (!overrideKeys.length) {
+    return extractedMetadata;
+  }
+
+  const mergedMetadata = {
+    ...extractedMetadata,
+    ...overrides,
+  };
+
+  if (mergedMetadata.judgmentDate) {
+    mergedMetadata.year = Number(String(mergedMetadata.judgmentDate).slice(0, 4));
+  }
+
+  mergedMetadata.alternateCitations = normalizeCitationList(
+    mergedMetadata.alternateCitations || []
+  );
+  mergedMetadata.canonicalId = createCanonicalId({
+    caseName: mergedMetadata.caseName,
+    courtCode: mergedMetadata.courtCode,
+    judgmentDate: mergedMetadata.judgmentDate,
+    year: mergedMetadata.year,
+    primaryCitation: mergedMetadata.primaryCitation,
+    alternateCitations: mergedMetadata.alternateCitations,
+  });
+  mergedMetadata.extractionMethod = `${mergedMetadata.extractionMethod || 'heuristic'}+manual`;
+  mergedMetadata.manualOverrideFields = overrideKeys;
+
+  return mergedMetadata;
+}
+
+function shouldBlockIndexing(metadata) {
+  return (
+    !metadata ||
+    isWeakCaseName(metadata.caseName) ||
+    (!metadata.judgmentDate && !metadata.primaryCitation)
+  );
+}
+
+function summarizeDuplicateMatches(matches = []) {
+  if (!matches.length) {
+    return 'No duplicate matches found';
+  }
+
+  const bestMatch = matches[0];
+  const reasonText = (bestMatch.reasons || []).join(', ') || 'metadata overlap';
+  return `Duplicate judgment detected against ${bestMatch.candidate.canonicalId} (${reasonText})`;
+}
+
+async function cleanupSearchArtifacts({ judgmentUuid, canonicalId, qdrantCollection }) {
+  if (judgmentUuid) {
+    await deletePointsByJudgmentUuid(qdrantCollection || COLLECTION_NAME, judgmentUuid);
+  }
+
+  if (canonicalId) {
+    await deleteJudgmentDocument(canonicalId);
+  }
+}
+
+async function detachUploadFromIndexedJudgment(documentId, upload) {
+  if (!upload?.judgmentUuid) {
+    return;
+  }
+
+  await cleanupSearchArtifacts({
+    judgmentUuid: upload.judgmentUuid,
+    canonicalId: upload.esDocId || upload.canonicalId,
+    qdrantCollection: upload.qdrantCollection,
+  });
+  await repository.clearJudgmentArtifacts(documentId, upload.judgmentUuid);
+
+  const remainingUploadCount = await repository.countUploadsByJudgmentUuid(upload.judgmentUuid, {
+    excludeDocumentId: documentId,
+  });
+
+  if (remainingUploadCount === 0) {
+    await repository.deleteJudgmentByUuid(upload.judgmentUuid);
+  }
+}
+
 function buildQdrantPoints(chunks, vectors, metadata) {
   return chunks.map((chunk, index) => ({
     id: chunk.chunkId,
@@ -354,6 +510,8 @@ function buildQdrantPoints(chunks, vectors, metadata) {
       chunk_index: chunk.chunkIndex,
       court_code: metadata.courtCode,
       year: metadata.year,
+      source_type: metadata.sourceType || 'admin-upload',
+      source_bucket: metadata.sourceBucket || 'admin_uploaded',
     },
   }));
 }
@@ -500,28 +658,163 @@ async function processDocument({ documentId, fileBuffer = null }) {
     pipelineStage = 'metadata_extracting';
     lastProgressMessage = 'Extracting judgment metadata and citations';
 
-    const metadata = extractMetadata({
+    const metadata = await extractMetadata({
       fullText: merged.fullText,
       originalFilename: upload.originalFilename,
       sourceUrl: upload.sourceUrl,
     });
+    const extractedMetadata = buildUploadMetadata(applyMetadataOverrides(metadata, upload.metadata), {
+      sourceBucket: 'admin_uploaded',
+    });
     logger.info('Metadata extracted', {
       documentId,
-      canonicalId: metadata.canonicalId,
-      caseName: metadata.caseName,
-      courtCode: metadata.courtCode,
-      year: metadata.year,
-      judgmentDate: metadata.judgmentDate,
-      citations: [metadata.primaryCitation, ...metadata.alternateCitations].filter(Boolean).length,
+      canonicalId: extractedMetadata.canonicalId,
+      caseName: extractedMetadata.caseName,
+      courtCode: extractedMetadata.courtCode,
+      year: extractedMetadata.year,
+      judgmentDate: extractedMetadata.judgmentDate,
+      citations: [extractedMetadata.primaryCitation, ...extractedMetadata.alternateCitations].filter(Boolean).length,
+      extractionMethod: extractedMetadata.extractionMethod,
+      needsReview: extractedMetadata.needsReview,
     });
     finishPipelineStage(
       pipelineMetrics,
       currentMetricsStageKey,
       currentStageStartedAt,
-      `${[metadata.primaryCitation, ...metadata.alternateCitations].filter(Boolean).length} citations extracted`,
+      `${[extractedMetadata.primaryCitation, ...extractedMetadata.alternateCitations].filter(Boolean).length} citations extracted`,
       {
-        canonicalId: metadata.canonicalId,
-        caseName: metadata.caseName,
+        canonicalId: extractedMetadata.canonicalId,
+        caseName: extractedMetadata.caseName,
+        extractionMethod: extractedMetadata.extractionMethod,
+      }
+    );
+
+    if (shouldBlockIndexing(extractedMetadata)) {
+      const failureMetadata = buildUploadMetadata(extractedMetadata, {
+        duplicateDetection: {
+          status: 'skipped',
+          reason: 'metadata_quality',
+        },
+      });
+
+      await detachUploadFromIndexedJudgment(documentId, upload);
+      await repository.updateUpload(documentId, {
+        judgment_uuid: null,
+        canonical_id: null,
+        es_doc_id: null,
+        qdrant_collection: null,
+        metadata: JSON.stringify(failureMetadata),
+        status: 'failed',
+        last_progress_message: 'Metadata extraction requires manual review before indexing',
+        processing_completed_at: new Date(),
+        error_message: 'Metadata extraction confidence is too low for safe indexing',
+        pipeline_metrics: serializePipelineMetrics(pipelineMetrics),
+      });
+
+      logger.warn('Skipping indexing because extracted metadata is too weak', {
+        documentId,
+        canonicalId: extractedMetadata.canonicalId,
+        caseName: extractedMetadata.caseName,
+        extractionMethod: extractedMetadata.extractionMethod,
+        metadataWarnings: extractedMetadata.metadataWarnings || [],
+      });
+      return;
+    }
+
+    currentMetricsStageKey = 'duplicate_check';
+    currentStageStartedAt = startPipelineStage(
+      pipelineMetrics,
+      currentMetricsStageKey,
+      'Duplicate detection',
+      'Checking extracted metadata against existing judgments before indexing'
+    );
+    await repository.updateUpload(documentId, {
+      metadata: JSON.stringify(extractedMetadata),
+      status: 'metadata_extracting',
+      last_progress_message: 'Checking for duplicate judgments before indexing',
+      pipeline_metrics: serializePipelineMetrics(pipelineMetrics),
+    });
+
+    let duplicateMatches = await findPotentialDuplicateJudgments(extractedMetadata, {
+      excludeJudgmentUuid: upload.judgmentUuid || null,
+    });
+    let duplicateDetectionMethod = duplicateMatches.length ? 'metadata' : null;
+
+    if (!duplicateMatches.length && merged?.fullText) {
+      logger.step('Metadata duplicate check returned no matches; running content fingerprint fallback', {
+        documentId,
+        textLength: merged.fullText.length,
+      });
+
+      const fingerprintMatches = await findContentFingerprintDuplicates(merged.fullText, {
+        excludeJudgmentUuid: upload.judgmentUuid || null,
+      });
+
+      if (fingerprintMatches.length) {
+        duplicateMatches = fingerprintMatches;
+        duplicateDetectionMethod = 'content_fingerprint';
+      }
+    }
+
+    if (duplicateMatches.length) {
+      finishPipelineStage(
+        pipelineMetrics,
+        currentMetricsStageKey,
+        currentStageStartedAt,
+        summarizeDuplicateMatches(duplicateMatches),
+        {
+          duplicateCount: duplicateMatches.length,
+          detectionMethod: duplicateDetectionMethod,
+        }
+      );
+
+      await detachUploadFromIndexedJudgment(documentId, upload);
+
+      const duplicateMetadata = buildUploadMetadata(extractedMetadata, {
+        duplicateDetection: {
+          status: 'matched',
+          summary: summarizeDuplicateMatches(duplicateMatches),
+          matches: duplicateMatches,
+          detectionMethod: duplicateDetectionMethod,
+        },
+      });
+
+      await repository.updateUpload(documentId, {
+        judgment_uuid: null,
+        canonical_id: null,
+        es_doc_id: null,
+        qdrant_collection: null,
+        metadata: JSON.stringify(duplicateMetadata),
+        status: 'duplicate_detected',
+        last_progress_message: summarizeDuplicateMatches(duplicateMatches),
+        processing_completed_at: new Date(),
+        error_message: null,
+        pipeline_metrics: serializePipelineMetrics(pipelineMetrics),
+      });
+
+      logger.warn('Duplicate judgment upload detected; indexing skipped', {
+        documentId,
+        detectionMethod: duplicateDetectionMethod,
+        matches: duplicateMatches.map((match) => ({
+          canonicalId: match.candidate.canonicalId,
+          judgmentUuid: match.candidate.judgmentUuid,
+          sourceType: match.candidate.sourceType,
+          reasons: match.reasons,
+          score: match.score,
+          matchType: match.matchType || 'metadata',
+          similarity: match.similarity || null,
+        })),
+      });
+      return;
+    }
+
+    finishPipelineStage(
+      pipelineMetrics,
+      currentMetricsStageKey,
+      currentStageStartedAt,
+      'No duplicate judgment matches found',
+      {
+        duplicateCount: 0,
       }
     );
 
@@ -540,14 +833,14 @@ async function processDocument({ documentId, fileBuffer = null }) {
 
     const initialJudgmentRow = await repository.upsertJudgment({
       judgmentUuid: existingJudgmentUuid,
-      canonicalId: metadata.canonicalId,
-      caseName: metadata.caseName,
-      courtCode: metadata.courtCode,
-      judgmentDate: metadata.judgmentDate,
-      year: metadata.year,
+      canonicalId: extractedMetadata.canonicalId,
+      caseName: extractedMetadata.caseName,
+      courtCode: extractedMetadata.courtCode,
+      judgmentDate: extractedMetadata.judgmentDate,
+      year: extractedMetadata.year,
       sourceType: 'admin-upload',
       verificationStatus: 'verified',
-      confidenceScore: metadata.confidenceScore,
+      confidenceScore: extractedMetadata.confidenceScore,
       esDocId: null,
       status: 'ocr_done',
       qdrantCollection: null,
@@ -558,9 +851,9 @@ async function processDocument({ documentId, fileBuffer = null }) {
         ocrBatches: ocrSummary.batchCount,
       },
       citationData: {
-        primary_citation: metadata.primaryCitation,
-        alternate_citations: metadata.alternateCitations,
-        source_url: metadata.sourceUrl,
+        primary_citation: extractedMetadata.primaryCitation,
+        alternate_citations: extractedMetadata.alternateCitations,
+        source_url: extractedMetadata.sourceUrl,
       },
     });
 
@@ -573,8 +866,13 @@ async function processDocument({ documentId, fileBuffer = null }) {
     );
     await repository.updateUpload(documentId, {
       judgment_uuid: initialJudgmentRow.judgment_uuid,
-      canonical_id: metadata.canonicalId,
-      metadata: JSON.stringify(metadata),
+      canonical_id: extractedMetadata.canonicalId,
+      metadata: JSON.stringify(buildUploadMetadata(extractedMetadata, {
+        duplicateDetection: {
+          status: 'none',
+          matches: [],
+        },
+      })),
       status: 'indexing',
       last_progress_message: 'Indexing Elasticsearch and Qdrant',
       pipeline_metrics: serializePipelineMetrics(pipelineMetrics),
@@ -582,24 +880,29 @@ async function processDocument({ documentId, fileBuffer = null }) {
     pipelineStage = 'indexing';
     lastProgressMessage = 'Indexing Elasticsearch and Qdrant';
 
+    await cleanupSearchArtifacts({
+      judgmentUuid: initialJudgmentRow.judgment_uuid,
+      canonicalId: upload.esDocId || upload.canonicalId || null,
+      qdrantCollection: upload.qdrantCollection || COLLECTION_NAME,
+    });
     await repository.clearJudgmentArtifacts(documentId, initialJudgmentRow.judgment_uuid);
     await repository.replaceAliases(initialJudgmentRow.judgment_uuid, [
-      metadata.primaryCitation,
-      ...metadata.alternateCitations,
+      extractedMetadata.primaryCitation,
+      ...extractedMetadata.alternateCitations,
     ].filter(Boolean));
     await persistChunks(documentId, initialJudgmentRow.judgment_uuid, chunks);
 
     const elasticDocument = {
       judgment_uuid: initialJudgmentRow.judgment_uuid,
-      canonical_id: metadata.canonicalId,
-      case_name: metadata.caseName,
-      court_code: metadata.courtCode,
-      year: metadata.year,
-      judgment_date: metadata.judgmentDate,
-      source_url: metadata.sourceUrl,
+      canonical_id: extractedMetadata.canonicalId,
+      case_name: extractedMetadata.caseName,
+      court_code: extractedMetadata.courtCode,
+      year: extractedMetadata.year,
+      judgment_date: extractedMetadata.judgmentDate,
+      source_url: extractedMetadata.sourceUrl,
       source_type: 'admin-upload',
       status: 'processed',
-      citations: [metadata.primaryCitation, ...metadata.alternateCitations].filter(Boolean),
+      citations: [extractedMetadata.primaryCitation, ...extractedMetadata.alternateCitations].filter(Boolean),
       full_text: merged.fullText,
     };
 
@@ -616,24 +919,26 @@ async function processDocument({ documentId, fileBuffer = null }) {
     });
     const points = buildQdrantPoints(chunks, vectors, {
       judgmentUuid: initialJudgmentRow.judgment_uuid,
-      canonicalId: metadata.canonicalId,
-      caseName: metadata.caseName,
-      courtCode: metadata.courtCode,
-      year: metadata.year,
+      canonicalId: extractedMetadata.canonicalId,
+      caseName: extractedMetadata.caseName,
+      courtCode: extractedMetadata.courtCode,
+      year: extractedMetadata.year,
+      sourceType: 'admin-upload',
+      sourceBucket: 'admin_uploaded',
     });
     const qdrantCollection = await upsertChunks(points);
     await repository.markChunksIndexed(initialJudgmentRow.judgment_uuid);
 
     const judgmentRow = await repository.upsertJudgment({
       judgmentUuid: initialJudgmentRow.judgment_uuid,
-      canonicalId: metadata.canonicalId,
-      caseName: metadata.caseName,
-      courtCode: metadata.courtCode,
-      judgmentDate: metadata.judgmentDate,
-      year: metadata.year,
+      canonicalId: extractedMetadata.canonicalId,
+      caseName: extractedMetadata.caseName,
+      courtCode: extractedMetadata.courtCode,
+      judgmentDate: extractedMetadata.judgmentDate,
+      year: extractedMetadata.year,
       sourceType: 'admin-upload',
       verificationStatus: 'verified',
-      confidenceScore: metadata.confidenceScore,
+      confidenceScore: extractedMetadata.confidenceScore,
       esDocId,
       status: 'processed',
       qdrantCollection: qdrantCollection || COLLECTION_NAME,
@@ -644,9 +949,9 @@ async function processDocument({ documentId, fileBuffer = null }) {
         ocrBatches: ocrSummary.batchCount,
       },
       citationData: {
-        primary_citation: metadata.primaryCitation,
-        alternate_citations: metadata.alternateCitations,
-        source_url: metadata.sourceUrl,
+        primary_citation: extractedMetadata.primaryCitation,
+        alternate_citations: extractedMetadata.alternateCitations,
+        source_url: extractedMetadata.sourceUrl,
       },
     });
     finishPipelineStage(
@@ -663,10 +968,15 @@ async function processDocument({ documentId, fileBuffer = null }) {
 
     await repository.updateUpload(documentId, {
       judgment_uuid: judgmentRow.judgment_uuid,
-      canonical_id: metadata.canonicalId,
+      canonical_id: extractedMetadata.canonicalId,
       es_doc_id: esDocId,
       qdrant_collection: qdrantCollection || COLLECTION_NAME,
-      metadata: JSON.stringify(metadata),
+      metadata: JSON.stringify(buildUploadMetadata(extractedMetadata, {
+        duplicateDetection: {
+          status: 'none',
+          matches: [],
+        },
+      })),
       status: 'completed',
       last_progress_message: 'Judgment OCR and indexing completed',
       processing_completed_at: new Date(),
@@ -677,7 +987,7 @@ async function processDocument({ documentId, fileBuffer = null }) {
     logger.info('Pipeline completed successfully', {
       documentId,
       judgmentUuid: judgmentRow.judgment_uuid,
-      canonicalId: metadata.canonicalId,
+      canonicalId: extractedMetadata.canonicalId,
       esDocId,
       qdrantCollection: qdrantCollection || COLLECTION_NAME,
       chunkCount: chunks.length,

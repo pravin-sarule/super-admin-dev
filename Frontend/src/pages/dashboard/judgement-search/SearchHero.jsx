@@ -9,18 +9,20 @@ const SearchHero = ({
   phraseMatch,
   query,
   scoreThreshold,
+  sourceScope,
   setChunkLimit,
   setJudgmentLimit,
   setPhraseMatch,
   setQuery,
   setScoreThreshold,
+  setSourceScope,
 }) => (
   <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
     <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-3xl font-bold text-slate-900">Judgement Search</h1>
         <p className="mt-2 max-w-3xl text-sm text-slate-500">
-          Search across indexed judgments using semantic chunk retrieval from Qdrant and full-text matching from Elasticsearch.
+          Search across indexed judgments using semantic chunk retrieval from Qdrant and full-text matching from Elasticsearch. Use source scope to separate admin-uploaded judgments from user-generated citation results.
         </p>
       </div>
 
@@ -75,6 +77,19 @@ const SearchHero = ({
                 onChange={(event) => setJudgmentLimit(event.target.value)}
                 className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-400"
               />
+            </label>
+
+            <label className="text-sm text-slate-600 sm:col-span-2">
+              <span className="mb-1 block font-medium">Source Scope</span>
+              <select
+                value={sourceScope}
+                onChange={(event) => setSourceScope(event.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 outline-none focus:border-blue-400"
+              >
+                <option value="admin_uploaded">Admin uploaded</option>
+                <option value="user_generated">User generated</option>
+                <option value="all">All sources</option>
+              </select>
             </label>
 
             <label className="text-sm text-slate-600 sm:col-span-2">

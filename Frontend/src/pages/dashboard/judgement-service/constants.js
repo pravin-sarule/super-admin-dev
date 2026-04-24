@@ -12,8 +12,10 @@ export const STATUS_STYLES = {
   ocr_processing: 'bg-amber-100 text-amber-800 border-amber-200',
   metadata_extracting: 'bg-purple-100 text-purple-800 border-purple-200',
   indexing: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+  duplicate_detected: 'bg-amber-100 text-amber-800 border-amber-200',
   completed: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   failed: 'bg-rose-100 text-rose-700 border-rose-200',
+  archived: 'bg-slate-100 text-slate-700 border-slate-200',
 };
 
 export const STATUS_OPTIONS = [
@@ -23,8 +25,10 @@ export const STATUS_OPTIONS = [
   { value: 'ocr_processing', label: 'OCR Processing' },
   { value: 'metadata_extracting', label: 'Metadata Extracting' },
   { value: 'indexing', label: 'Indexing' },
+  { value: 'duplicate_detected', label: 'Duplicate Detected' },
   { value: 'completed', label: 'Completed' },
   { value: 'failed', label: 'Failed' },
+  { value: 'archived', label: 'Archived' },
 ];
 
 export function getSummaryCards(summary) {
@@ -49,6 +53,13 @@ export function getSummaryCards(summary) {
       value: summary?.ocr_processing || 0,
       tone: 'from-amber-50 to-amber-100',
       icon: LoaderCircle,
+    },
+    {
+      key: 'duplicate_detected',
+      label: 'Duplicates',
+      value: summary?.duplicate_detected || 0,
+      tone: 'from-amber-50 to-amber-100',
+      icon: AlertCircle,
     },
     {
       key: 'completed',

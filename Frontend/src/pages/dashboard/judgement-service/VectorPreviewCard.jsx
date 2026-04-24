@@ -4,7 +4,9 @@ import judgementAdminApi from '../../../services/judgementAdminApi';
 
 const PAGE_SIZE = 5;
 
-const VectorPreviewCard = ({ chunks = [], documentId, qdrantCollection }) => {
+const VectorPreviewCard = ({ chunks = [], documentId, qdrantCollection, fetchVectors }) => {
+  const requestVectors = fetchVectors
+    || ((id, pointIds) => judgementAdminApi.vectors(id, pointIds));
   const [page, setPage] = useState(0);
   const [loadingPointId, setLoadingPointId] = useState(null);
   const [previewError, setPreviewError] = useState('');
@@ -42,7 +44,7 @@ const VectorPreviewCard = ({ chunks = [], documentId, qdrantCollection }) => {
     setPreviewError('');
 
     try {
-      const response = await judgementAdminApi.vectors(documentId, [pointId]);
+      const response = await requestVectors(documentId, [pointId]);
       const vector = response.vectors?.[0] || null;
 
       if (!vector) {

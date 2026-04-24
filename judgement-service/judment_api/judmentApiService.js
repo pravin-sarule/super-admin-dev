@@ -2,6 +2,10 @@ const { generateEmbeddings } = require('../services/embeddingService');
 const { searchChunksByVector, COLLECTION_NAME } = require('../services/qdrantService');
 const { searchJudgmentDocuments } = require('../services/elasticsearchService');
 const { getSignedReadUrl } = require('../services/storageService');
+const {
+  sourceScopeToSourceTypes,
+  toSourceBucket,
+} = require('../services/duplicateDetectionService');
 const repository = require('./judmentApiRepository');
 const { createLogger } = require('../utils/logger');
 
@@ -10,6 +14,9 @@ const DEFAULT_SIGNED_URL_EXPIRY_MINUTES = Math.max(
   1,
   Number(process.env.JUDMENT_API_SIGNED_URL_EXPIRY_MINUTES || 60)
 );
+const DEFAULT_SOURCE_SCOPE = String(
+  process.env.JUDMENT_API_DEFAULT_SOURCE_SCOPE || 'admin_uploaded'
+).trim().toLowerCase();
 
 function normalizePositiveInt(value, fallback, max = 50) {
   const parsed = Number(value);
@@ -34,6 +41,44 @@ function roundTo(value, decimals = 3) {
 
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
+}
+
+function normalizeSourceScope(scope) {
+  const normalized = String(scope || DEFAULT_SOURCE_SCOPE).trim().toLowerCase();
+  if (normalized === 'admin_uploaded' || normalized === 'user_generated' || normalized === 'all') {
+    return normalized;
+  }
+  return 'admin_uploaded';
+}
+
+function resolveSearchScope(payload = {}) {
+  const requestedSourceScope = normalizeSourceScope(payload.sourceScope);
+  const fullTextSourceTypes = sourceScopeToSourceTypes(requestedSourceScope);
+  const semanticEnabled = requestedSourceScope !== 'user_generated';
+  const semanticEffectiveSourceScope =
+    requestedSourceScope === 'all' ? 'admin_uploaded' : requestedSourceScope;
+
+  let semanticScopeCoverage = requestedSourceScope;
+  let semanticScopeCoverageMessage = null;
+
+  if (requestedSourceScope === 'all') {
+    semanticScopeCoverage = 'admin_uploaded_only';
+    semanticScopeCoverageMessage =
+      'Semantic retrieval currently searches admin-uploaded judgments only because legal_embeddings_v2 does not store user-generated embeddings.';
+  } else if (requestedSourceScope === 'user_generated') {
+    semanticScopeCoverage = 'unavailable';
+    semanticScopeCoverageMessage =
+      'Semantic retrieval is unavailable for user-generated judgments because legal_embeddings_v2 only stores admin-upload embeddings.';
+  }
+
+  return {
+    requestedSourceScope,
+    fullTextSourceTypes,
+    semanticEnabled,
+    semanticEffectiveSourceScope,
+    semanticScopeCoverage,
+    semanticScopeCoverageMessage,
+  };
 }
 
 function tokenizeQuery(query) {
@@ -185,6 +230,7 @@ function buildDocumentSource(row, signedUrlMap) {
 
 function formatSemanticResult(point, metadataRow, signedUrlMap) {
   const rawScore = Number(point.score || 0);
+  const sourceType = metadataRow?.source_type || point.payload?.source_type || 'admin-upload';
   return {
     score: rawScore,
     rawScore: roundTo(rawScore, 3),
@@ -210,7 +256,8 @@ function formatSemanticResult(point, metadataRow, signedUrlMap) {
       courtCode: metadataRow?.court_code || point.payload?.court_code || null,
       year: metadataRow?.year ?? point.payload?.year ?? null,
       judgmentDate: metadataRow?.judgment_date || null,
-      sourceType: metadataRow?.source_type || null,
+      sourceType,
+      sourceBucket: toSourceBucket(sourceType),
       verificationStatus: metadataRow?.verification_status || null,
       confidenceScore: metadataRow?.confidence_score ?? null,
       citationData: metadataRow?.citation_data || {},
@@ -233,6 +280,7 @@ function formatFullTextResult(hit, metadataRow, signedUrlMap, query, maxRawScore
   const source = hit._source || {};
   const highlights = hit.highlight || {};
   const relevance = buildFullTextRelevance(hit, query, maxRawScore);
+  const sourceType = metadataRow?.source_type || source.source_type || null;
 
   return {
     score: relevance.rawScore,
@@ -246,7 +294,8 @@ function formatFullTextResult(hit, metadataRow, signedUrlMap, query, maxRawScore
       courtCode: metadataRow?.court_code || source.court_code || null,
       year: metadataRow?.year ?? source.year ?? null,
       judgmentDate: metadataRow?.judgment_date || source.judgment_date || null,
-      sourceType: metadataRow?.source_type || source.source_type || null,
+      sourceType,
+      sourceBucket: sourceType ? toSourceBucket(sourceType) : null,
       verificationStatus: metadataRow?.verification_status || null,
       confidenceScore: metadataRow?.confidence_score ?? null,
       citationData: metadataRow?.citation_data || {},
@@ -281,7 +330,32 @@ async function semanticSearch(payload = {}) {
   const limit = normalizePositiveInt(payload.limit || payload.chunkLimit, 8, 50);
   const scoreThreshold = normalizeScoreThreshold(payload.scoreThreshold);
   const filters = payload.filters || {};
+  const scope = payload.__resolvedSearchScope || resolveSearchScope(payload);
   const timings = {};
+
+  if (!scope.semanticEnabled) {
+    return {
+      query,
+      collection: COLLECTION_NAME,
+      searchMode: 'semantic',
+      limit,
+      scoreThreshold,
+      appliedScoreThreshold: null,
+      thresholdFallbackTriggered: false,
+      filters: {
+        ...filters,
+        sourceScope: scope.requestedSourceScope,
+      },
+      requestedSourceScope: scope.requestedSourceScope,
+      effectiveSourceScope: null,
+      scopeCoverage: scope.semanticScopeCoverage,
+      scopeCoverageMessage: scope.semanticScopeCoverageMessage,
+      unavailableReason: scope.semanticScopeCoverageMessage,
+      totalResults: 0,
+      timings,
+      results: [],
+    };
+  }
 
   const embeddingStartedAt = Date.now();
   const embeddingResponse = await generateEmbeddings([query], { taskType: 'RETRIEVAL_QUERY' });
@@ -376,7 +450,14 @@ async function semanticSearch(payload = {}) {
     scoreThreshold,
     appliedScoreThreshold,
     thresholdFallbackTriggered,
-    filters,
+    filters: {
+      ...filters,
+      sourceScope: scope.requestedSourceScope,
+    },
+    requestedSourceScope: scope.requestedSourceScope,
+    effectiveSourceScope: scope.semanticEffectiveSourceScope,
+    scopeCoverage: scope.semanticScopeCoverage,
+    scopeCoverageMessage: scope.semanticScopeCoverageMessage,
     totalResults: results.length,
     timings,
     results,
@@ -394,6 +475,7 @@ async function fullTextSearch(payload = {}) {
   const limit = normalizePositiveInt(payload.limit || payload.judgmentLimit, 10, 50);
   const phraseMatch = Boolean(payload.phraseMatch);
   const operator = String(payload.operator || 'and').toLowerCase() === 'or' ? 'or' : 'and';
+  const scope = payload.__resolvedSearchScope || resolveSearchScope(payload);
   const timings = {};
 
   const elasticStartedAt = Date.now();
@@ -402,6 +484,7 @@ async function fullTextSearch(payload = {}) {
     limit,
     phraseMatch,
     operator,
+    sourceTypes: scope.fullTextSourceTypes,
   });
   timings.elasticMs = Date.now() - elasticStartedAt;
 
@@ -446,6 +529,12 @@ async function fullTextSearch(payload = {}) {
     limit,
     phraseMatch,
     operator,
+    requestedSourceScope: scope.requestedSourceScope,
+    effectiveSourceScope: scope.requestedSourceScope,
+    filters: {
+      sourceScope: scope.requestedSourceScope,
+      sourceTypes: scope.fullTextSourceTypes,
+    },
     totalResults: results.length,
     timings,
     results,
@@ -455,14 +544,17 @@ async function fullTextSearch(payload = {}) {
 async function hybridSearch(payload = {}) {
   const semanticLimit = normalizePositiveInt(payload.semanticLimit || payload.chunkLimit || payload.limit, 8, 50);
   const fullTextLimit = normalizePositiveInt(payload.fullTextLimit || payload.judgmentLimit || payload.limit, 10, 50);
+  const scope = resolveSearchScope(payload);
 
   const [semantic, fullText] = await Promise.all([
     semanticSearch({
       ...payload,
+      __resolvedSearchScope: scope,
       limit: semanticLimit,
     }),
     fullTextSearch({
       ...payload,
+      __resolvedSearchScope: scope,
       limit: fullTextLimit,
     }),
   ]);
@@ -470,6 +562,23 @@ async function hybridSearch(payload = {}) {
   return {
     query: semantic.query,
     searchMode: 'hybrid',
+    requestedSourceScope: scope.requestedSourceScope,
+    filters: {
+      sourceScope: scope.requestedSourceScope,
+      fullTextSourceTypes: scope.fullTextSourceTypes,
+    },
+    searchScopes: {
+      requested: scope.requestedSourceScope,
+      semantic: {
+        enabled: scope.semanticEnabled,
+        effective: semantic.effectiveSourceScope,
+        coverage: semantic.scopeCoverage,
+        message: semantic.scopeCoverageMessage || null,
+      },
+      fullText: {
+        effective: fullText.effectiveSourceScope,
+      },
+    },
     semantic,
     fullText,
     totalResults: {

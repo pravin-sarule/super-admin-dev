@@ -1,9 +1,15 @@
 const { v4: uuidv4 } = require('uuid');
 const repository = require('../services/judgementRepository');
+const {
+  createCanonicalId,
+  normalizeCitationList,
+} = require('../services/metadataService');
 const { sanitizeFilename, uploadBuffer } = require('../services/storageService');
 const { queueProcessing } = require('../services/processingService');
 const { getDependencyHealth } = require('../services/dependencyHealthService');
+const pipelineReportService = require('../services/pipelineReportService');
 const { fetchPointsByIds } = require('../services/qdrantService');
+const { getJudgmentDocument } = require('../services/elasticsearchService');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Controller');
@@ -185,6 +191,126 @@ async function getJudgementSummary(req, res) {
   });
 }
 
+async function getPipelineReportSummary(req, res) {
+  const sourceType = req.query.sourceType || 'ik_pipeline';
+
+  logger.flow('Fetching pipeline report summary', {
+    sourceType,
+    adminUserId: req.user?.id || null,
+  });
+
+  const report = await pipelineReportService.getPipelineReportSummary({
+    sourceType,
+  });
+
+  return res.json({
+    success: true,
+    ...report,
+  });
+}
+
+async function listPipelineJudgments(req, res) {
+  const sourceType = req.query.sourceType || 'ik_pipeline';
+  const search = req.query.search || '';
+  const limit = req.query.limit || 10;
+  const offset = req.query.offset || 0;
+
+  logger.flow('Listing pipeline report judgments', {
+    sourceType,
+    search,
+    limit,
+    offset,
+    adminUserId: req.user?.id || null,
+  });
+
+  const report = await pipelineReportService.listPipelineJudgments({
+    sourceType,
+    search,
+    limit,
+    offset,
+  });
+
+  return res.json({
+    success: true,
+    ...report,
+  });
+}
+
+async function getPipelineJudgmentDetail(req, res) {
+  const { judgmentUuid } = req.params;
+
+  logger.flow('Fetching pipeline judgment detail', {
+    judgmentUuid,
+    adminUserId: req.user?.id || null,
+  });
+
+  const detail = await pipelineReportService.getPipelineJudgmentDetail({ judgmentUuid });
+
+  if (!detail) {
+    return res.status(404).json({
+      success: false,
+      message: 'Pipeline judgment not found',
+    });
+  }
+
+  return res.json({
+    success: true,
+    detail,
+  });
+}
+
+async function getPipelineJudgmentVectors(req, res) {
+  const { judgmentUuid } = req.params;
+  const requestedPointIds = String(req.query.pointIds || '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (!requestedPointIds.length) {
+    return res.status(400).json({
+      success: false,
+      message: 'At least one pointId is required',
+    });
+  }
+
+  try {
+    const result = await pipelineReportService.getPipelineJudgmentVectors({
+      judgmentUuid,
+      pointIds: requestedPointIds,
+    });
+
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'Pipeline judgment not found',
+      });
+    }
+
+    if (!result.vectors.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'The requested vector point IDs were not found for this judgment.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      collection: result.collection,
+      vectors: result.vectors,
+    });
+  } catch (error) {
+    logger.error('Failed to load pipeline vectors', {
+      judgmentUuid,
+      error: error.message,
+    });
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to communicate with the vector database.',
+      details: error.message,
+    });
+  }
+}
+
 async function getDependencyHealthSummary(req, res) {
   logger.flow('Fetching dependency health', {
     adminUserId: req.user?.id || null,
@@ -223,6 +349,37 @@ async function getJudgementDetail(req, res) {
       success: false,
       message: 'Judgment upload not found',
     });
+  }
+
+  const esDocId = detail.upload?.esDocId || detail.judgment?.es_doc_id || detail.upload?.canonicalId;
+  if (esDocId) {
+    try {
+      const esDocument = await getJudgmentDocument(esDocId);
+      const esText = String(esDocument?.full_text || '');
+
+      detail.upload = {
+        ...detail.upload,
+        mergedText: esText,
+      };
+      detail.textPreview = esText;
+    } catch (error) {
+      logger.warn('Failed to load Elasticsearch text preview for admin detail', {
+        documentId: req.params.documentId,
+        esDocId,
+        reason: error.message,
+      });
+      detail.textPreview = '';
+      detail.upload = {
+        ...detail.upload,
+        mergedText: '',
+      };
+    }
+  } else {
+    detail.textPreview = '';
+    detail.upload = {
+      ...detail.upload,
+      mergedText: '',
+    };
   }
 
   return res.json({
@@ -578,39 +735,80 @@ async function updateJudgementMetadata(req, res) {
     ...current,
     ...req.body,
   };
+  const normalizedMetadata = {
+    ...nextMetadata,
+    caseName: String(nextMetadata.caseName || detail.judgment?.case_name || '').trim(),
+    courtCode: String(nextMetadata.courtCode || detail.judgment?.court_code || 'UNKNOWN').trim(),
+    judgmentDate: nextMetadata.judgmentDate || detail.judgment?.judgment_date || null,
+    year:
+      nextMetadata.year != null && String(nextMetadata.year).trim() !== ''
+        ? Number(nextMetadata.year)
+        : detail.judgment?.year || null,
+    primaryCitation: String(nextMetadata.primaryCitation || '').trim() || null,
+    alternateCitations: normalizeCitationList(nextMetadata.alternateCitations || []),
+    sourceUrl: String(nextMetadata.sourceUrl || detail.upload.sourceUrl || '').trim() || null,
+  };
+
+  if (normalizedMetadata.judgmentDate) {
+    normalizedMetadata.year = Number(String(normalizedMetadata.judgmentDate).slice(0, 4));
+  }
+
+  normalizedMetadata.canonicalId = createCanonicalId({
+    caseName: normalizedMetadata.caseName || detail.judgment?.case_name || detail.upload.originalFilename,
+    courtCode: normalizedMetadata.courtCode || detail.judgment?.court_code || 'UNKNOWN',
+    judgmentDate: normalizedMetadata.judgmentDate || null,
+    year: normalizedMetadata.year || null,
+    primaryCitation: normalizedMetadata.primaryCitation || null,
+    alternateCitations: normalizedMetadata.alternateCitations || [],
+  });
 
   await repository.updateUpload(req.params.documentId, {
-    metadata: JSON.stringify(nextMetadata),
+    canonical_id: normalizedMetadata.canonicalId,
+    metadata: JSON.stringify(normalizedMetadata),
   });
 
   if (detail.upload.judgmentUuid) {
     await repository.upsertJudgment({
       judgmentUuid: detail.upload.judgmentUuid,
-      canonicalId: nextMetadata.canonicalId || detail.upload.canonicalId,
-      caseName: nextMetadata.caseName || detail.judgment?.case_name || 'Untitled Judgment',
-      courtCode: nextMetadata.courtCode || detail.judgment?.court_code || 'UNKNOWN',
-      judgmentDate: nextMetadata.judgmentDate || detail.judgment?.judgment_date || null,
-      year: nextMetadata.year || detail.judgment?.year || null,
+      canonicalId: normalizedMetadata.canonicalId || detail.upload.canonicalId,
+      caseName: normalizedMetadata.caseName || detail.judgment?.case_name || 'Untitled Judgment',
+      courtCode: normalizedMetadata.courtCode || detail.judgment?.court_code || 'UNKNOWN',
+      judgmentDate: normalizedMetadata.judgmentDate || detail.judgment?.judgment_date || null,
+      year: normalizedMetadata.year || detail.judgment?.year || null,
       sourceType: 'admin-upload',
       verificationStatus: 'verified',
-      confidenceScore: Number(nextMetadata.confidenceScore || detail.judgment?.confidence_score || 0.8),
+      confidenceScore: Number(normalizedMetadata.confidenceScore || detail.judgment?.confidence_score || 0.8),
       esDocId: detail.upload.esDocId || detail.judgment?.es_doc_id || null,
       status: detail.upload.status || 'completed',
       qdrantCollection: detail.upload.qdrantCollection || detail.judgment?.qdrant_collection || null,
       ocrInfo: detail.judgment?.ocr_info || {},
       citationData: {
         ...(detail.judgment?.citation_data || {}),
-        primary_citation: nextMetadata.primaryCitation || null,
-        alternate_citations: nextMetadata.alternateCitations || [],
-        source_url: nextMetadata.sourceUrl || detail.upload.sourceUrl || null,
+        primary_citation: normalizedMetadata.primaryCitation || null,
+        alternate_citations: normalizedMetadata.alternateCitations || [],
+        source_url: normalizedMetadata.sourceUrl || detail.upload.sourceUrl || null,
       },
     });
   }
 
+  await repository.updateUpload(req.params.documentId, {
+    status: 'uploaded',
+    error_message: null,
+    last_progress_message: 'Metadata saved. Reprocessing queued to refresh search indexes',
+    processing_started_at: new Date(),
+    processing_completed_at: null,
+    pipeline_metrics: JSON.stringify({}),
+  });
+
+  queueProcessing({
+    documentId: req.params.documentId,
+    fileBuffer: null,
+  });
+
   return res.json({
     success: true,
-    message: 'Judgment metadata updated',
-    metadata: nextMetadata,
+    message: 'Judgment metadata updated and reprocessing started',
+    metadata: normalizedMetadata,
   });
 }
 
@@ -711,6 +909,10 @@ module.exports = {
   uploadJudgement,
   listJudgements,
   getJudgementSummary,
+  getPipelineReportSummary,
+  listPipelineJudgments,
+  getPipelineJudgmentDetail,
+  getPipelineJudgmentVectors,
   getDependencyHealthSummary,
   getJudgementDetail,
   getJudgementStatus,

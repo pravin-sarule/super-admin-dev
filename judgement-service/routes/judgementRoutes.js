@@ -31,6 +31,10 @@ router.use(authenticate);
 router.use(authorize(['super-admin']));
 
 router.get('/summary', controller.getJudgementSummary);
+router.get('/pipeline-report/summary', controller.getPipelineReportSummary);
+router.get('/pipeline-report', controller.listPipelineJudgments);
+router.get('/pipeline-report/:judgmentUuid/vectors', controller.getPipelineJudgmentVectors);
+router.get('/pipeline-report/:judgmentUuid', controller.getPipelineJudgmentDetail);
 router.get('/dependencies/health', controller.getDependencyHealthSummary);
 router.get('/', controller.listJudgements);
 router.post(

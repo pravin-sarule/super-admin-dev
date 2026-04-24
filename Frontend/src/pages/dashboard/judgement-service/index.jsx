@@ -53,6 +53,7 @@ const JudgementServiceDashboard = () => {
         activeTab={dashboard.monitorView}
         counts={{
           processing: dashboard.processingUploads.length,
+          duplicate: dashboard.duplicateUploads.length,
           completed: dashboard.completedUploads.length,
           failed: dashboard.failedUploads.length,
           archived: dashboard.archivedUploads.length,

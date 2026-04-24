@@ -20,6 +20,10 @@ const MetadataWorkspace = ({
   title = 'Judgement Workspace',
 }) => {
   const pipelineMetrics = selectedDetail?.upload?.pipelineMetrics || {};
+  const duplicateDetection = selectedDetail?.upload?.metadata?.duplicateDetection || {};
+  const duplicateMatches = Array.isArray(duplicateDetection.matches)
+    ? duplicateDetection.matches
+    : [];
   const timingStages = Object.entries(pipelineMetrics.stages || {}).sort(
     (left, right) => (left[1]?.order || 0) - (right[1]?.order || 0)
   );
@@ -68,6 +72,38 @@ const MetadataWorkspace = ({
               )}
             </div>
           )}
+
+          {duplicateMatches.length > 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+              <div className="font-semibold text-amber-950">Potential Duplicate Detected</div>
+              <div className="mt-1 text-amber-800">
+                {duplicateDetection.summary || 'This upload matched an existing judgment and was not indexed.'}
+              </div>
+              <div className="mt-4 space-y-3">
+                {duplicateMatches.map((match, index) => (
+                  <div key={`${match.candidate?.judgmentUuid || 'duplicate'}-${index}`} className="rounded-2xl border border-amber-200 bg-white px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-semibold text-slate-900">
+                        {match.candidate?.caseName || 'Existing judgment'}
+                      </div>
+                      <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-amber-800">
+                        {match.candidate?.sourceBucket || 'existing'}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                        score {match.score || 0}
+                      </span>
+                    </div>
+                    <div className="mt-2 text-xs text-slate-600">
+                      {(match.reasons || []).join(', ') || 'metadata overlap'}
+                    </div>
+                    <div className="mt-2 text-xs text-slate-500">
+                      {match.candidate?.canonicalId || 'Canonical ID pending'}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="grid gap-4 md:grid-cols-2">
           <label className="text-sm text-slate-600">

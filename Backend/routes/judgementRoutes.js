@@ -230,6 +230,37 @@ module.exports = (pool) => {
     })
   );
 
+  router.get('/pipeline-report/summary', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: '/api/judgements/pipeline-report/summary',
+      params: req.query,
+    })
+  );
+
+  router.get('/pipeline-report', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: '/api/judgements/pipeline-report',
+      params: req.query,
+    })
+  );
+
+  router.get('/pipeline-report/:judgmentUuid/vectors', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: `/api/judgements/pipeline-report/${req.params.judgmentUuid}/vectors`,
+      params: req.query,
+    })
+  );
+
+  router.get('/pipeline-report/:judgmentUuid', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: `/api/judgements/pipeline-report/${req.params.judgmentUuid}`,
+    })
+  );
+
   router.post('/search/hybrid', (req, res, next) =>
     forwardJudmentApi(req, res, next, {
       method: 'POST',

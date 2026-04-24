@@ -15,6 +15,7 @@ export default function useJudgementSearch() {
   const [judgmentLimit, setJudgmentLimit] = useState(5);
   const [scoreThreshold, setScoreThreshold] = useState('');
   const [phraseMatch, setPhraseMatch] = useState(false);
+  const [sourceScope, setSourceScope] = useState('admin_uploaded');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState('');
@@ -57,6 +58,7 @@ export default function useJudgementSearch() {
             ? null
             : Number(scoreThreshold),
         phraseMatch,
+        sourceScope,
       });
 
       setResult(response);
@@ -82,11 +84,13 @@ export default function useJudgementSearch() {
     result,
     runSearch,
     scoreThreshold,
+    sourceScope,
     setChunkLimit,
     setError,
     setJudgmentLimit,
     setPhraseMatch,
     setQuery,
     setScoreThreshold,
+    setSourceScope,
   };
 }

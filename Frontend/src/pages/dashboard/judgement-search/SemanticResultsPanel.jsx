@@ -1,5 +1,17 @@
 import { ExternalLink, Hash, Scale, Sparkles } from 'lucide-react';
 
+function sourceBucketClasses(sourceBucket) {
+  if (sourceBucket === 'user_generated') {
+    return 'bg-emerald-100 text-emerald-700';
+  }
+
+  return 'bg-blue-100 text-blue-700';
+}
+
+function sourceBucketLabel(sourceBucket) {
+  return sourceBucket === 'user_generated' ? 'User Generated' : 'Admin Uploaded';
+}
+
 function renderMetaLabel(label, value) {
   return (
     <div>
@@ -9,7 +21,14 @@ function renderMetaLabel(label, value) {
   );
 }
 
-const SemanticResultsPanel = ({ results = [], thresholdFallbackTriggered = false, appliedScoreThreshold = null }) => (
+const SemanticResultsPanel = ({
+  results = [],
+  thresholdFallbackTriggered = false,
+  appliedScoreThreshold = null,
+  requestedSourceScope = 'admin_uploaded',
+  scopeCoverageMessage = '',
+  unavailableReason = '',
+}) => (
   <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
     <div className="mb-4 flex items-center justify-between">
       <div>
@@ -30,16 +49,26 @@ const SemanticResultsPanel = ({ results = [], thresholdFallbackTriggered = false
       </div>
     ) : null}
 
+    {scopeCoverageMessage ? (
+      <div className="mb-4 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+        {scopeCoverageMessage}
+      </div>
+    ) : null}
+
     {appliedScoreThreshold != null ? (
       <div className="mb-4 text-xs font-medium text-slate-500">
         Active Qdrant similarity threshold: {Number(appliedScoreThreshold).toFixed(2)}
       </div>
     ) : null}
 
+    <div className="mb-4 text-xs font-medium uppercase tracking-wide text-slate-500">
+      Requested scope: {String(requestedSourceScope || 'admin_uploaded').replace(/_/g, ' ')}
+    </div>
+
     <div className="space-y-4">
       {results.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-5 py-12 text-center text-sm text-slate-500">
-          Run a search to see semantic chunk matches.
+          {unavailableReason || 'Run a search to see semantic chunk matches.'}
         </div>
       ) : (
         results.map((item) => (
@@ -52,6 +81,9 @@ const SemanticResultsPanel = ({ results = [], thresholdFallbackTriggered = false
                   </h3>
                   <span className="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
                     Relevance {Math.round(Number(item.relevanceScore || 0))}/100
+                  </span>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sourceBucketClasses(item.judgment.sourceBucket)}`}>
+                    {sourceBucketLabel(item.judgment.sourceBucket)}
                   </span>
                 </div>
 

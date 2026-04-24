@@ -202,6 +202,43 @@ class JudgementAdminApi {
     });
   }
 
+  async pipelineReportSummary(params = {}) {
+    return performRequest('pipelineReportSummary', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/pipeline-report/summary`,
+      params,
+      headers: authHeaders(),
+    });
+  }
+
+  async pipelineReportList(params = {}) {
+    return performRequest('pipelineReportList', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/pipeline-report`,
+      params,
+      headers: authHeaders(),
+    });
+  }
+
+  async pipelineReportDetail(judgmentUuid) {
+    return performRequest('pipelineReportDetail', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/pipeline-report/${judgmentUuid}`,
+      headers: authHeaders(),
+    });
+  }
+
+  async pipelineReportVectors(judgmentUuid, pointIds = []) {
+    return performRequest('pipelineReportVectors', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/pipeline-report/${judgmentUuid}/vectors`,
+      headers: authHeaders(),
+      params: {
+        pointIds: pointIds.join(','),
+      },
+    });
+  }
+
   async upload({ files, sourceUrl }) {
     const formData = new FormData();
     files.forEach((file) => {
