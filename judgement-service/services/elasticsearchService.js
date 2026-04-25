@@ -43,6 +43,154 @@ function normalizeSourceTypes(sourceTypes = null) {
   );
 }
 
+function tokenizeSearchTerms(query = '') {
+  return Array.from(
+    new Set(
+      String(query || '')
+        .toLowerCase()
+        .split(/[^a-z0-9]+/i)
+        .map((term) => term.trim())
+        .filter((term) => term.length >= 2)
+    )
+  );
+}
+
+function resolveRelaxedMinimumShouldMatch(query = '') {
+  const termCount = tokenizeSearchTerms(query).length;
+
+  if (termCount <= 1) return 1;
+  if (termCount <= 3) return termCount;
+  if (termCount <= 6) return Math.max(2, Math.ceil(termCount * 0.6));
+  if (termCount <= 12) return Math.max(3, Math.ceil(termCount * 0.45));
+  return Math.max(4, Math.ceil(termCount * 0.3));
+}
+
+function buildTextSearchQuery({
+  query,
+  phraseMatch = false,
+  operator = 'and',
+  relaxed = false,
+} = {}) {
+  const normalizedOperator = String(operator || 'and').toLowerCase() === 'or' ? 'or' : 'and';
+
+  if (phraseMatch) {
+    return {
+      strategy: 'phrase',
+      query: {
+        bool: {
+          should: [
+            {
+              match_phrase: {
+                full_text: {
+                  query,
+                  slop: 2,
+                },
+              },
+            },
+            {
+              match_phrase: {
+                case_name: {
+                  query,
+                  slop: 1,
+                },
+              },
+            },
+          ],
+          minimum_should_match: 1,
+        },
+      },
+      minimumShouldMatch: null,
+    };
+  }
+
+  if (!relaxed) {
+    return {
+      strategy: `strict_${normalizedOperator}`,
+      query: {
+        multi_match: {
+          query,
+          fields: ['full_text^4', 'case_name^3', 'citations^2', 'canonical_id^2', 'court_code'],
+          type: 'best_fields',
+          operator: normalizedOperator,
+        },
+      },
+      minimumShouldMatch: null,
+    };
+  }
+
+  const minimumShouldMatch = resolveRelaxedMinimumShouldMatch(query);
+
+  return {
+    strategy: 'relaxed_hybrid',
+    query: {
+      bool: {
+        should: [
+          {
+            multi_match: {
+              query,
+              fields: ['full_text^4', 'case_name^3', 'citations^2', 'canonical_id^2', 'court_code'],
+              type: 'best_fields',
+              operator: normalizedOperator,
+              boost: 4,
+            },
+          },
+          {
+            multi_match: {
+              query,
+              fields: ['full_text^5', 'case_name^4', 'citations^3', 'canonical_id^3', 'court_code^2'],
+              type: 'best_fields',
+              operator: 'or',
+              minimum_should_match: minimumShouldMatch,
+              boost: 2,
+            },
+          },
+          {
+            match_phrase: {
+              full_text: {
+                query,
+                slop: 3,
+                boost: 3,
+              },
+            },
+          },
+          {
+            match_phrase: {
+              case_name: {
+                query,
+                slop: 2,
+                boost: 4,
+              },
+            },
+          },
+        ],
+        minimum_should_match: 1,
+      },
+    },
+    minimumShouldMatch,
+  };
+}
+
+function buildScopedQuery(queryBody, sourceTypes = null) {
+  const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
+
+  if (!normalizedSourceTypes.length) {
+    return queryBody;
+  }
+
+  return {
+    bool: {
+      must: [queryBody],
+      filter: [
+        {
+          terms: {
+            source_type: normalizedSourceTypes,
+          },
+        },
+      ],
+    },
+  };
+}
+
 async function checkElasticsearchHealth() {
   if (!ELASTICSEARCH_URL) {
     throw new Error('Elasticsearch URL is not configured');
@@ -364,94 +512,83 @@ async function searchJudgmentDocuments({
   });
 
   try {
-    const normalizedSourceTypes = normalizeSourceTypes(sourceTypes);
-    const baseQuery = phraseMatch
-      ? {
-        bool: {
-          should: [
-            {
-              match_phrase: {
-                full_text: {
-                  query: normalizedQuery,
-                  slop: 2,
-                },
-              },
-            },
-            {
-              match_phrase: {
-                case_name: {
-                  query: normalizedQuery,
-                  slop: 1,
-                },
-              },
-            },
+    const executeSearch = async (queryPayload) => {
+      const response = await axios.post(
+        `${ELASTICSEARCH_URL}/${INDEX_NAME}/_search`,
+        {
+          size: limit,
+          _source: [
+            'judgment_uuid',
+            'canonical_id',
+            'case_name',
+            'court_code',
+            'year',
+            'judgment_date',
+            'source_url',
+            'source_type',
+            'status',
+            'citations',
           ],
-          minimum_should_match: 1,
-        },
-      }
-      : {
-        multi_match: {
-          query: normalizedQuery,
-          fields: ['full_text^4', 'case_name^3', 'citations^2', 'canonical_id^2', 'court_code'],
-          type: 'best_fields',
-          operator,
-        },
-      };
-    const queryBody = normalizedSourceTypes.length
-      ? {
-        bool: {
-          must: [baseQuery],
-          filter: [
-            {
-              terms: {
-                source_type: normalizedSourceTypes,
+          query: queryPayload,
+          highlight: {
+            pre_tags: ['<mark>'],
+            post_tags: ['</mark>'],
+            fields: {
+              full_text: {
+                fragment_size: 180,
+                number_of_fragments: 3,
               },
-            },
-          ],
-        },
-      }
-      : baseQuery;
-
-    const response = await axios.post(
-      `${ELASTICSEARCH_URL}/${INDEX_NAME}/_search`,
-      {
-        size: limit,
-        _source: [
-          'judgment_uuid',
-          'canonical_id',
-          'case_name',
-          'court_code',
-          'year',
-          'judgment_date',
-          'source_url',
-          'source_type',
-          'status',
-          'citations',
-        ],
-        query: queryBody,
-        highlight: {
-          pre_tags: ['<mark>'],
-          post_tags: ['</mark>'],
-          fields: {
-            full_text: {
-              fragment_size: 180,
-              number_of_fragments: 3,
-            },
-            case_name: {
-              number_of_fragments: 1,
+              case_name: {
+                number_of_fragments: 1,
+              },
             },
           },
         },
-      },
-      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
-    );
+        requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+      );
 
-    const hits = response.data?.hits?.hits || [];
+      return response.data?.hits?.hits || [];
+    };
+
+    const strictSearch = buildTextSearchQuery({
+      query: normalizedQuery,
+      phraseMatch,
+      operator,
+      relaxed: false,
+    });
+    let queryStrategy = strictSearch.strategy;
+    let relaxedMinimumShouldMatch = null;
+    let hits = await executeSearch(buildScopedQuery(strictSearch.query, sourceTypes));
+
+    if (!hits.length && !phraseMatch) {
+      const relaxedSearch = buildTextSearchQuery({
+        query: normalizedQuery,
+        phraseMatch,
+        operator,
+        relaxed: true,
+      });
+
+      relaxedMinimumShouldMatch = relaxedSearch.minimumShouldMatch;
+
+      logger.info('No strict Elasticsearch hits; retrying with relaxed full-text query', {
+        index: INDEX_NAME,
+        query: normalizedQuery,
+        limit,
+        operator,
+        sourceTypes: normalizeSourceTypes(sourceTypes),
+        relaxedMinimumShouldMatch,
+      });
+
+      hits = await executeSearch(buildScopedQuery(relaxedSearch.query, sourceTypes));
+      queryStrategy = hits.length ? relaxedSearch.strategy : `${strictSearch.strategy}_empty`;
+    }
 
     logger.info('Elasticsearch judgment search completed', {
       index: INDEX_NAME,
       query: normalizedQuery,
       limit,
+      queryStrategy,
+      relaxedMinimumShouldMatch,
       returnedHits: hits.length,
       durationMs: Date.now() - startedAt,
     });

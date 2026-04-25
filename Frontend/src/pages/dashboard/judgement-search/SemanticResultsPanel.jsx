@@ -90,6 +90,11 @@ const SemanticResultsPanel = ({
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sourceBucketClasses(item.judgment.sourceBucket)}`}>
                     {sourceBucketLabel(item.judgment.sourceBucket)}
                   </span>
+                  {item.matchType === 'full_text_fallback' ? (
+                    <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                      Full-text fallback
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-500">

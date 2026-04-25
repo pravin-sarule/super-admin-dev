@@ -27,7 +27,10 @@ function normalizePositiveInt(value, fallback, max = 50) {
 function normalizeScoreThreshold(value) {
   if (value == null || value === '') return null;
   const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
+  if (!Number.isFinite(parsed)) return null;
+  if (parsed <= 0) return null;
+  if (parsed > 1) return 1;
+  return parsed;
 }
 
 function normalizeQuery(query) {
@@ -54,30 +57,16 @@ function normalizeSourceScope(scope) {
 function resolveSearchScope(payload = {}) {
   const requestedSourceScope = normalizeSourceScope(payload.sourceScope);
   const fullTextSourceTypes = sourceScopeToSourceTypes(requestedSourceScope);
-  const semanticEnabled = requestedSourceScope !== 'user_generated';
-  const semanticEffectiveSourceScope =
-    requestedSourceScope === 'all' ? 'admin_uploaded' : requestedSourceScope;
-
-  let semanticScopeCoverage = requestedSourceScope;
-  let semanticScopeCoverageMessage = null;
-
-  if (requestedSourceScope === 'all') {
-    semanticScopeCoverage = 'admin_uploaded_only';
-    semanticScopeCoverageMessage =
-      'Semantic retrieval currently searches admin-uploaded judgments only because legal_embeddings_v2 does not store user-generated embeddings.';
-  } else if (requestedSourceScope === 'user_generated') {
-    semanticScopeCoverage = 'unavailable';
-    semanticScopeCoverageMessage =
-      'Semantic retrieval is unavailable for user-generated judgments because legal_embeddings_v2 only stores admin-upload embeddings.';
-  }
+  const semanticSourceTypes = sourceScopeToSourceTypes(requestedSourceScope);
 
   return {
     requestedSourceScope,
     fullTextSourceTypes,
-    semanticEnabled,
-    semanticEffectiveSourceScope,
-    semanticScopeCoverage,
-    semanticScopeCoverageMessage,
+    semanticSourceTypes,
+    semanticEnabled: true,
+    semanticEffectiveSourceScope: requestedSourceScope,
+    semanticScopeCoverage: requestedSourceScope,
+    semanticScopeCoverageMessage: null,
   };
 }
 
@@ -179,6 +168,13 @@ function buildQdrantFilter(filters = {}) {
         match: { value: year },
       });
     }
+  }
+
+  if (Array.isArray(filters.sourceTypes) && filters.sourceTypes.length) {
+    must.push({
+      key: 'source_type',
+      match: { any: filters.sourceTypes.map((value) => String(value).trim()).filter(Boolean) },
+    });
   }
 
   return must.length ? { must } : null;
@@ -329,9 +325,28 @@ async function semanticSearch(payload = {}) {
 
   const limit = normalizePositiveInt(payload.limit || payload.chunkLimit, 8, 50);
   const scoreThreshold = normalizeScoreThreshold(payload.scoreThreshold);
-  const filters = payload.filters || {};
   const scope = payload.__resolvedSearchScope || resolveSearchScope(payload);
+  const filters = {
+    ...(payload.filters || {}),
+    sourceTypes: scope.semanticSourceTypes || null,
+  };
   const timings = {};
+  const overallStartedAt = Date.now();
+
+  logger.flow('Semantic search starting', {
+    query,
+    queryLength: query.length,
+    chunkLimit: limit,
+    scoreThreshold,
+    requestedSourceScope: scope.requestedSourceScope,
+    semanticSourceTypes: scope.semanticSourceTypes || 'all',
+    additionalFilters: {
+      judgmentUuid: filters.judgmentUuid || null,
+      canonicalId: filters.canonicalId || null,
+      courtCode: filters.courtCode || null,
+      year: filters.year ?? null,
+    },
+  });
 
   if (!scope.semanticEnabled) {
     return {
@@ -357,17 +372,113 @@ async function semanticSearch(payload = {}) {
     };
   }
 
+  logger.step('Generating query embedding (RETRIEVAL_QUERY)', { query });
   const embeddingStartedAt = Date.now();
   const embeddingResponse = await generateEmbeddings([query], { taskType: 'RETRIEVAL_QUERY' });
   timings.embeddingMs = Date.now() - embeddingStartedAt;
-
-  const qdrantStartedAt = Date.now();
-  const points = await searchChunksByVector({
-    vector: embeddingResponse.vectors[0],
-    limit,
-    scoreThreshold,
-    filter: buildQdrantFilter(filters),
+  logger.info('Query embedding generated', {
+    embeddingDimension: Array.isArray(embeddingResponse?.vectors?.[0]) ? embeddingResponse.vectors[0].length : 0,
+    embeddingModel: embeddingResponse?.model || null,
+    durationMs: timings.embeddingMs,
   });
+
+  const ADMIN_TYPES = ['admin-upload'];
+  const USER_TYPES = ['ik_pipeline', 'indian_kanoon', 'google', 'google_grounding'];
+
+  const isAllScope = scope.requestedSourceScope === 'all';
+  const queryVector = embeddingResponse.vectors[0];
+  const qdrantStartedAt = Date.now();
+
+  let rawPoints;
+
+  if (isAllScope) {
+    // Balanced retrieval: search admin and user buckets independently so the
+    // smaller user-pipeline corpus always gets representation regardless of
+    // global score ordering. Merge + dedupe by point.id, then sort by score.
+    const adminFilter = buildQdrantFilter({ ...filters, sourceTypes: ADMIN_TYPES });
+    const userFilter = buildQdrantFilter({ ...filters, sourceTypes: USER_TYPES });
+
+    logger.step('Searching Qdrant — balanced retrieval (admin + user buckets)', {
+      collection: COLLECTION_NAME,
+      perBucketLimit: limit,
+      scoreThreshold,
+      adminFilterClauses: adminFilter?.must?.map((c) => ({ key: c.key, match: c.match })) || [],
+      userFilterClauses: userFilter?.must?.map((c) => ({ key: c.key, match: c.match })) || [],
+    });
+
+    const [adminPoints, userPoints] = await Promise.all([
+      searchChunksByVector({ vector: queryVector, limit, scoreThreshold, filter: adminFilter }),
+      searchChunksByVector({ vector: queryVector, limit, scoreThreshold, filter: userFilter }),
+    ]);
+
+    const merged = new Map();
+    for (const point of [...adminPoints, ...userPoints]) {
+      const id = String(point.id);
+      const existing = merged.get(id);
+      if (!existing || Number(existing.score || 0) < Number(point.score || 0)) {
+        merged.set(id, point);
+      }
+    }
+
+    rawPoints = Array.from(merged.values()).sort(
+      (a, b) => Number(b.score || 0) - Number(a.score || 0)
+    );
+
+    logger.info('Balanced Qdrant retrieval complete', {
+      adminBucketReturned: adminPoints.length,
+      userBucketReturned: userPoints.length,
+      mergedUnique: rawPoints.length,
+      bySourceType: rawPoints.reduce((acc, point) => {
+        const st = point?.payload?.source_type || 'unknown';
+        acc[st] = (acc[st] || 0) + 1;
+        return acc;
+      }, {}),
+    });
+  } else {
+    const qdrantFilter = buildQdrantFilter(filters);
+    logger.step('Searching Qdrant by vector (single-scope)', {
+      collection: COLLECTION_NAME,
+      limit,
+      scoreThreshold,
+      filterApplied: Boolean(qdrantFilter),
+      filterClauses: qdrantFilter?.must?.map((clause) => ({
+        key: clause.key,
+        match: clause.match,
+      })) || [],
+    });
+    rawPoints = await searchChunksByVector({
+      vector: queryVector,
+      limit,
+      scoreThreshold,
+      filter: qdrantFilter,
+    });
+  }
+
+  const points = scoreThreshold != null
+    ? rawPoints.filter((point) => Number(point?.score || 0) >= scoreThreshold)
+    : rawPoints;
+
+  if (scoreThreshold != null && rawPoints.length !== points.length) {
+    logger.warn('Qdrant returned points below score_threshold; filtered locally', {
+      query,
+      scoreThreshold,
+      qdrantReturned: rawPoints.length,
+      keptAfterFilter: points.length,
+      droppedScores: rawPoints
+        .filter((point) => Number(point?.score || 0) < scoreThreshold)
+        .map((point) => Number(point?.score || 0).toFixed(4)),
+    });
+  }
+
+  logger.info('Qdrant semantic search completed', {
+    query,
+    requestedLimit: limit,
+    requestedScoreThreshold: scoreThreshold,
+    qdrantReturned: rawPoints.length,
+    afterThresholdFilter: points.length,
+    durationMs: Date.now() - qdrantStartedAt,
+  });
+
   const appliedScoreThreshold = scoreThreshold;
   const thresholdFallbackTriggered = false;
   timings.qdrantMs = Date.now() - qdrantStartedAt;
@@ -396,7 +507,6 @@ async function semanticSearch(payload = {}) {
   const fallbackJudgmentRows = fallbackJudgmentUuids.length
     ? await repository.getJudgmentMetadataByJudgmentUuids(fallbackJudgmentUuids)
     : [];
-  timings.dbMs = Date.now() - dbStartedAt;
 
   const fallbackByJudgmentUuid = new Map();
   fallbackJudgmentRows.forEach((row) => {
@@ -406,9 +516,82 @@ async function semanticSearch(payload = {}) {
     }
   });
 
+  // Tier 3: ik_pipeline (and similar) Qdrant points carry a different judgment_uuid
+  // than what Postgres uses, but the canonical_id is consistent across both stores.
+  // Look up by canonical_id for any point still missing metadata.
+  const canonicalIdsNeedingLookup = Array.from(
+    new Set(
+      points
+        .filter((point) => {
+          if (metadataByPointId.has(String(point.id))) return false;
+          const judgmentUuid = String(point.payload?.judgment_uuid || '').trim();
+          return !judgmentUuid || !fallbackByJudgmentUuid.has(judgmentUuid);
+        })
+        .map((point) => String(point.payload?.canonical_id || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  const fallbackByCanonicalId = new Map();
+  if (canonicalIdsNeedingLookup.length) {
+    const canonicalRows = await repository.getJudgmentMetadataByCanonicalIds(canonicalIdsNeedingLookup);
+    canonicalRows.forEach((row) => {
+      const key = String(row.canonical_id || '');
+      if (key && !fallbackByCanonicalId.has(key)) {
+        fallbackByCanonicalId.set(key, row);
+      }
+    });
+  }
+  timings.dbMs = Date.now() - dbStartedAt;
+
+  const canonicalFallbackRowsAll = Array.from(fallbackByCanonicalId.values());
+
+  const resolutionTrace = points.map((point) => {
+    const pointId = String(point.id);
+    const pointJudgmentUuid = String(point.payload?.judgment_uuid || '').trim();
+    const pointCanonicalId = String(point.payload?.canonical_id || '').trim();
+    const tier1 = metadataByPointId.has(pointId);
+    const tier2 = !tier1 && pointJudgmentUuid && fallbackByJudgmentUuid.has(pointJudgmentUuid);
+    const tier3 = !tier1 && !tier2 && pointCanonicalId && fallbackByCanonicalId.has(pointCanonicalId);
+    let resolvedVia = 'UNRESOLVED';
+    if (tier1) resolvedVia = 'tier1_pg_judgment_chunks_by_qdrant_point_id';
+    else if (tier2) resolvedVia = 'tier2_pg_judgments_by_judgment_uuid';
+    else if (tier3) resolvedVia = 'tier3_pg_judgments_by_canonical_id';
+    return {
+      pointId,
+      score: roundTo(Number(point.score || 0), 4),
+      sourceType: point.payload?.source_type || null,
+      qdrantJudgmentUuid: pointJudgmentUuid || null,
+      qdrantCanonicalId: pointCanonicalId || null,
+      resolvedVia,
+    };
+  });
+
+  const resolutionCounts = resolutionTrace.reduce(
+    (acc, entry) => {
+      acc[entry.resolvedVia] = (acc[entry.resolvedVia] || 0) + 1;
+      return acc;
+    },
+    {}
+  );
+
+  logger.info('Semantic point → PG metadata resolution map', {
+    keyExplainer: {
+      tier1: 'point.id matches judgment_chunks.qdrant_point_id (admin-upload path — UUIDs aligned)',
+      tier2: 'point.payload.judgment_uuid matches judgments.judgment_uuid (works when ingestion shared UUIDs)',
+      tier3: 'point.payload.canonical_id matches judgments.canonical_id (ik_pipeline path — UUIDs differ between Qdrant and PG, canonical_id is the only shared key)',
+    },
+    perPoint: resolutionTrace,
+    summary: resolutionCounts,
+    qdrantHitsTotal: points.length,
+    pgChunkRowsMatched: metadataRows.length,
+    pgJudgmentsMatchedByUuid: fallbackJudgmentRows.length,
+    pgJudgmentsMatchedByCanonicalId: canonicalFallbackRowsAll.length,
+  });
+
   const signedUrlStartedAt = Date.now();
   const signedUrlMap = await buildSignedUrlMap(
-    [...metadataRows, ...fallbackJudgmentRows],
+    [...metadataRows, ...fallbackJudgmentRows, ...canonicalFallbackRowsAll],
     payload.signedUrlExpiryMinutes
   );
   timings.signedUrlMs = Date.now() - signedUrlStartedAt;
@@ -416,7 +599,9 @@ async function semanticSearch(payload = {}) {
   const results = points.map((point) => {
     const pointId = String(point.id);
     const chunkMetadata = metadataByPointId.get(pointId) || null;
-    const fallbackMetadata = fallbackByJudgmentUuid.get(String(point.payload?.judgment_uuid || '')) || null;
+    const judgmentUuidFallback = fallbackByJudgmentUuid.get(String(point.payload?.judgment_uuid || '')) || null;
+    const canonicalIdFallback = fallbackByCanonicalId.get(String(point.payload?.canonical_id || '')) || null;
+    const fallbackMetadata = judgmentUuidFallback || canonicalIdFallback;
     const resolvedMetadata = chunkMetadata || fallbackMetadata
       ? {
         ...(fallbackMetadata || {}),
@@ -439,6 +624,28 @@ async function semanticSearch(payload = {}) {
       unavailableReason = 'No semantic chunks matched this query.';
     }
   }
+
+  const totalDurationMs = Date.now() - overallStartedAt;
+  logger.info('Semantic search complete', {
+    query,
+    requestedSourceScope: scope.requestedSourceScope,
+    semanticSourceTypes: scope.semanticSourceTypes || 'all',
+    scoreThreshold,
+    results: {
+      qdrantReturned: rawPoints.length,
+      afterThresholdFilter: points.length,
+      finalReturnedToCaller: results.length,
+      unresolvedMetadataPoints: resolutionTrace.filter((entry) => entry.resolvedVia === 'UNRESOLVED').length,
+    },
+    timings: {
+      embeddingMs: timings.embeddingMs,
+      qdrantMs: timings.qdrantMs,
+      dbMs: timings.dbMs,
+      signedUrlMs: timings.signedUrlMs,
+      totalMs: totalDurationMs,
+    },
+    unavailableReason: unavailableReason || null,
+  });
 
   return {
     query,
@@ -540,12 +747,156 @@ async function fullTextSearch(payload = {}) {
   };
 }
 
+function stripHighlightTags(text) {
+  return String(text || '')
+    .replace(/<\/?mark>/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function hydrateSemanticWithFullText({
+  query,
+  semantic,
+  fullText,
+}) {
+  if (!semantic || !fullText) return semantic;
+
+  const presentKeys = new Set();
+  (semantic.results || []).forEach((result) => {
+    const uuid = String(result?.judgment?.judgmentUuid || '').trim();
+    const canon = String(result?.judgment?.canonicalId || '').trim();
+    if (uuid) presentKeys.add(`uuid:${uuid}`);
+    if (canon) presentKeys.add(`canon:${canon}`);
+  });
+
+  const missingJudgments = (fullText.results || [])
+    .filter((result) => {
+      const uuid = String(result?.judgment?.judgmentUuid || '').trim();
+      const canon = String(result?.judgment?.canonicalId || '').trim();
+      // Need at least one identifier to dedupe + lookup against
+      if (!uuid && !canon) return false;
+      if (uuid && presentKeys.has(`uuid:${uuid}`)) return false;
+      if (canon && presentKeys.has(`canon:${canon}`)) return false;
+      return true;
+    })
+    .slice(0, 5);
+
+  logger.flow('Hydration step — full-text → semantic merge', {
+    semanticResults: semantic.results?.length || 0,
+    fullTextResults: fullText.results?.length || 0,
+    missingJudgmentsToHydrate: missingJudgments.length,
+    missingJudgmentDetails: missingJudgments.map((r) => ({
+      caseName: (r.judgment?.caseName || '').slice(0, 50),
+      canonicalId: r.judgment?.canonicalId,
+      judgmentUuid: r.judgment?.judgmentUuid || null,
+      sourceType: r.judgment?.sourceType,
+    })),
+  });
+
+  if (!missingJudgments.length) {
+    return semantic;
+  }
+
+  const queryEmbeddingResponse = await generateEmbeddings([query], { taskType: 'RETRIEVAL_QUERY' });
+  const queryVector = queryEmbeddingResponse.vectors?.[0];
+
+  const hydrated = await Promise.all(
+    missingJudgments.map(async (ftResult) => {
+      const judgmentUuid = ftResult.judgment.judgmentUuid || null;
+      const canonicalId = ftResult.judgment.canonicalId || null;
+      const highlightSnippet = stripHighlightTags(
+        (ftResult.highlights?.fullText || [])[0] || ftResult.judgment.caseName || ''
+      );
+
+      let bestPoint = null;
+
+      if (queryVector && (judgmentUuid || canonicalId)) {
+        try {
+          // Prefer canonical_id since ik_pipeline-style ingest writes a
+          // different judgment_uuid into Qdrant than what PG/ES carry.
+          const lookupFilters = canonicalId
+            ? { canonicalId }
+            : { judgmentUuid };
+          const judgmentPoints = await searchChunksByVector({
+            vector: queryVector,
+            limit: 1,
+            scoreThreshold: null,
+            filter: buildQdrantFilter(lookupFilters),
+          });
+          bestPoint = judgmentPoints?.[0] || null;
+          logger.info('Per-judgment Qdrant lookup', {
+            canonicalId,
+            judgmentUuid,
+            lookupKey: canonicalId ? 'canonical_id' : 'judgment_uuid',
+            qdrantHit: Boolean(bestPoint),
+            score: bestPoint ? Number(bestPoint.score).toFixed(4) : null,
+          });
+        } catch (error) {
+          logger.warn('Per-judgment Qdrant lookup failed; using ES highlight as chunk', {
+            canonicalId,
+            judgmentUuid,
+            reason: error.message,
+          });
+        }
+      }
+
+      const rawScore = bestPoint ? Number(bestPoint.score || 0) : 0;
+      const fallbackKey = canonicalId || judgmentUuid || 'unknown';
+
+      return {
+        score: rawScore,
+        rawScore: roundTo(rawScore, 3),
+        relevanceScore: bestPoint
+          ? normalizeSemanticRelevance(rawScore)
+          : Math.round(Number(ftResult.relevanceScore || 0)),
+        relevance: bestPoint
+          ? { model: 'vector_similarity', rawScore: roundTo(rawScore, 3) }
+          : { model: 'full_text_fallback', rawScore: roundTo(Number(ftResult.rawScore || 0), 3) },
+        pointId: bestPoint ? String(bestPoint.id) : `ft-${fallbackKey}`,
+        chunk: {
+          chunkId: bestPoint ? String(bestPoint.id) : null,
+          chunkIndex: bestPoint?.payload?.chunk_index ?? null,
+          charStart: null,
+          charEnd: null,
+          chunkText: bestPoint?.payload?.chunk_text || highlightSnippet || null,
+          embeddingModel: bestPoint ? 'gemini' : null,
+          embeddingStatus: bestPoint ? 'indexed' : 'unavailable',
+        },
+        judgment: ftResult.judgment,
+        document: ftResult.document,
+        qdrantPayload: bestPoint?.payload || {},
+        matchType: bestPoint ? 'vector_per_judgment' : 'full_text_fallback',
+        sourceFallback: bestPoint ? null : 'elasticsearch_highlight',
+      };
+    })
+  );
+
+  const merged = [...(semantic.results || []), ...hydrated];
+
+  logger.info('Hydration complete', {
+    originalSemanticCount: semantic.results?.length || 0,
+    hydratedAdded: hydrated.length,
+    finalCount: merged.length,
+    hydratedBreakdown: hydrated.reduce((acc, item) => {
+      acc[item.matchType] = (acc[item.matchType] || 0) + 1;
+      return acc;
+    }, {}),
+  });
+
+  return {
+    ...semantic,
+    results: merged,
+    totalResults: merged.length,
+    hydratedFromFullText: hydrated.length,
+  };
+}
+
 async function hybridSearch(payload = {}) {
   const semanticLimit = normalizePositiveInt(payload.semanticLimit || payload.chunkLimit || payload.limit, 8, 50);
   const fullTextLimit = normalizePositiveInt(payload.fullTextLimit || payload.judgmentLimit || payload.limit, 10, 50);
   const scope = resolveSearchScope(payload);
 
-  const [semantic, fullText] = await Promise.all([
+  const [semanticInitial, fullText] = await Promise.all([
     semanticSearch({
       ...payload,
       __resolvedSearchScope: scope,
@@ -557,6 +908,12 @@ async function hybridSearch(payload = {}) {
       limit: fullTextLimit,
     }),
   ]);
+
+  const semantic = await hydrateSemanticWithFullText({
+    query: semanticInitial.query,
+    semantic: semanticInitial,
+    fullText,
+  });
 
   return {
     query: semantic.query,

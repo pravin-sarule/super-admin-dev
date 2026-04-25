@@ -14,6 +14,23 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('PipelineReport');
 
+const QDRANT_COUNT_CACHE_TTL_MS = 10000;
+const qdrantCountCache = new Map();
+
+function getCachedQdrantCounts(cacheKey) {
+  const entry = qdrantCountCache.get(cacheKey);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > QDRANT_COUNT_CACHE_TTL_MS) {
+    qdrantCountCache.delete(cacheKey);
+    return null;
+  }
+  return entry.value;
+}
+
+function setCachedQdrantCounts(cacheKey, value) {
+  qdrantCountCache.set(cacheKey, { value, cachedAt: Date.now() });
+}
+
 function getSourceDescriptor(sourceType) {
   if (sourceType === 'ik_pipeline') {
     return {
@@ -116,17 +133,10 @@ async function getPipelineReportSummary({ sourceType } = {}) {
     dataFlow: descriptor.steps.map((step) => step.title),
   });
 
-  const postgresSummary = await pipelineReportRepository.getPipelineReportSummary({
-    sourceType: normalizedSourceType,
-  });
-
-  logger.step('PostgreSQL pipeline summary loaded', {
-    sourceType: normalizedSourceType,
-    totalJudgments: postgresSummary.totalJudgments,
-    latestInsertedAt: postgresSummary.latestInsertedAt,
-  });
-
-  const [esCountResult, qdrantCountResult] = await Promise.allSettled([
+  const [postgresSummaryResult, esCountResult, qdrantCountResult] = await Promise.allSettled([
+    pipelineReportRepository.getPipelineReportSummary({
+      sourceType: normalizedSourceType,
+    }),
     countJudgmentDocuments({
       sourceTypes: buildSourceTypeArray(normalizedSourceType),
     }),
@@ -134,6 +144,27 @@ async function getPipelineReportSummary({ sourceType } = {}) {
       filter: buildQdrantFilter({ sourceType: normalizedSourceType }),
     }),
   ]);
+
+  const postgresSummary = postgresSummaryResult.status === 'fulfilled'
+    ? postgresSummaryResult.value
+    : {
+      sourceType: normalizedSourceType,
+      totalJudgments: 0,
+      judgmentsWithDate: 0,
+      judgmentsWithYear: 0,
+      esLinkedJudgments: 0,
+      uploadedStatusCount: 0,
+      distinctCourts: 0,
+      firstInsertedAt: null,
+      latestInsertedAt: null,
+    };
+
+  logger.step('PostgreSQL pipeline summary loaded', {
+    sourceType: normalizedSourceType,
+    totalJudgments: postgresSummary.totalJudgments,
+    latestInsertedAt: postgresSummary.latestInsertedAt,
+    pgFulfilled: postgresSummaryResult.status === 'fulfilled',
+  });
 
   const warnings = [];
   const elasticsearch = resolveSettledCount(esCountResult, 'elasticsearch', warnings);
@@ -216,16 +247,26 @@ async function listPipelineJudgments({
 
   let qdrantCountsMap = new Map();
   if (canonicalIds.length) {
-    try {
-      qdrantCountsMap = await countPointsByCanonicalIds({
-        sourceType: normalizedSourceType !== pipelineReportRepository.ALL_SOURCE_TYPES
-          ? normalizedSourceType
-          : null,
-        canonicalIds,
-      });
-    } catch (error) {
-      warnings.push(createWarning('qdrant', error));
-      qdrantCountsMap = new Map();
+    const effectiveSourceType =
+      normalizedSourceType !== pipelineReportRepository.ALL_SOURCE_TYPES
+        ? normalizedSourceType
+        : null;
+    const cacheKey = `${effectiveSourceType || 'all'}|${canonicalIds.slice().sort().join(',')}`;
+    const cached = getCachedQdrantCounts(cacheKey);
+
+    if (cached) {
+      qdrantCountsMap = cached;
+    } else {
+      try {
+        qdrantCountsMap = await countPointsByCanonicalIds({
+          sourceType: effectiveSourceType,
+          canonicalIds,
+        });
+        setCachedQdrantCounts(cacheKey, qdrantCountsMap);
+      } catch (error) {
+        warnings.push(createWarning('qdrant', error));
+        qdrantCountsMap = new Map();
+      }
     }
   }
 

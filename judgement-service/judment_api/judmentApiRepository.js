@@ -197,9 +197,60 @@ async function getJudgmentMetadataByJudgmentUuids(judgmentUuids = []) {
   return result.rows;
 }
 
+async function getJudgmentMetadataByCanonicalIds(canonicalIds = []) {
+  const ids = Array.from(
+    new Set(
+      canonicalIds
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+
+  if (!ids.length) {
+    return [];
+  }
+
+  const result = await pool.query(
+    `
+      SELECT
+        j.judgment_uuid,
+        j.canonical_id,
+        j.case_name,
+        j.court_code,
+        j.year,
+        j.judgment_date,
+        j.source_type,
+        j.verification_status,
+        j.confidence_score,
+        j.citation_data,
+        j.ocr_info,
+        j.status AS judgment_status,
+        ju.document_id,
+        ju.original_filename,
+        ju.source_url,
+        ju.storage_bucket,
+        ju.storage_path,
+        ju.storage_uri,
+        ju.status AS upload_status,
+        ju.metadata AS upload_metadata,
+        ju.pipeline_metrics,
+        ju.created_at AS upload_created_at,
+        ju.updated_at AS upload_updated_at
+      FROM judgments j
+      LEFT JOIN judgment_uploads ju ON ju.judgment_uuid = j.judgment_uuid
+      WHERE j.canonical_id = ANY($1::text[])
+      ORDER BY ju.updated_at DESC NULLS LAST, ju.created_at DESC NULLS LAST
+    `,
+    [ids]
+  );
+
+  return result.rows;
+}
+
 module.exports = {
   insertAnalyticsRecord,
   listAnalytics,
   getChunkMetadataByPointIds,
   getJudgmentMetadataByJudgmentUuids,
+  getJudgmentMetadataByCanonicalIds,
 };

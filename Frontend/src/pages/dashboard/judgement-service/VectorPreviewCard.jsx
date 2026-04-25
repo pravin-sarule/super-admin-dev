@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { LoaderCircle, ScanSearch, X } from 'lucide-react';
 import judgementAdminApi from '../../../services/judgementAdminApi';
 
@@ -26,6 +27,25 @@ const VectorPreviewCard = ({ chunks = [], documentId, qdrantCollection, fetchVec
     setSelectedVector(null);
     setPreviewError('');
   }, [documentId, chunks]);
+
+  useEffect(() => {
+    if (!selectedVector || typeof document === 'undefined') return undefined;
+
+    const handleKey = (event) => {
+      if (event.key === 'Escape') {
+        setSelectedVector(null);
+      }
+    };
+
+    document.addEventListener('keydown', handleKey);
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [selectedVector]);
 
   const openVectorPreview = async (chunk) => {
     const pointId = chunk.qdrant_point_id || chunk.chunk_id;
@@ -160,71 +180,83 @@ const VectorPreviewCard = ({ chunks = [], documentId, qdrantCollection, fetchVec
         </div>
       </div>
 
-      {selectedVector ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 md:p-6">
-          <div className="flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
-            <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
-              <div>
-                <h3 className="text-xl font-semibold text-slate-900">
-                  Vector Embedding Preview
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Chunk #{selectedVector.chunkIndex} • Dimension {selectedVector.dimension}
-                </p>
-                <p className="mt-1 break-all text-xs text-slate-500">{selectedVector.pointId}</p>
+      {selectedVector && typeof document !== 'undefined'
+        ? createPortal(
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="fixed inset-0 z-[1000] flex items-center justify-center bg-slate-950/60 p-4 md:p-6"
+            onClick={() => setSelectedVector(null)}
+          >
+            <div
+              className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+                <div className="min-w-0">
+                  <h3 className="text-xl font-semibold text-slate-900">
+                    Vector Embedding Preview
+                  </h3>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Chunk #{selectedVector.chunkIndex} • Dimension {selectedVector.dimension}
+                  </p>
+                  <p className="mt-1 break-all text-xs text-slate-500">{selectedVector.pointId}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedVector(null)}
+                  className="flex-none rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
+                  aria-label="Close vector preview"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedVector(null)}
-                className="rounded-2xl border border-slate-200 bg-white p-2 text-slate-600 transition hover:bg-slate-50"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
 
-            <div className="grid flex-none gap-4 border-b border-slate-200 px-6 py-4 md:grid-cols-3">
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
-                <div className="mt-2 text-sm font-semibold text-slate-900">
-                  {selectedVector.embeddingStatus || 'indexed'}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model</div>
-                <div className="mt-2 break-all text-sm font-semibold text-slate-900">
-                  {selectedVector.embeddingModel || 'Pending'}
-                </div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Collection</div>
-                <div className="mt-2 break-all text-sm font-semibold text-slate-900">
-                  {qdrantCollection || 'Pending'}
-                </div>
-              </div>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="rounded-2xl bg-slate-950 p-6 text-xs font-mono leading-relaxed text-emerald-400 shadow-inner">
-                <div className="grid grid-cols-4 gap-x-6 gap-y-2 sm:grid-cols-6 md:grid-cols-8">
-                  {(selectedVector.vector || []).map((value, index) => (
-                    <div key={`${selectedVector.pointId}-${index}`} className="flex justify-between gap-1">
-                      <span className="text-emerald-900/60">{index}</span>
-                      <span className="font-medium text-emerald-400">
-                        {typeof value === 'number' ? value.toFixed(6) : value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                {(!selectedVector.vector || selectedVector.vector.length === 0) && (
-                  <div className="text-center text-slate-500 py-10">
-                    No vector data available for this chunk.
+              <div className="grid flex-none gap-4 border-b border-slate-200 px-6 py-4 md:grid-cols-3">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Status</div>
+                  <div className="mt-2 text-sm font-semibold text-slate-900">
+                    {selectedVector.embeddingStatus || 'indexed'}
                   </div>
-                )}
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model</div>
+                  <div className="mt-2 break-all text-sm font-semibold text-slate-900">
+                    {selectedVector.embeddingModel || 'Pending'}
+                  </div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Collection</div>
+                  <div className="mt-2 break-all text-sm font-semibold text-slate-900">
+                    {qdrantCollection || 'Pending'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+                <div className="rounded-2xl bg-slate-950 p-6 text-xs font-mono leading-relaxed text-emerald-400 shadow-inner">
+                  <div className="grid grid-cols-4 gap-x-6 gap-y-2 sm:grid-cols-6 md:grid-cols-8">
+                    {(selectedVector.vector || []).map((value, index) => (
+                      <div key={`${selectedVector.pointId}-${index}`} className="flex justify-between gap-1">
+                        <span className="text-emerald-900/60">{index}</span>
+                        <span className="font-medium text-emerald-400">
+                          {typeof value === 'number' ? value.toFixed(6) : value}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  {(!selectedVector.vector || selectedVector.vector.length === 0) && (
+                    <div className="py-10 text-center text-slate-500">
+                      No vector data available for this chunk.
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      ) : null}
+          </div>,
+          document.body
+        )
+        : null}
     </>
   );
 };
