@@ -93,6 +93,74 @@ function normalizeSemanticRelevance(rawScore) {
   return Math.round(normalized * 100);
 }
 
+function sortPointsByScore(points = []) {
+  return [...points].sort((left, right) => Number(right?.score || 0) - Number(left?.score || 0));
+}
+
+function dedupePointsByBestScore(points = []) {
+  const unique = new Map();
+
+  points.forEach((point) => {
+    const pointId = String(point?.id || '').trim();
+    if (!pointId) return;
+
+    const existing = unique.get(pointId);
+    if (!existing || Number(existing.score || 0) < Number(point.score || 0)) {
+      unique.set(pointId, point);
+    }
+  });
+
+  return sortPointsByScore(Array.from(unique.values()));
+}
+
+function selectBalancedAllScopePoints({
+  adminPoints = [],
+  userPoints = [],
+  limit = 0,
+} = {}) {
+  const cappedLimit = Math.max(0, Number(limit || 0));
+  if (!cappedLimit) return [];
+
+  const adminQueue = dedupePointsByBestScore(adminPoints);
+  const userQueue = dedupePointsByBestScore(userPoints);
+
+  if (!adminQueue.length || !userQueue.length || cappedLimit === 1) {
+    return dedupePointsByBestScore([...adminQueue, ...userQueue]).slice(0, cappedLimit);
+  }
+
+  const selected = [];
+  const selectedIds = new Set();
+
+  const takeNext = (queue) => {
+    while (queue.length) {
+      const candidate = queue.shift();
+      const candidateId = String(candidate?.id || '').trim();
+      if (!candidateId || selectedIds.has(candidateId)) continue;
+      selectedIds.add(candidateId);
+      selected.push(candidate);
+      return candidate;
+    }
+    return null;
+  };
+
+  // Reserve one slot for each bucket so "All sources" keeps mixed coverage.
+  takeNext(adminQueue);
+  if (selected.length < cappedLimit) {
+    takeNext(userQueue);
+  }
+
+  const leftovers = dedupePointsByBestScore([...adminQueue, ...userQueue]);
+  for (const point of leftovers) {
+    const pointId = String(point?.id || '').trim();
+    if (!pointId || selectedIds.has(pointId)) continue;
+    selectedIds.add(pointId);
+    selected.push(point);
+    if (selected.length >= cappedLimit) break;
+  }
+
+  return sortPointsByScore(selected).slice(0, cappedLimit);
+}
+
 function buildFullTextRelevance(hit, query, maxRawScore = 0) {
   const rawScore = Number(hit?._score || 0);
   const source = hit?._source || {};
@@ -390,6 +458,7 @@ async function semanticSearch(payload = {}) {
   const qdrantStartedAt = Date.now();
 
   let rawPoints;
+  let balancedBuckets = null;
 
   if (isAllScope) {
     // Balanced retrieval: search admin and user buckets independently so the
@@ -423,6 +492,10 @@ async function semanticSearch(payload = {}) {
     rawPoints = Array.from(merged.values()).sort(
       (a, b) => Number(b.score || 0) - Number(a.score || 0)
     );
+    balancedBuckets = {
+      adminPoints,
+      userPoints,
+    };
 
     logger.info('Balanced Qdrant retrieval complete', {
       adminBucketReturned: adminPoints.length,
@@ -454,19 +527,46 @@ async function semanticSearch(payload = {}) {
     });
   }
 
-  const points = scoreThreshold != null
+  const thresholdFilteredPoints = scoreThreshold != null
     ? rawPoints.filter((point) => Number(point?.score || 0) >= scoreThreshold)
     : rawPoints;
 
-  if (scoreThreshold != null && rawPoints.length !== points.length) {
+  let points = thresholdFilteredPoints.slice(0, limit);
+
+  if (isAllScope && balancedBuckets) {
+    const adminThresholdFiltered = scoreThreshold != null
+      ? balancedBuckets.adminPoints.filter((point) => Number(point?.score || 0) >= scoreThreshold)
+      : balancedBuckets.adminPoints;
+    const userThresholdFiltered = scoreThreshold != null
+      ? balancedBuckets.userPoints.filter((point) => Number(point?.score || 0) >= scoreThreshold)
+      : balancedBuckets.userPoints;
+
+    points = selectBalancedAllScopePoints({
+      adminPoints: adminThresholdFiltered,
+      userPoints: userThresholdFiltered,
+      limit,
+    });
+  }
+
+  if (scoreThreshold != null && rawPoints.length !== thresholdFilteredPoints.length) {
     logger.warn('Qdrant returned points below score_threshold; filtered locally', {
       query,
       scoreThreshold,
       qdrantReturned: rawPoints.length,
-      keptAfterFilter: points.length,
+      keptAfterFilter: thresholdFilteredPoints.length,
       droppedScores: rawPoints
         .filter((point) => Number(point?.score || 0) < scoreThreshold)
         .map((point) => Number(point?.score || 0).toFixed(4)),
+    });
+  }
+
+  if (thresholdFilteredPoints.length > limit) {
+    logger.info('Semantic results capped to requested limit', {
+      query,
+      requestedLimit: limit,
+      resultsAfterThreshold: thresholdFilteredPoints.length,
+      returnedResults: points.length,
+      requestedSourceScope: scope.requestedSourceScope,
     });
   }
 
@@ -475,7 +575,13 @@ async function semanticSearch(payload = {}) {
     requestedLimit: limit,
     requestedScoreThreshold: scoreThreshold,
     qdrantReturned: rawPoints.length,
-    afterThresholdFilter: points.length,
+    afterThresholdFilter: thresholdFilteredPoints.length,
+    afterLimitCap: points.length,
+    returnedBySourceType: points.reduce((acc, point) => {
+      const sourceType = point?.payload?.source_type || 'unknown';
+      acc[sourceType] = (acc[sourceType] || 0) + 1;
+      return acc;
+    }, {}),
     durationMs: Date.now() - qdrantStartedAt,
   });
 
@@ -761,6 +867,9 @@ async function hydrateSemanticWithFullText({
 }) {
   if (!semantic || !fullText) return semantic;
 
+  const semanticLimit = normalizePositiveInt(semantic.limit, semantic.results?.length || 0, 50);
+  const remainingSlots = Math.max(0, semanticLimit - (semantic.results?.length || 0));
+
   const presentKeys = new Set();
   (semantic.results || []).forEach((result) => {
     const uuid = String(result?.judgment?.judgmentUuid || '').trim();
@@ -779,11 +888,13 @@ async function hydrateSemanticWithFullText({
       if (canon && presentKeys.has(`canon:${canon}`)) return false;
       return true;
     })
-    .slice(0, 5);
+    .slice(0, remainingSlots);
 
   logger.flow('Hydration step — full-text → semantic merge', {
+    semanticLimit,
     semanticResults: semantic.results?.length || 0,
     fullTextResults: fullText.results?.length || 0,
+    remainingSlots,
     missingJudgmentsToHydrate: missingJudgments.length,
     missingJudgmentDetails: missingJudgments.map((r) => ({
       caseName: (r.judgment?.caseName || '').slice(0, 50),
@@ -793,7 +904,7 @@ async function hydrateSemanticWithFullText({
     })),
   });
 
-  if (!missingJudgments.length) {
+  if (!remainingSlots || !missingJudgments.length) {
     return semantic;
   }
 
@@ -871,7 +982,7 @@ async function hydrateSemanticWithFullText({
     })
   );
 
-  const merged = [...(semantic.results || []), ...hydrated];
+  const merged = [...(semantic.results || []), ...hydrated].slice(0, semanticLimit);
 
   logger.info('Hydration complete', {
     originalSemanticCount: semantic.results?.length || 0,
