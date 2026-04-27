@@ -45,6 +45,9 @@ const citationAdminRoutes = require('./routes/citation_routes');
 const userAdminRoutes = require('./routes/user_routes/users.routes');
 const llmChatConfigRoutes = require('./routes/llmChatConfigRoutes');
 const summarizationChatConfigRoutes = require('./routes/summarizationChatConfigRoutes');
+const aiDocumentRoutes = require('./routes/aiDocumentRoutes');
+const chatbotConfigRoutes = require('./routes/chatbotConfigRoutes');
+const aiDocumentPool = require('./config/aiDocumentDB');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
@@ -163,6 +166,12 @@ app.use('/api/admin/llm-config', llmChatConfigRoutes(pool));
 
 console.log('📌 /api/admin/summarization-chat-config → Using docDB (docPool) for config, Main DB (pool) for auth');
 app.use('/api/admin/summarization-chat-config', summarizationChatConfigRoutes(pool));
+
+console.log('📌 /api/admin → AI Document Processing (GCS + Document AI + Gemini Embeddings)');
+app.use('/api/admin', aiDocumentRoutes(pool));
+
+console.log('📌 /api/admin/chatbot-config → Chatbot model & voice configuration');
+app.use('/api/admin/chatbot-config', chatbotConfigRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 
@@ -599,6 +608,168 @@ const initializeSummarizationChatConfigTable = async () => {
   }
 };
 
+// --- Initialize AI Document Processing tables (exact user schema) ---
+const initializeAIDocumentTables = async () => {
+  try {
+    await aiDocumentPool.query(`CREATE EXTENSION IF NOT EXISTS vector;`);
+    await aiDocumentPool.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp";`);
+
+    // ── documents ────────────────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        file_name            TEXT NOT NULL DEFAULT '',
+        original_extension   VARCHAR(10),
+        gcs_input_path       TEXT NOT NULL DEFAULT '',
+        gcs_ocr_path         TEXT,
+        processing_status    VARCHAR(20) DEFAULT 'uploaded'
+          CHECK (processing_status IN ('uploaded','ocr_processing','ocr_completed','embedding_processing','active','failed')),
+        document_type        VARCHAR(50),
+        checksum             TEXT,
+        total_pages          INT,
+        created_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Migration guards — run safely against any pre-existing documents table
+    const docAlters = [
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS file_name           TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS original_extension  VARCHAR(10)`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS gcs_input_path      TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS gcs_ocr_path        TEXT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS processing_status   VARCHAR(20) DEFAULT 'uploaded'`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS document_type       VARCHAR(50)`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS checksum            TEXT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS total_pages         INT`,
+      // Extra operational columns not in the base schema but needed by pipeline
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS total_chunks        INT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS operation_id        TEXT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS error_message       TEXT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS created_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS updated_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`,
+    ];
+    for (const sql of docAlters) await aiDocumentPool.query(sql).catch(() => {});
+
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_doc_status ON documents(processing_status);`);
+    await aiDocumentPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_doc_gcs_input ON documents(gcs_input_path) WHERE gcs_input_path <> '';`);
+
+    // ── document_chunks ──────────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS document_chunks (
+        id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+        content     TEXT NOT NULL DEFAULT '',
+        chunk_index INT  NOT NULL DEFAULT 0,
+        page_number INT,
+        token_count INT,
+        created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    const chunkAlters = [
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS document_id UUID`,
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS content     TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS chunk_index INT  NOT NULL DEFAULT 0`,
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS page_number INT`,
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS token_count INT`,
+      `ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS created_at  TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP`,
+    ];
+    for (const sql of chunkAlters) await aiDocumentPool.query(sql).catch(() => {});
+
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_chunks_document_id ON document_chunks(document_id);`);
+
+    // ── chunk_embeddings (768-dim) ───────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS chunk_embeddings (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        chunk_id   UUID NOT NULL REFERENCES document_chunks(id) ON DELETE CASCADE,
+        embedding  vector(768),
+        task_type  VARCHAR(50) DEFAULT 'RETRIEVAL_DOCUMENT',
+        model_name VARCHAR(50) DEFAULT 'gemini-embedding-2'
+      );
+    `);
+
+    const embAlters = [
+      `ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS task_type  VARCHAR(50) DEFAULT 'RETRIEVAL_DOCUMENT'`,
+      `ALTER TABLE chunk_embeddings ADD COLUMN IF NOT EXISTS model_name VARCHAR(50) DEFAULT 'gemini-embedding-2'`,
+    ];
+    for (const sql of embAlters) await aiDocumentPool.query(sql).catch(() => {});
+
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_vector_768_search ON chunk_embeddings USING hnsw (embedding vector_cosine_ops);`).catch(() => {});
+    await aiDocumentPool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_chunk_embedding_unique ON chunk_embeddings(chunk_id);`).catch(() => {});
+
+    // ── chatbot_config ───────────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS chatbot_config (
+        id                  SERIAL PRIMARY KEY,
+        config_key          VARCHAR(100) NOT NULL UNIQUE,
+        model_text          VARCHAR(100) NOT NULL DEFAULT 'gemini-1.5-flash',
+        model_audio         VARCHAR(100) NOT NULL DEFAULT 'gemini-3.1-flash-live-preview',
+        max_tokens          INT          NOT NULL DEFAULT 150,
+        temperature         FLOAT        NOT NULL DEFAULT 0.1,
+        top_k_results       INT          NOT NULL DEFAULT 5,
+        top_p               FLOAT        NOT NULL DEFAULT 0.95,
+        voice_name          VARCHAR(50)  NOT NULL DEFAULT 'Puck',
+        language_code       VARCHAR(20)  NOT NULL DEFAULT 'en-US',
+        speaking_rate       FLOAT        NOT NULL DEFAULT 1.0,
+        pitch               FLOAT        NOT NULL DEFAULT 0.0,
+        volume_gain_db      FLOAT        NOT NULL DEFAULT 0.0,
+        system_prompt       TEXT NOT NULL DEFAULT 'You are the Nexintel AI Support Agent. Provide fast, accurate solutions based ONLY on the provided document context. If the answer is not found, state: "I''m sorry, I don''t have information on that in our records." Keep responses under 3 sentences.',
+        audio_system_prompt TEXT NOT NULL DEFAULT 'You are the Nexintel AI Support Agent. Provide fast, accurate answers based ONLY on documents retrieved via search_documents. Keep spoken responses under 20 seconds.',
+        updated_at          TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await aiDocumentPool.query(`INSERT INTO chatbot_config (config_key) VALUES ('default') ON CONFLICT (config_key) DO NOTHING;`);
+
+    const cfgAlters = [
+      // All 13 editable columns — guards run safely against any pre-existing chatbot_config table
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS model_text          VARCHAR(100) NOT NULL DEFAULT 'gemini-1.5-flash'`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS model_audio         VARCHAR(100) NOT NULL DEFAULT 'gemini-3.1-flash-live-preview'`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS max_tokens          INT          NOT NULL DEFAULT 150`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS temperature         FLOAT        NOT NULL DEFAULT 0.1`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS top_k_results       INT          NOT NULL DEFAULT 5`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS top_p               FLOAT        NOT NULL DEFAULT 0.95`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS voice_name          VARCHAR(50)  NOT NULL DEFAULT 'Puck'`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS language_code       VARCHAR(20)  NOT NULL DEFAULT 'en-US'`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS speaking_rate       FLOAT        NOT NULL DEFAULT 1.0`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS pitch               FLOAT        NOT NULL DEFAULT 0.0`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS volume_gain_db      FLOAT        NOT NULL DEFAULT 0.0`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS system_prompt       TEXT NOT NULL DEFAULT 'You are the Nexintel AI Support Agent.'`,
+      `ALTER TABLE chatbot_config ADD COLUMN IF NOT EXISTS audio_system_prompt TEXT NOT NULL DEFAULT 'You are the Nexintel AI Support Agent.'`,
+    ];
+    for (const sql of cfgAlters) await aiDocumentPool.query(sql).catch(() => {});
+
+    // ── chat_sessions ────────────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS chat_sessions (
+        id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_token  TEXT UNIQUE NOT NULL DEFAULT gen_random_uuid()::text,
+        mode           VARCHAR(10) DEFAULT 'text' CHECK (mode IN ('text','audio')),
+        created_at     TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // ── chat_messages ────────────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id UUID NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+        role       VARCHAR(20) NOT NULL CHECK (role IN ('user','assistant')),
+        content    TEXT NOT NULL,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_chat_msg_session_time ON chat_messages(session_id, created_at);`).catch(() => {});
+
+    console.log('✅ All AI/Chatbot tables ready (documents, document_chunks, chunk_embeddings, chatbot_config, chat_sessions, chat_messages)');
+  } catch (error) {
+    console.error('❌ Error initializing AI Document tables:', error.message);
+    throw error;
+  }
+};
+
 // --- Initialize support_priorities table in Support DB ---
 const supportSequelize = require('./config/supportSequelize');
 
@@ -762,6 +933,7 @@ const startServer = async () => {
     await initializeSummarizationChatConfigTable();
     await initializeSupportWorkspaceSchema();
     await initializeSupportPrioritiesTable();
+    await initializeAIDocumentTables();
 
     const shutdown = async (signal) => {
       console.log(`\n⚠️  ${signal} received. Closing server...`);

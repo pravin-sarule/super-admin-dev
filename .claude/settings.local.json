@@ -9,7 +9,18 @@
       "Read(//c/Users/ADMIN/**)",
       "Bash(python3 -c ':*)",
       "Bash(node -e ':*)",
-      "Bash(node -e \"const fs=require\\('fs'\\); const f='c:/Users/ADMIN/jurinex-dev/Backend/ChatModel/controllers/chatController.js'; let c=fs.readFileSync\\(f,'utf8'\\); console.log\\(c.includes\\('getUserProfile\\(userId, authorizationHeader\\)'\\)\\); console.log\\(c.split\\('getUserProfile\\(userId, authorizationHeader\\)'\\).length-1\\);\")"
+      "Bash(node -e \"const fs=require\\('fs'\\); const f='c:/Users/ADMIN/jurinex-dev/Backend/ChatModel/controllers/chatController.js'; let c=fs.readFileSync\\(f,'utf8'\\); console.log\\(c.includes\\('getUserProfile\\(userId, authorizationHeader\\)'\\)\\); console.log\\(c.split\\('getUserProfile\\(userId, authorizationHeader\\)'\\).length-1\\);\")",
+      "Bash(xargs basename *)",
+      "Bash(grep -E \"^d|\\\\.js$\")",
+      "Bash(npm install *)",
+      "Bash(node --check services/gcsService.js)",
+      "Bash(node --check services/documentAIService.js)",
+      "Bash(node --check services/chunkingService.js)",
+      "Bash(node --check services/embeddingService.js)",
+      "Bash(node --check controllers/aiDocumentController.js)",
+      "Bash(node --check server.js)",
+      "Bash(node --check controllers/chatbotConfigController.js)",
+      "Bash(node --check routes/chatbotConfigRoutes.js)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ADMIN\\jurinex-dev\\Backend\\ChatModel\\services"
