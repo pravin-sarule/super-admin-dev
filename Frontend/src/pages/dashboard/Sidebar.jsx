@@ -106,7 +106,7 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       roles: ['super-admin']
     },
     {
-      name: 'Document Management',
+      name: 'AI Chatbot',
       path: '/dashboard/documents',
       icon: FileCheck,
       roles: ['super-admin']
