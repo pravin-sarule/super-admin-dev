@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "test:admin-api": "node tests/run_admin_api_tests.js",
     "migrate:template-files": "node migrations/run_template_files_migration.js",
-    "migrate:document-ai": "node migrations/run_document_ai_extractions_migration.js"
+    "migrate:document-ai": "node migrations/run_document_ai_extractions_migration.js",
+    "migrate:jurinex-voice": "node modules/jurinex-voice/db/migrate.js"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +30,7 @@
     "google-gax": "^5.0.4",
     "joi": "^17.13.3",
     "jsonwebtoken": "^9.0.2",
+    "mammoth": "^1.8.0",
     "multer": "^2.0.2",
     "nodemailer": "^7.0.5",
     "pdf-lib": "^1.17.1",

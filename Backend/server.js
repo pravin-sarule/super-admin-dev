@@ -52,6 +52,7 @@ const chatbotTokenUsageRoutes = require('./routes/chatbotTokenUsageRoutes');
 const chatHistoryRoutes = require('./routes/chatHistoryRoutes');
 const demoRoutes = require('./routes/demoRoutes');
 const aiDocumentPool = require('./config/aiDocumentDB');
+const jurinexVoiceRoutes = require('./modules/jurinex-voice');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
@@ -185,6 +186,11 @@ app.use('/api/admin/chat-history', chatHistoryRoutes(pool));
 
 console.log('📌 /api/admin/demo → Demo booking & slot management');
 app.use('/api/admin/demo', demoRoutes(pool));
+
+console.log('🎙️  /admin/jurinex-voice → Voice agent management + KB (jurinex-voice-docs bucket)');
+app.use('/admin/jurinex-voice', jurinexVoiceRoutes(pool));
+// Also expose under /api/admin/jurinex-voice for frontends that use the standard /api base.
+app.use('/api/admin/jurinex-voice', jurinexVoiceRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 

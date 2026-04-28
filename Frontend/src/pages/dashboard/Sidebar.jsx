@@ -22,6 +22,7 @@ import {
   FileUp,
   Search,
   CalendarCheck,
+  Mic,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -129,6 +130,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       path: '/dashboard/judgement-search',
       icon: Search,
       roles: ['super-admin']
+    },
+    {
+      name: 'Voice Management',
+      path: '/dashboard/voice-management',
+      icon: Mic,
+      roles: ['super-admin', 'support-admin']
     },
     // {
     //   name: 'Content Management',
