@@ -48,6 +48,7 @@ const summarizationChatConfigRoutes = require('./routes/summarizationChatConfigR
 const aiDocumentRoutes = require('./routes/aiDocumentRoutes');
 const chatbotConfigRoutes = require('./routes/chatbotConfigRoutes');
 const chatbotTokenUsageRoutes = require('./routes/chatbotTokenUsageRoutes');
+const chatHistoryRoutes = require('./routes/chatHistoryRoutes');
 const aiDocumentPool = require('./config/aiDocumentDB');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
@@ -176,6 +177,9 @@ app.use('/api/admin/chatbot-config', chatbotConfigRoutes(pool));
 
 console.log('📌 /api/admin/chatbot-token-usage → Chatbot token usage & cost analytics (SSE)');
 app.use('/api/admin/chatbot-token-usage', chatbotTokenUsageRoutes(pool));
+
+console.log('📌 /api/admin/chat-history → All chatbot sessions & messages');
+app.use('/api/admin/chat-history', chatHistoryRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 

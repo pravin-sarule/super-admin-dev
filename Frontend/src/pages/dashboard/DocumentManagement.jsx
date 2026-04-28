@@ -3,7 +3,7 @@ import {
   Eye, Trash2, FileText, ChevronLeft, ChevronRight, Search, Upload,
   AlertCircle, CheckCircle, Clock, RefreshCw, Cpu, CloudUpload, Zap,
   Bot, Mic, Save, Volume2, Sliders, MessageSquare, FileUp, X,
-  ChevronDown, Filter, BarChart3, Database, Settings2, TrendingUp, Activity,
+  ChevronDown, Filter, BarChart3, Database, Settings2, TrendingUp, Activity, Users,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
@@ -248,6 +248,18 @@ const DocumentManagement = () => {
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError]     = useState(null);
 
+  // ─── Chat History state ──────────────────────────────────────────────────────
+  const [chatSessions,     setChatSessions]     = useState([]);
+  const [chatTotal,        setChatTotal]        = useState(0);
+  const [chatPage,         setChatPage]         = useState(1);
+  const [chatModeFilter,   setChatModeFilter]   = useState('all');
+  const [chatSearch,       setChatSearch]       = useState('');
+  const [chatLoading,      setChatLoading]      = useState(false);
+  const [chatError,        setChatError]        = useState(null);
+  const [activeSession,    setActiveSession]    = useState(null); // { session, messages }
+  const [sessionLoading,   setSessionLoading]   = useState(false);
+  const CHAT_PAGE_LIMIT = 20;
+
   // ─── AI Config state ─────────────────────────────────────────────────────────
   const [cfg, setCfg] = useState(CONFIG_DEFAULTS);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -264,7 +276,32 @@ const DocumentManagement = () => {
 
   // ─── Usage helpers ───────────────────────────────────────────────────────────
   const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN'));
-  const fmtInr = (n) => (n == null ? '—' : `₹${Number(n).toFixed(4)}`);
+  const fmtInr = (n) => (n == null || isNaN(n) ? '—' : `₹${Number(n).toFixed(4)}`);
+
+  // INR pricing rates (mirrors backend .env values)
+  const AUDIO_MODELS_SET = new Set([
+    'gemini-3.1-flash-live-preview',
+    'gemini-2.5-flash-native-audio-preview-12-2025',
+  ]);
+  const calcCostInr = (modelName, inputTokens, outputTokens) => {
+    const isAudio = AUDIO_MODELS_SET.has(modelName);
+    const inputRate  = isAudio ? 282    : 28.33;
+    const outputRate = isAudio ? 1129   : 236;
+    return (Number(inputTokens)  / 1_000_000) * inputRate
+         + (Number(outputTokens) / 1_000_000) * outputRate;
+  };
+
+  // Use backend cost_inr if available, otherwise calculate from token counts
+  const getBreakdownCost = (row) =>
+    row.cost_inr != null ? row.cost_inr : calcCostInr(row.model_name, row.total_input, row.total_output);
+  const getLogCost = (row) =>
+    row.cost_inr != null ? row.cost_inr : calcCostInr(row.model_name, row.input_tokens, row.output_tokens);
+  const getTotalCost = (data) => {
+    if (data.totals?.total_cost_inr != null) return data.totals.total_cost_inr;
+    return (data.model_breakdown ?? []).reduce(
+      (sum, r) => sum + calcCostInr(r.model_name, r.total_input, r.total_output), 0
+    );
+  };
 
   const USAGE_PERIOD_OPTS = [
     { value: 'daily',   label: 'Today' },
@@ -302,6 +339,57 @@ const DocumentManagement = () => {
   useEffect(() => {
     if (activeTab === 'usage') fetchUsage();
   }, [activeTab, fetchUsage]);
+
+  // ─── Chat history fetch ───────────────────────────────────────────────────────
+  const fetchChatSessions = useCallback(async (page = chatPage) => {
+    setChatLoading(true);
+    setChatError(null);
+    try {
+      const token = getToken();
+      const qs = new URLSearchParams({
+        page,
+        limit: CHAT_PAGE_LIMIT,
+        mode: chatModeFilter,
+        search: chatSearch,
+      });
+      const res = await fetch(`${API_BASE_URL}/admin/chat-history?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) {
+        setChatSessions(json.sessions);
+        setChatTotal(json.total);
+        setChatPage(page);
+      } else {
+        setChatError(json.error || 'Failed to load sessions');
+      }
+    } catch (err) {
+      setChatError(err.message || 'Failed to load sessions');
+    } finally {
+      setChatLoading(false);
+    }
+  }, [chatModeFilter, chatSearch, chatPage]);
+
+  const fetchSessionMessages = async (sessionId) => {
+    setSessionLoading(true);
+    try {
+      const token = getToken();
+      const res = await fetch(`${API_BASE_URL}/admin/chat-history/${sessionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) setActiveSession(json);
+      else setChatError(json.error || 'Failed to load messages');
+    } catch (err) {
+      setChatError(err.message || 'Failed to load messages');
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'chat') fetchChatSessions(1);
+  }, [activeTab, chatModeFilter]);
 
   // ─── Fetch documents ─────────────────────────────────────────────────────────
 
@@ -495,9 +583,10 @@ const DocumentManagement = () => {
   // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
   const tabs = [
-    { key: 'documents', label: 'Documents',        icon: Database  },
-    { key: 'config',    label: 'AI Configuration', icon: Settings2 },
-    { key: 'usage',     label: 'Usage Analytics',  icon: BarChart3 },
+    { key: 'documents', label: 'Documents',        icon: Database     },
+    { key: 'config',    label: 'AI Configuration', icon: Settings2    },
+    { key: 'usage',     label: 'Usage Analytics',  icon: BarChart3    },
+    { key: 'chat',      label: 'Chat History',     icon: MessageSquare },
   ];
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -527,7 +616,7 @@ const DocumentManagement = () => {
           {tabs.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
-              onClick={() => { setActiveTab(key); setSelectedDoc(null); }}
+              onClick={() => { setActiveTab(key); setSelectedDoc(null); setActiveSession(null); }}
               className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
                 activeTab === key
                   ? 'border-indigo-600 text-indigo-600'
@@ -1174,7 +1263,7 @@ const DocumentManagement = () => {
                     { label: 'Total Input Tokens',  value: fmtNum(usageData.totals?.total_input),    icon: TrendingUp, color: 'bg-blue-500'   },
                     { label: 'Total Output Tokens', value: fmtNum(usageData.totals?.total_output),   icon: Activity,   color: 'bg-purple-500' },
                     { label: 'Total Tokens',        value: fmtNum(usageData.totals?.total_all),      icon: Zap,        color: 'bg-indigo-500' },
-                    { label: 'Total Cost (₹)',      value: fmtInr(usageData.totals?.total_cost_inr), icon: BarChart3,  color: 'bg-green-500'  },
+                    { label: 'Total Cost (₹)',      value: fmtInr(getTotalCost(usageData)),          icon: BarChart3,  color: 'bg-green-500'  },
                   ].map(({ label, value, icon: Icon, color }) => (
                     <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
                       <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -1224,7 +1313,7 @@ const DocumentManagement = () => {
                               <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_input)}</td>
                               <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_output)}</td>
                               <td className="px-4 py-3 text-xs font-semibold text-gray-900">{fmtNum(row.total_all)}</td>
-                              <td className="px-4 py-3 text-xs font-semibold text-green-600">{fmtInr(row.cost_inr)}</td>
+                              <td className="px-4 py-3 text-xs font-semibold text-green-600">{fmtInr(getBreakdownCost(row))}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1235,7 +1324,7 @@ const DocumentManagement = () => {
                             <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_input)}</td>
                             <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_output)}</td>
                             <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_all)}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-green-700">{fmtInr(usageData.totals?.total_cost_inr)}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-green-700">{fmtInr(getTotalCost(usageData))}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -1287,12 +1376,350 @@ const DocumentManagement = () => {
                               <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.input_tokens)}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.output_tokens)}</td>
                               <td className="px-4 py-2.5 text-xs font-semibold text-gray-900">{fmtNum(row.total_tokens)}</td>
-                              <td className="px-4 py-2.5 text-xs font-semibold text-green-600">{fmtInr(row.cost_inr)}</td>
+                              <td className="px-4 py-2.5 text-xs font-semibold text-green-600">{fmtInr(getLogCost(row))}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-400">{row.ip_address || '—'}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            ── CHAT HISTORY TAB ──────────────────────────────────────────────── */}
+        {activeTab === 'chat' && (
+          <div className="space-y-4">
+
+            {/* ── Session detail view ───────────────────────────────────────── */}
+            {activeSession ? (
+              <div className="space-y-4">
+                {/* Back + meta + CSV download */}
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <button
+                    onClick={() => setActiveSession(null)}
+                    className="flex items-center gap-1.5 text-sm text-indigo-600 hover:text-indigo-800 font-medium"
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Back to Sessions
+                  </button>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2 text-xs text-gray-500">
+                      <span className={`px-2 py-0.5 rounded-full font-semibold ${
+                        activeSession.session.mode === 'audio'
+                          ? 'bg-purple-100 text-purple-700'
+                          : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {activeSession.session.mode}
+                      </span>
+                      <span className="font-mono text-gray-400 truncate max-w-[180px]">{activeSession.session.id}</span>
+                      <span>{new Date(activeSession.session.created_at).toLocaleString('en-IN')}</span>
+                      <span className="font-semibold text-gray-700">{activeSession.messages.length} messages</span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        const s = activeSession.session;
+                        // Build paired turns for CSV
+                        const msgs = activeSession.messages;
+                        const csvTurns = [];
+                        let ci = 0;
+                        while (ci < msgs.length) {
+                          const u = msgs[ci]?.role === 'user' ? msgs[ci] : null;
+                          const a = msgs[ci + 1]?.role === 'assistant' ? msgs[ci + 1]
+                                  : msgs[ci]?.role === 'assistant' ? msgs[ci] : null;
+                          csvTurns.push({ u, a });
+                          ci += (u && a) ? 2 : 1;
+                        }
+                        const rows = [
+                          ['#', 'User Message', 'AI Response', 'Timestamp'],
+                          ...csvTurns.map((t, i) => [
+                            i + 1,
+                            `"${(t.u?.content || '').replace(/"/g, '""')}"`,
+                            `"${(t.a?.content || '').replace(/"/g, '""')}"`,
+                            t.u ? new Date(t.u.created_at).toLocaleString('en-IN') : '',
+                          ]),
+                        ];
+                        const csv = rows.map(r => r.join(',')).join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `chat-session-${s.id.slice(0, 8)}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition"
+                    >
+                      <FileUp className="w-3.5 h-3.5" /> Download CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Messages table — paired rows (user + assistant per turn) */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  {sessionLoading ? (
+                    <div className="flex items-center justify-center py-20">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600" />
+                    </div>
+                  ) : activeSession.messages.length === 0 ? (
+                    <div className="py-16 text-center text-sm text-gray-400">No messages in this session.</div>
+                  ) : (() => {
+                      // Pair messages into turns: each turn = { user, assistant }
+                      const turns = [];
+                      const msgs = activeSession.messages;
+                      let i = 0;
+                      while (i < msgs.length) {
+                        const user = msgs[i]?.role === 'user' ? msgs[i] : null;
+                        const asst = msgs[i + 1]?.role === 'assistant' ? msgs[i + 1]
+                                   : msgs[i]?.role === 'assistant'     ? msgs[i]
+                                   : null;
+                        if (user) {
+                          turns.push({ user, assistant: asst });
+                          i += asst ? 2 : 1;
+                        } else {
+                          turns.push({ user: null, assistant: asst });
+                          i += 1;
+                        }
+                      }
+                      return (
+                        <div className="overflow-x-auto max-h-[70vh] overflow-y-auto">
+                          <table className="w-full text-sm border-collapse">
+                            <thead className="bg-gray-50 sticky top-0 z-10">
+                              <tr>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap w-10">#</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-blue-600 uppercase tracking-wide">User Message</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-indigo-600 uppercase tracking-wide">AI Response</th>
+                                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">Time</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {turns.map((turn, idx) => (
+                                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                                  <td className="px-4 py-3 text-xs text-gray-400 align-top">{idx + 1}</td>
+                                  <td className="px-4 py-3 align-top max-w-xs">
+                                    {turn.user ? (
+                                      <p className="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">
+                                        {turn.user.content}
+                                      </p>
+                                    ) : <span className="text-xs text-gray-300 italic">—</span>}
+                                  </td>
+                                  <td className="px-4 py-3 align-top max-w-lg">
+                                    {turn.assistant ? (
+                                      <p className="text-sm text-indigo-900 whitespace-pre-wrap break-words leading-relaxed">
+                                        {turn.assistant.content}
+                                      </p>
+                                    ) : <span className="text-xs text-gray-300 italic">—</span>}
+                                  </td>
+                                  <td className="px-4 py-3 text-xs text-gray-400 align-top whitespace-nowrap">
+                                    {turn.user
+                                      ? new Date(turn.user.created_at).toLocaleString('en-IN')
+                                      : turn.assistant
+                                      ? new Date(turn.assistant.created_at).toLocaleString('en-IN')
+                                      : '—'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                  })()}
+                </div>
+              </div>
+            ) : (
+              /* ── Sessions list ──────────────────────────────────────────────── */
+              <>
+                {/* Filters */}
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex gap-1.5">
+                    {[
+                      { value: 'all',   label: 'All Modes' },
+                      { value: 'text',  label: 'Text' },
+                      { value: 'audio', label: 'Audio' },
+                    ].map(b => (
+                      <button
+                        key={b.value}
+                        onClick={() => { setChatModeFilter(b.value); setChatPage(1); }}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                          chatModeFilter === b.value
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <input
+                        type="text"
+                        placeholder="Search session ID…"
+                        value={chatSearch}
+                        onChange={e => setChatSearch(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && fetchChatSessions(1)}
+                        className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 w-48"
+                      />
+                    </div>
+                    <button
+                      onClick={() => fetchChatSessions(1)}
+                      disabled={chatLoading}
+                      className="p-2 border border-gray-300 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-indigo-600 transition disabled:opacity-50"
+                      title="Refresh"
+                    >
+                      <RefreshCw className={`w-4 h-4 ${chatLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                    <button
+                      disabled={chatSessions.length === 0}
+                      onClick={() => {
+                        const rows = [
+                          ['#', 'Session ID', 'Mode', 'Messages', 'Last User Message', 'Started', 'Last Active'],
+                          ...chatSessions.map((s, i) => [
+                            i + 1,
+                            s.id,
+                            s.mode,
+                            s.message_count,
+                            `"${(s.last_user_message || '').replace(/"/g, '""')}"`,
+                            new Date(s.created_at).toLocaleString('en-IN'),
+                            s.last_active_at ? new Date(s.last_active_at).toLocaleString('en-IN') : '',
+                          ]),
+                        ];
+                        const csv = rows.map(r => r.join(',')).join('\n');
+                        const blob = new Blob([csv], { type: 'text/csv' });
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(blob);
+                        a.download = `chat-sessions-${new Date().toISOString().slice(0, 10)}.csv`;
+                        a.click();
+                        URL.revokeObjectURL(a.href);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <FileUp className="w-3.5 h-3.5" /> Download CSV
+                    </button>
+                  </div>
+                </div>
+
+                {/* Summary bar */}
+                {chatTotal > 0 && (
+                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                    <span className="flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" />
+                      <span><strong className="text-gray-800">{chatTotal}</strong> sessions</span>
+                    </span>
+                  </div>
+                )}
+
+                {/* Error */}
+                {chatError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                    {chatError}
+                  </div>
+                )}
+
+                {/* Sessions table */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  {chatLoading ? (
+                    <div className="flex items-center justify-center py-20">
+                      <div className="flex flex-col items-center gap-3">
+                        <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600" />
+                        <p className="text-sm text-gray-400">Loading sessions…</p>
+                      </div>
+                    </div>
+                  ) : chatSessions.length === 0 ? (
+                    <div className="py-16 text-center">
+                      <MessageSquare className="w-12 h-12 text-gray-200 mx-auto mb-3" />
+                      <p className="text-sm font-medium text-gray-500">No chat sessions found</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            {['#', 'Session ID', 'Mode', 'Messages', 'Last Message Preview', 'Started', 'Last Active', ''].map(h => (
+                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {chatSessions.map((s, i) => (
+                            <tr key={s.id} className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
+                              onClick={() => fetchSessionMessages(s.id)}>
+                              <td className="px-4 py-3 text-xs text-gray-400">
+                                {(chatPage - 1) * CHAT_PAGE_LIMIT + i + 1}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="text-xs font-mono text-gray-600 truncate max-w-[120px] block">
+                                  {s.id}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  s.mode === 'audio'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {s.mode}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs font-semibold text-gray-800 text-center">
+                                {s.message_count}
+                              </td>
+                              <td className="px-4 py-3 max-w-[280px]">
+                                <p className="text-xs text-gray-500 truncate">
+                                  {s.last_user_message || <span className="italic text-gray-300">—</span>}
+                                </p>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                                {new Date(s.created_at).toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                                {s.last_active_at
+                                  ? new Date(s.last_active_at).toLocaleString('en-IN')
+                                  : '—'}
+                              </td>
+                              <td className="px-4 py-3">
+                                <button className="flex items-center gap-1 text-xs text-indigo-500 group-hover:text-indigo-700 font-medium whitespace-nowrap">
+                                  <Eye className="w-3.5 h-3.5" /> View
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Pagination */}
+                  {!chatLoading && chatTotal > CHAT_PAGE_LIMIT && (
+                    <div className="px-5 py-3 flex items-center justify-between border-t border-gray-100 bg-gray-50">
+                      <p className="text-xs text-gray-500">
+                        {(chatPage - 1) * CHAT_PAGE_LIMIT + 1}–{Math.min(chatPage * CHAT_PAGE_LIMIT, chatTotal)} of {chatTotal}
+                      </p>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={() => fetchChatSessions(chatPage - 1)}
+                          disabled={chatPage === 1}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                        </button>
+                        <span className="px-3 py-1.5 text-xs text-gray-500">
+                          {chatPage} / {Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
+                        </span>
+                        <button
+                          onClick={() => fetchChatSessions(chatPage + 1)}
+                          disabled={chatPage >= Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                        >
+                          Next <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
