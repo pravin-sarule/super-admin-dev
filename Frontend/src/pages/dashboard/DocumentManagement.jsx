@@ -3,12 +3,13 @@ import {
   Eye, Trash2, FileText, ChevronLeft, ChevronRight, Search, Upload,
   AlertCircle, CheckCircle, Clock, RefreshCw, Cpu, CloudUpload, Zap,
   Bot, Mic, Save, Volume2, Sliders, MessageSquare, FileUp, X,
-  ChevronDown, Filter, BarChart3, Database, Settings2,
+  ChevronDown, Filter, BarChart3, Database, Settings2, TrendingUp, Activity,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import AdminDocumentService from '../../services/adminDocumentService';
 import chatbotConfigService from '../../services/chatbotConfigService';
+import { API_BASE_URL, getToken } from '../../config';
 
 const MySwal = withReactContent(Swal);
 const documentService = new AdminDocumentService();
@@ -240,6 +241,13 @@ const DocumentManagement = () => {
   const pollRef = useRef(null);
   const dropZoneRef = useRef(null);
 
+  // ─── Usage Analytics state ───────────────────────────────────────────────────
+  const [usageData, setUsageData]       = useState(null);
+  const [usagePeriod, setUsagePeriod]   = useState('daily');
+  const [usageModel, setUsageModel]     = useState('all');
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError]     = useState(null);
+
   // ─── AI Config state ─────────────────────────────────────────────────────────
   const [cfg, setCfg] = useState(CONFIG_DEFAULTS);
   const [cfgLoading, setCfgLoading] = useState(false);
@@ -253,6 +261,47 @@ const DocumentManagement = () => {
     setCfgToast({ type, msg });
     setTimeout(() => setCfgToast(null), 3500);
   };
+
+  // ─── Usage helpers ───────────────────────────────────────────────────────────
+  const fmtNum = (n) => (n == null ? '—' : Number(n).toLocaleString('en-IN'));
+  const fmtInr = (n) => (n == null ? '—' : `₹${Number(n).toFixed(4)}`);
+
+  const USAGE_PERIOD_OPTS = [
+    { value: 'daily',   label: 'Today' },
+    { value: 'weekly',  label: '7 Days' },
+    { value: 'monthly', label: '30 Days' },
+    { value: 'yearly',  label: '365 Days' },
+    { value: 'all',     label: 'All Time' },
+  ];
+
+  const USAGE_MODEL_OPTS = [
+    { value: 'all', label: 'All Models' },
+    ...GEMINI_TEXT_MODELS.map(m => ({ value: m, label: m })),
+    ...GEMINI_LIVE_MODELS.map(m => ({ value: m, label: m })),
+  ];
+
+  const fetchUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      const token = getToken();
+      const qs = new URLSearchParams({ period: usagePeriod, model: usageModel });
+      const res = await fetch(`${API_BASE_URL}/admin/chatbot-token-usage/stats?${qs}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) setUsageData(json.data);
+      else setUsageError(json.error || 'Failed to load usage data');
+    } catch (err) {
+      setUsageError(err.message || 'Failed to load usage data');
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [usagePeriod, usageModel]);
+
+  useEffect(() => {
+    if (activeTab === 'usage') fetchUsage();
+  }, [activeTab, fetchUsage]);
 
   // ─── Fetch documents ─────────────────────────────────────────────────────────
 
@@ -446,8 +495,9 @@ const DocumentManagement = () => {
   // ─── Tabs ─────────────────────────────────────────────────────────────────────
 
   const tabs = [
-    { key: 'documents', label: 'Documents', icon: Database },
+    { key: 'documents', label: 'Documents',        icon: Database  },
     { key: 'config',    label: 'AI Configuration', icon: Settings2 },
+    { key: 'usage',     label: 'Usage Analytics',  icon: BarChart3 },
   ];
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1045,6 +1095,206 @@ const DocumentManagement = () => {
                     {cfgSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                     {cfgSaving ? 'Saving…' : 'Save Configuration'}
                   </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ══════════════════════════════════════════════════════════════════════
+            ── USAGE ANALYTICS TAB ───────────────────────────────────────────── */}
+        {activeTab === 'usage' && (
+          <div className="space-y-5">
+
+            {/* Filters row */}
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex gap-1 flex-wrap">
+                {USAGE_PERIOD_OPTS.map(b => (
+                  <button
+                    key={b.value}
+                    onClick={() => setUsagePeriod(b.value)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                      usagePeriod === b.value
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <select
+                    value={usageModel}
+                    onChange={e => setUsageModel(e.target.value)}
+                    className="pl-3 pr-8 py-1.5 border border-gray-300 rounded-lg text-xs font-medium bg-white focus:ring-2 focus:ring-indigo-500 appearance-none"
+                  >
+                    {USAGE_MODEL_OPTS.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                </div>
+                <button
+                  onClick={fetchUsage}
+                  disabled={usageLoading}
+                  className="p-2 border border-gray-300 rounded-lg text-gray-500 hover:bg-gray-50 hover:text-indigo-600 transition disabled:opacity-50"
+                  title="Refresh"
+                >
+                  <RefreshCw className={`w-4 h-4 ${usageLoading ? 'animate-spin' : ''}`} />
+                </button>
+              </div>
+            </div>
+
+            {/* Error */}
+            {usageError && (
+              <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                {usageError}
+              </div>
+            )}
+
+            {/* Loading skeleton */}
+            {usageLoading && !usageData && (
+              <div className="flex items-center justify-center py-20">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600" />
+                  <p className="text-sm text-gray-400">Loading analytics…</p>
+                </div>
+              </div>
+            )}
+
+            {/* Data */}
+            {usageData && (
+              <>
+                {/* Summary cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                  {[
+                    { label: 'Total Input Tokens',  value: fmtNum(usageData.totals?.total_input),    icon: TrendingUp, color: 'bg-blue-500'   },
+                    { label: 'Total Output Tokens', value: fmtNum(usageData.totals?.total_output),   icon: Activity,   color: 'bg-purple-500' },
+                    { label: 'Total Tokens',        value: fmtNum(usageData.totals?.total_all),      icon: Zap,        color: 'bg-indigo-500' },
+                    { label: 'Total Cost (₹)',      value: fmtInr(usageData.totals?.total_cost_inr), icon: BarChart3,  color: 'bg-green-500'  },
+                  ].map(({ label, value, icon: Icon, color }) => (
+                    <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+                        <Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold text-gray-900">{value}</p>
+                        <p className="text-xs text-gray-500 font-medium">{label}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <p className="text-xs text-gray-400">
+                  {fmtNum(usageData.totals?.total_requests)} total requests · Pricing: ₹28.33/M input, ₹236/M output (text) · ₹282/M input, ₹1,129/M output (audio)
+                </p>
+
+                {/* Model breakdown table */}
+                {usageData.model_breakdown?.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3 border-b border-gray-100">
+                      <h3 className="text-sm font-semibold text-gray-800">Model Breakdown</h3>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            {['Model', 'Mode', 'Requests', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost (₹)'].map(h => (
+                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {usageData.model_breakdown.map((row, i) => (
+                            <tr key={`${row.model_name}-${row.mode}`} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                              <td className="px-4 py-3 text-xs font-medium text-gray-900 whitespace-nowrap">{row.model_name}</td>
+                              <td className="px-4 py-3">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  row.mode === 'audio' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {row.mode}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.request_count)}</td>
+                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_input)}</td>
+                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_output)}</td>
+                              <td className="px-4 py-3 text-xs font-semibold text-gray-900">{fmtNum(row.total_all)}</td>
+                              <td className="px-4 py-3 text-xs font-semibold text-green-600">{fmtInr(row.cost_inr)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="border-t-2 border-gray-200 bg-indigo-50">
+                          <tr>
+                            <td colSpan={2} className="px-4 py-3 text-xs font-bold text-indigo-900">Grand Total</td>
+                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_requests)}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_input)}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_output)}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_all)}</td>
+                            <td className="px-4 py-3 text-xs font-bold text-green-700">{fmtInr(usageData.totals?.total_cost_inr)}</td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Recent logs table */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-800">Recent Logs</h3>
+                    {usageData.logs?.length > 0 && (
+                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                        {usageData.logs.length} entries
+                      </span>
+                    )}
+                  </div>
+                  {!usageData.logs?.length ? (
+                    <div className="px-5 py-12 text-center">
+                      <p className="text-sm text-gray-400">No records for the selected period / model.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-gray-50 sticky top-0 z-10">
+                          <tr>
+                            {['#', 'Time', 'Mode', 'Model', 'Input', 'Output', 'Total', 'Cost (₹)', 'IP'].map(h => (
+                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                                {h}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {usageData.logs.map((row, i) => (
+                            <tr key={row.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
+                              <td className="px-4 py-2.5 text-xs text-gray-400">{i + 1}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">
+                                {new Date(row.created_at).toLocaleString('en-IN')}
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                                  row.mode === 'audio' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                                }`}>
+                                  {row.mode}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2.5 text-xs font-medium text-gray-900 whitespace-nowrap">{row.model_name}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.input_tokens)}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.output_tokens)}</td>
+                              <td className="px-4 py-2.5 text-xs font-semibold text-gray-900">{fmtNum(row.total_tokens)}</td>
+                              <td className="px-4 py-2.5 text-xs font-semibold text-green-600">{fmtInr(row.cost_inr)}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-400">{row.ip_address || '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
                 </div>
               </>
             )}

@@ -2,44 +2,23 @@ const aiDocumentPool = require('../config/aiDocumentDB');
 const jwt = require('jsonwebtoken');
 const { JWT_SECRET } = require('../config/env');
 
-// Per-1M-token pricing (USD) loaded from .env with sensible defaults
-const MODEL_COSTS = {
-  'gemini-1.5-flash': {
-    input:  parseFloat(process.env.COST_GEMINI_1_5_FLASH_INPUT  || 0.075),
-    output: parseFloat(process.env.COST_GEMINI_1_5_FLASH_OUTPUT || 0.30),
-  },
-  'gemini-1.5-flash-8b': {
-    input:  parseFloat(process.env.COST_GEMINI_1_5_FLASH_8B_INPUT  || 0.0375),
-    output: parseFloat(process.env.COST_GEMINI_1_5_FLASH_8B_OUTPUT || 0.15),
-  },
-  'gemini-1.5-pro': {
-    input:  parseFloat(process.env.COST_GEMINI_1_5_PRO_INPUT  || 1.25),
-    output: parseFloat(process.env.COST_GEMINI_1_5_PRO_OUTPUT || 5.00),
-  },
-  'gemini-2.0-flash': {
-    input:  parseFloat(process.env.COST_GEMINI_2_0_FLASH_INPUT  || 0.10),
-    output: parseFloat(process.env.COST_GEMINI_2_0_FLASH_OUTPUT || 0.40),
-  },
-  'gemini-2.5-flash': {
-    input:  parseFloat(process.env.COST_GEMINI_2_5_FLASH_INPUT  || 0.15),
-    output: parseFloat(process.env.COST_GEMINI_2_5_FLASH_OUTPUT || 0.60),
-  },
-  'gemini-2.5-pro': {
-    input:  parseFloat(process.env.COST_GEMINI_2_5_PRO_INPUT  || 1.25),
-    output: parseFloat(process.env.COST_GEMINI_2_5_PRO_OUTPUT || 10.00),
-  },
-  'gemini-3.1-flash-live-preview': {
-    input:  parseFloat(process.env.COST_GEMINI_LIVE_INPUT  || 0.10),
-    output: parseFloat(process.env.COST_GEMINI_LIVE_OUTPUT || 0.40),
-  },
-  'gemini-2.5-flash-native-audio-preview-12-2025': {
-    input:  parseFloat(process.env.COST_GEMINI_2_5_FLASH_AUDIO_INPUT  || 0.15),
-    output: parseFloat(process.env.COST_GEMINI_2_5_FLASH_AUDIO_OUTPUT || 0.60),
-  },
+// Per-1M-token pricing in INR — two tiers: audio (live) models and text models
+const AUDIO_COST_INR = {
+  input:  parseFloat(process.env.COST_AUDIO_MODEL_INPUT_INR  || 282),
+  output: parseFloat(process.env.COST_AUDIO_MODEL_OUTPUT_INR || 1129),
+};
+const TEXT_COST_INR = {
+  input:  parseFloat(process.env.COST_TEXT_MODEL_INPUT_INR  || 28.33),
+  output: parseFloat(process.env.COST_TEXT_MODEL_OUTPUT_INR || 236),
 };
 
+const AUDIO_MODELS = new Set([
+  'gemini-3.1-flash-live-preview',
+  'gemini-2.5-flash-native-audio-preview-12-2025',
+]);
+
 function calcCost(modelName, inputTokens, outputTokens) {
-  const c = MODEL_COSTS[modelName] || { input: 0, output: 0 };
+  const c = AUDIO_MODELS.has(modelName) ? AUDIO_COST_INR : TEXT_COST_INR;
   return (parseInt(inputTokens) / 1_000_000) * c.input +
          (parseInt(outputTokens) / 1_000_000) * c.output;
 }
@@ -98,11 +77,11 @@ async function buildAnalyticsPayload(period = 'daily', model = 'all') {
   ]);
 
   const t = totalsRes.rows[0];
-  let totalCostUsd = 0;
+  let totalCostInr = 0;
 
   const model_breakdown = breakdownRes.rows.map(r => {
     const cost = calcCost(r.model_name, r.total_input, r.total_output);
-    totalCostUsd += cost;
+    totalCostInr += cost;
     return {
       model_name:    r.model_name,
       mode:          r.mode,
@@ -110,21 +89,21 @@ async function buildAnalyticsPayload(period = 'daily', model = 'all') {
       total_input:   parseInt(r.total_input),
       total_output:  parseInt(r.total_output),
       total_all:     parseInt(r.total_all),
-      cost_usd:      parseFloat(cost.toFixed(8)),
+      cost_inr:      parseFloat(cost.toFixed(6)),
     };
   });
 
   const logs = logsRes.rows.map(r => ({
-    id:           r.id,
-    session_id:   r.session_id,
-    mode:         r.mode,
-    model_name:   r.model_name,
-    input_tokens: r.input_tokens,
+    id:            r.id,
+    session_id:    r.session_id,
+    mode:          r.mode,
+    model_name:    r.model_name,
+    input_tokens:  r.input_tokens,
     output_tokens: r.output_tokens,
-    total_tokens: r.total_tokens,
-    ip_address:   r.ip_address,
-    created_at:   r.created_at,
-    cost_usd:     parseFloat(calcCost(r.model_name, r.input_tokens, r.output_tokens).toFixed(8)),
+    total_tokens:  r.total_tokens,
+    ip_address:    r.ip_address,
+    created_at:    r.created_at,
+    cost_inr:      parseFloat(calcCost(r.model_name, r.input_tokens, r.output_tokens).toFixed(6)),
   }));
 
   return {
@@ -132,11 +111,11 @@ async function buildAnalyticsPayload(period = 'daily', model = 'all') {
     period,
     model_filter: modelFilter || 'all',
     totals: {
-      total_input:    parseInt(t.total_input),
-      total_output:   parseInt(t.total_output),
-      total_all:      parseInt(t.total_all),
-      total_requests: parseInt(t.total_requests),
-      total_cost_usd: parseFloat(totalCostUsd.toFixed(8)),
+      total_input:     parseInt(t.total_input),
+      total_output:    parseInt(t.total_output),
+      total_all:       parseInt(t.total_all),
+      total_requests:  parseInt(t.total_requests),
+      total_cost_inr:  parseFloat(totalCostInr.toFixed(6)),
     },
     model_breakdown,
     logs,
