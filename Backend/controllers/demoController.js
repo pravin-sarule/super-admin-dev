@@ -248,8 +248,8 @@ function makeControllers() {
   const getStats = async (req, res) => {
     try {
       const [bRes, sRes] = await Promise.all([
-        pool.query(`SELECT status, COUNT(*)::int AS count FROM demo_bookings GROUP BY status`),
-        pool.query(`
+        aiDocumentPool.query(`SELECT status, COUNT(*)::int AS count FROM demo_bookings GROUP BY status`),
+        aiDocumentPool.query(`
           SELECT
             COUNT(*)::int                                       AS total,
             COUNT(*) FILTER (WHERE is_booked = FALSE)::int     AS available,
