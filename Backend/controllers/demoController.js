@@ -1,4 +1,5 @@
-const nodemailer = require('nodemailer');
+const nodemailer  = require('nodemailer');
+const aiDocumentPool = require('../config/aiDocumentDB'); // same DB as chatbot / demo tables
 
 // ── Mailer ─────────────────────────────────────────────────────────────────────
 const transporter = nodemailer.createTransport({
@@ -207,9 +208,9 @@ function buildInviteHtml(booking, slot) {
 // ── Table init (runs once on startup) ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-async function initDemoTables(pool) {
+async function initDemoTables() {
   try {
-    await pool.query(`
+    await aiDocumentPool.query(`
       CREATE TABLE IF NOT EXISTS demo_slots (
         id         SERIAL PRIMARY KEY,
         start_time TIMESTAMP NOT NULL,
@@ -241,7 +242,7 @@ async function initDemoTables(pool) {
 // ── Controller factory (receives pool) ───────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════════
 
-function makeControllers(pool) {
+function makeControllers() {
 
   // GET /api/admin/demo/stats
   const getStats = async (req, res) => {
@@ -281,10 +282,10 @@ function makeControllers(pool) {
       }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      const countRes = await pool.query(`SELECT COUNT(*) FROM demo_bookings b ${where}`, params);
+      const countRes = await aiDocumentPool.query(`SELECT COUNT(*) FROM demo_bookings b ${where}`, params);
       params.push(parseInt(limit), offset);
 
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `SELECT b.id, b.name, b.email, b.company, b.slot_id,
                 b.scheduled_at, b.status, b.notes, b.created_at, b.updated_at,
                 s.start_time, s.end_time
@@ -312,7 +313,7 @@ function makeControllers(pool) {
   // GET /api/admin/demo/bookings/:id
   const getBookingById = async (req, res) => {
     try {
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `SELECT b.*, s.start_time, s.end_time
          FROM demo_bookings b
          LEFT JOIN demo_slots s ON s.id = b.slot_id
@@ -333,7 +334,7 @@ function makeControllers(pool) {
       if (!['pending', 'confirmed', 'cancelled', 'completed'].includes(status)) {
         return res.status(400).json({ success: false, error: 'Invalid status' });
       }
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `UPDATE demo_bookings SET status = $1, updated_at = NOW()
          WHERE id = $2 RETURNING *`,
         [status, req.params.id]
@@ -348,7 +349,7 @@ function makeControllers(pool) {
   // POST /api/admin/demo/bookings/:id/send-invite
   const sendInvite = async (req, res) => {
     try {
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `SELECT b.*, s.start_time, s.end_time
          FROM demo_bookings b
          LEFT JOIN demo_slots s ON s.id = b.slot_id
@@ -369,7 +370,7 @@ function makeControllers(pool) {
       });
 
       if (booking.status === 'pending') {
-        await pool.query(
+        await aiDocumentPool.query(
           `UPDATE demo_bookings SET status = 'confirmed', updated_at = NOW() WHERE id = $1`,
           [booking.id]
         );
@@ -385,12 +386,12 @@ function makeControllers(pool) {
   // DELETE /api/admin/demo/bookings/:id
   const deleteBooking = async (req, res) => {
     try {
-      const { rows } = await pool.query(`SELECT slot_id FROM demo_bookings WHERE id = $1`, [req.params.id]);
+      const { rows } = await aiDocumentPool.query(`SELECT slot_id FROM demo_bookings WHERE id = $1`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ success: false, error: 'Booking not found' });
       const slotId = rows[0].slot_id;
-      await pool.query(`DELETE FROM demo_bookings WHERE id = $1`, [req.params.id]);
+      await aiDocumentPool.query(`DELETE FROM demo_bookings WHERE id = $1`, [req.params.id]);
       if (slotId) {
-        await pool.query(`UPDATE demo_slots SET is_booked = FALSE WHERE id = $1`, [slotId]);
+        await aiDocumentPool.query(`UPDATE demo_slots SET is_booked = FALSE WHERE id = $1`, [slotId]);
       }
       return res.json({ success: true, message: 'Booking deleted' });
     } catch (err) {
@@ -410,10 +411,10 @@ function makeControllers(pool) {
       else if (filter === 'booked') conditions.push('s.is_booked = TRUE');
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
-      const countRes = await pool.query(`SELECT COUNT(*) FROM demo_slots s ${where}`, params);
+      const countRes = await aiDocumentPool.query(`SELECT COUNT(*) FROM demo_slots s ${where}`, params);
       params.push(parseInt(limit), offset);
 
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `SELECT s.id, s.start_time, s.end_time, s.is_booked, s.created_at,
                 b.id AS booking_id, b.name AS booked_by_name, b.email AS booked_by_email
          FROM demo_slots s
@@ -437,7 +438,7 @@ function makeControllers(pool) {
       if (!start_time || !end_time) {
         return res.status(400).json({ success: false, error: 'start_time and end_time are required' });
       }
-      const { rows } = await pool.query(
+      const { rows } = await aiDocumentPool.query(
         `INSERT INTO demo_slots (start_time, end_time) VALUES ($1, $2) RETURNING *`,
         [start_time, end_time]
       );
@@ -459,7 +460,7 @@ function makeControllers(pool) {
 
       // Filter out already-existing start_times
       const times = toCreate.map(s => s.start.toISOString());
-      const existRes = await pool.query(
+      const existRes = await aiDocumentPool.query(
         `SELECT start_time::text FROM demo_slots WHERE start_time = ANY($1::timestamptz[])`,
         [times]
       );
@@ -473,7 +474,7 @@ function makeControllers(pool) {
       const values = newSlots.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(', ');
       const params = newSlots.flatMap(s => [s.start.toISOString(), s.end.toISOString()]);
 
-      const { rowCount } = await pool.query(
+      const { rowCount } = await aiDocumentPool.query(
         `INSERT INTO demo_slots (start_time, end_time) VALUES ${values}`,
         params
       );
@@ -493,12 +494,12 @@ function makeControllers(pool) {
   // DELETE /api/admin/demo/slots/:id
   const deleteSlot = async (req, res) => {
     try {
-      const { rows } = await pool.query(`SELECT is_booked FROM demo_slots WHERE id = $1`, [req.params.id]);
+      const { rows } = await aiDocumentPool.query(`SELECT is_booked FROM demo_slots WHERE id = $1`, [req.params.id]);
       if (!rows.length) return res.status(404).json({ success: false, error: 'Slot not found' });
       if (rows[0].is_booked) {
         return res.status(400).json({ success: false, error: 'Cannot delete a booked slot' });
       }
-      await pool.query(`DELETE FROM demo_slots WHERE id = $1`, [req.params.id]);
+      await aiDocumentPool.query(`DELETE FROM demo_slots WHERE id = $1`, [req.params.id]);
       return res.json({ success: true });
     } catch (err) {
       return res.status(500).json({ success: false, error: err.message });

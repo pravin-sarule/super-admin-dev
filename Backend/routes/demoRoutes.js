@@ -5,10 +5,10 @@ const { makeControllers, initDemoTables } = require('../controllers/demoControll
 const router = (pool) => {
   const r = express.Router();
   const auth = adminAuth(pool);
-  const ctrl = makeControllers(pool);
+  const ctrl = makeControllers();
 
-  // Auto-create tables on first load
-  initDemoTables(pool);
+  // Auto-create tables on first load (uses aiDocumentPool / postgres DB directly)
+  initDemoTables();
 
   // Stats
   r.get('/stats',    auth, ctrl.getStats);
