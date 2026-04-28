@@ -21,6 +21,7 @@ import {
   BookMarked, // Added for Citation Management
   FileUp,
   Search,
+  CalendarCheck,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -109,6 +110,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'AI Chatbot',
       path: '/dashboard/documents',
       icon: FileCheck,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Demo Bookings',
+      path: '/dashboard/demo-bookings',
+      icon: CalendarCheck,
       roles: ['super-admin']
     },
     {

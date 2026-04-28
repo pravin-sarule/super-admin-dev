@@ -49,6 +49,7 @@ const aiDocumentRoutes = require('./routes/aiDocumentRoutes');
 const chatbotConfigRoutes = require('./routes/chatbotConfigRoutes');
 const chatbotTokenUsageRoutes = require('./routes/chatbotTokenUsageRoutes');
 const chatHistoryRoutes = require('./routes/chatHistoryRoutes');
+const demoRoutes = require('./routes/demoRoutes');
 const aiDocumentPool = require('./config/aiDocumentDB');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
@@ -180,6 +181,9 @@ app.use('/api/admin/chatbot-token-usage', chatbotTokenUsageRoutes(pool));
 
 console.log('📌 /api/admin/chat-history → All chatbot sessions & messages');
 app.use('/api/admin/chat-history', chatHistoryRoutes(pool));
+
+console.log('📌 /api/admin/demo → Demo booking & slot management');
+app.use('/api/admin/demo', demoRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 

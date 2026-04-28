@@ -1542,7 +1542,7 @@ const DocumentManagement = () => {
                       <button
                         key={b.value}
                         onClick={() => { setChatModeFilter(b.value); setChatPage(1); }}
-                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                        className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-all ${
                           chatModeFilter === b.value
                             ? 'bg-indigo-600 text-white border-indigo-600'
                             : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
@@ -1554,14 +1554,14 @@ const DocumentManagement = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="text"
                         placeholder="Search session ID…"
                         value={chatSearch}
                         onChange={e => setChatSearch(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && fetchChatSessions(1)}
-                        className="pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:ring-2 focus:ring-indigo-500 w-48"
+                        className="pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-52"
                       />
                     </div>
                     <button
@@ -1595,18 +1595,18 @@ const DocumentManagement = () => {
                         a.click();
                         URL.revokeObjectURL(a.href);
                       }}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
                     >
-                      <FileUp className="w-3.5 h-3.5" /> Download CSV
+                      <FileUp className="w-4 h-4" /> Download CSV
                     </button>
                   </div>
                 </div>
 
                 {/* Summary bar */}
                 {chatTotal > 0 && (
-                  <div className="flex items-center gap-4 text-xs text-gray-500">
+                  <div className="flex items-center gap-4 text-sm text-gray-500">
                     <span className="flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5" />
+                      <Users className="w-4 h-4" />
                       <span><strong className="text-gray-800">{chatTotal}</strong> sessions</span>
                     </span>
                   </div>
@@ -1640,7 +1640,7 @@ const DocumentManagement = () => {
                         <thead className="bg-gray-50">
                           <tr>
                             {['#', 'Session ID', 'Mode', 'Messages', 'Last Message Preview', 'Started', 'Last Active', ''].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                              <th key={h} className="px-5 py-3.5 text-left text-sm font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">
                                 {h}
                               </th>
                             ))}
@@ -1650,16 +1650,16 @@ const DocumentManagement = () => {
                           {chatSessions.map((s, i) => (
                             <tr key={s.id} className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
                               onClick={() => fetchSessionMessages(s.id)}>
-                              <td className="px-4 py-3 text-xs text-gray-400">
+                              <td className="px-5 py-3.5 text-sm text-gray-500">
                                 {(chatPage - 1) * CHAT_PAGE_LIMIT + i + 1}
                               </td>
-                              <td className="px-4 py-3">
-                                <span className="text-xs font-mono text-gray-600 truncate max-w-[120px] block">
+                              <td className="px-5 py-3.5">
+                                <span className="text-sm font-mono text-gray-700 truncate max-w-[160px] block">
                                   {s.id}
                                 </span>
                               </td>
-                              <td className="px-4 py-3">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
+                              <td className="px-5 py-3.5">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
                                   s.mode === 'audio'
                                     ? 'bg-purple-100 text-purple-700'
                                     : 'bg-blue-100 text-blue-700'
@@ -1667,25 +1667,25 @@ const DocumentManagement = () => {
                                   {s.mode}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-xs font-semibold text-gray-800 text-center">
+                              <td className="px-5 py-3.5 text-sm font-semibold text-gray-800 text-center">
                                 {s.message_count}
                               </td>
-                              <td className="px-4 py-3 max-w-[280px]">
-                                <p className="text-xs text-gray-500 truncate">
+                              <td className="px-5 py-3.5 max-w-[300px]">
+                                <p className="text-sm text-gray-600 truncate">
                                   {s.last_user_message || <span className="italic text-gray-300">—</span>}
                                 </p>
                               </td>
-                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                              <td className="px-5 py-3.5 text-sm text-gray-500 whitespace-nowrap">
                                 {new Date(s.created_at).toLocaleString('en-IN')}
                               </td>
-                              <td className="px-4 py-3 text-xs text-gray-400 whitespace-nowrap">
+                              <td className="px-5 py-3.5 text-sm text-gray-500 whitespace-nowrap">
                                 {s.last_active_at
                                   ? new Date(s.last_active_at).toLocaleString('en-IN')
                                   : '—'}
                               </td>
-                              <td className="px-4 py-3">
-                                <button className="flex items-center gap-1 text-xs text-indigo-500 group-hover:text-indigo-700 font-medium whitespace-nowrap">
-                                  <Eye className="w-3.5 h-3.5" /> View
+                              <td className="px-5 py-3.5">
+                                <button className="flex items-center gap-1.5 text-sm text-indigo-500 group-hover:text-indigo-700 font-medium whitespace-nowrap">
+                                  <Eye className="w-4 h-4" /> View
                                 </button>
                               </td>
                             </tr>
@@ -1697,27 +1697,27 @@ const DocumentManagement = () => {
 
                   {/* Pagination */}
                   {!chatLoading && chatTotal > CHAT_PAGE_LIMIT && (
-                    <div className="px-5 py-3 flex items-center justify-between border-t border-gray-100 bg-gray-50">
-                      <p className="text-xs text-gray-500">
+                    <div className="px-5 py-3.5 flex items-center justify-between border-t border-gray-100 bg-gray-50">
+                      <p className="text-sm text-gray-500">
                         {(chatPage - 1) * CHAT_PAGE_LIMIT + 1}–{Math.min(chatPage * CHAT_PAGE_LIMIT, chatTotal)} of {chatTotal}
                       </p>
                       <div className="flex gap-1.5">
                         <button
                           onClick={() => fetchChatSessions(chatPage - 1)}
                           disabled={chatPage === 1}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
                         >
-                          <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                          <ChevronLeft className="w-4 h-4" /> Prev
                         </button>
-                        <span className="px-3 py-1.5 text-xs text-gray-500">
+                        <span className="px-3 py-1.5 text-sm text-gray-500">
                           {chatPage} / {Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
                         </span>
                         <button
                           onClick={() => fetchChatSessions(chatPage + 1)}
                           disabled={chatPage >= Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
                         >
-                          Next <ChevronRight className="w-3.5 h-3.5" />
+                          Next <ChevronRight className="w-4 h-4" />
                         </button>
                       </div>
                     </div>
