@@ -47,6 +47,7 @@ const llmChatConfigRoutes = require('./routes/llmChatConfigRoutes');
 const summarizationChatConfigRoutes = require('./routes/summarizationChatConfigRoutes');
 const aiDocumentRoutes = require('./routes/aiDocumentRoutes');
 const chatbotConfigRoutes = require('./routes/chatbotConfigRoutes');
+const chatbotTokenUsageRoutes = require('./routes/chatbotTokenUsageRoutes');
 const aiDocumentPool = require('./config/aiDocumentDB');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
@@ -172,6 +173,9 @@ app.use('/api/admin', aiDocumentRoutes(pool));
 
 console.log('📌 /api/admin/chatbot-config → Chatbot model & voice configuration');
 app.use('/api/admin/chatbot-config', chatbotConfigRoutes(pool));
+
+console.log('📌 /api/admin/chatbot-token-usage → Chatbot token usage & cost analytics (SSE)');
+app.use('/api/admin/chatbot-token-usage', chatbotTokenUsageRoutes(pool));
 
 console.log('='.repeat(60) + '\n');
 
@@ -763,7 +767,27 @@ const initializeAIDocumentTables = async () => {
     `);
     await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_chat_msg_session_time ON chat_messages(session_id, created_at);`).catch(() => {});
 
-    console.log('✅ All AI/Chatbot tables ready (documents, document_chunks, chunk_embeddings, chatbot_config, chat_sessions, chat_messages)');
+    // ── chatbot_token_usage ──────────────────────────────────────────────────
+    await aiDocumentPool.query(`
+      CREATE TABLE IF NOT EXISTS chatbot_token_usage (
+        id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id    UUID        REFERENCES chat_sessions(id) ON DELETE SET NULL,
+        mode          TEXT        NOT NULL CHECK (mode IN ('text', 'audio')),
+        model_name    TEXT        NOT NULL,
+        input_tokens  INTEGER     NOT NULL DEFAULT 0,
+        output_tokens INTEGER     NOT NULL DEFAULT 0,
+        total_tokens  INTEGER     GENERATED ALWAYS AS (input_tokens + output_tokens) STORED,
+        ip_address    INET,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_ctu_created_at  ON chatbot_token_usage (created_at DESC);`).catch(() => {});
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_ctu_session_id  ON chatbot_token_usage (session_id);`).catch(() => {});
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_ctu_mode        ON chatbot_token_usage (mode);`).catch(() => {});
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_ctu_model_name  ON chatbot_token_usage (model_name);`).catch(() => {});
+    await aiDocumentPool.query(`CREATE INDEX IF NOT EXISTS idx_ctu_ip          ON chatbot_token_usage (ip_address);`).catch(() => {});
+
+    console.log('✅ All AI/Chatbot tables ready (documents, document_chunks, chunk_embeddings, chatbot_config, chat_sessions, chat_messages, chatbot_token_usage)');
   } catch (error) {
     console.error('❌ Error initializing AI Document tables:', error.message);
     throw error;
