@@ -797,7 +797,7 @@ const DocumentManagement = () => {
   // ═══════════════════════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-5">
+      <div className="w-full space-y-5">
 
         {/* ── Page header ────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between">
@@ -1417,48 +1417,6 @@ const DocumentManagement = () => {
                         <p className="text-[11px] text-gray-400 mt-1">BCP-47 · e.g. en-US, hi-IN, mr-IN</p>
                       </div>
 
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Speaking Rate</label>
-                          <span className="text-xs font-bold text-purple-600 tabular-nums">{(cfg.speaking_rate ?? 1.0).toFixed(2)}×</span>
-                        </div>
-                        <input type="range" min={0.25} max={4.0} step={0.05} value={cfg.speaking_rate ?? 1.0}
-                          onChange={(e) => setCfgField('speaking_rate')(Number(e.target.value))}
-                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
-                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
-                          <span>0.25× Slow</span><span>1.0 Normal</span><span>4.0× Fast</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Pitch</label>
-                          <span className="text-xs font-bold text-purple-600 tabular-nums">
-                            {(cfg.pitch ?? 0) >= 0 ? `+${(cfg.pitch ?? 0).toFixed(1)}` : (cfg.pitch ?? 0).toFixed(1)} st
-                          </span>
-                        </div>
-                        <input type="range" min={-20} max={20} step={0.5} value={cfg.pitch ?? 0}
-                          onChange={(e) => setCfgField('pitch')(Number(e.target.value))}
-                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
-                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
-                          <span>−20 Low</span><span>0 Natural</span><span>+20 High</span>
-                        </div>
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1.5">
-                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Volume Gain</label>
-                          <span className="text-xs font-bold text-purple-600 tabular-nums">
-                            {(cfg.volume_gain_db ?? 0) >= 0 ? `+${(cfg.volume_gain_db ?? 0).toFixed(1)}` : (cfg.volume_gain_db ?? 0).toFixed(1)} dB
-                          </span>
-                        </div>
-                        <input type="range" min={-96} max={16} step={0.5} value={cfg.volume_gain_db ?? 0}
-                          onChange={(e) => setCfgField('volume_gain_db')(Number(e.target.value))}
-                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
-                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
-                          <span>−96 dB</span><span>0 Normal</span><span>+16 dB</span>
-                        </div>
-                      </div>
 
                     </div>
                   </div>
