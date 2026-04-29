@@ -1,10 +1,14 @@
 const { DocumentProcessorServiceClient } = require('@google-cloud/documentai').v1;
 
+// Singleton — recreating the gRPC client on every poll causes auth hangs
+let _client = null;
 const getDocAIClient = () => {
+  if (_client) return _client;
   const keyBase64 = process.env.GCS_KEY_BASE64;
   if (!keyBase64) throw new Error('GCS_KEY_BASE64 environment variable is not set');
   const credentials = JSON.parse(Buffer.from(keyBase64, 'base64').toString('utf8'));
-  return new DocumentProcessorServiceClient({ credentials });
+  _client = new DocumentProcessorServiceClient({ credentials });
+  return _client;
 };
 
 /**
@@ -13,9 +17,9 @@ const getDocAIClient = () => {
  */
 const triggerBatchProcess = async (gcsInputPath, gcsOutputPrefix) => {
   const client = getDocAIClient();
-  const projectId = process.env.GCLOUD_PROJECT_ID;
-  const location = process.env.DOCUMENT_AI_LOCATION;
-  const processorId = process.env.DOCUMENT_AI_PROCESSOR_ID;
+  const projectId    = process.env.GCLOUD_PROJECT_ID;
+  const location     = process.env.DOCUMENT_AI_LOCATION;
+  const processorId  = process.env.DOCUMENT_AI_PROCESSOR_ID;
   const processorVersion = process.env.DOCUMENT_AI_OCR_VERSION;
 
   const processorName = `projects/${projectId}/locations/${location}/processors/${processorId}/processorVersions/${processorVersion}`;
@@ -37,13 +41,24 @@ const triggerBatchProcess = async (gcsInputPath, gcsOutputPrefix) => {
 };
 
 /**
- * Poll an LRO by operation name.
+ * Poll an LRO by operation name with automatic retry on transient errors.
  * Returns { done, error }.
  */
-const pollOperation = async (operationName) => {
+const pollOperation = async (operationName, maxRetries = 3) => {
   const client = getDocAIClient();
-  const [operation] = await client.operationsClient.getOperation({ name: operationName });
-  return { done: Boolean(operation.done), error: operation.error || null };
+  let lastErr;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const [operation] = await client.operationsClient.getOperation({ name: operationName });
+      return { done: Boolean(operation.done), error: operation.error || null };
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxRetries - 1) {
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastErr;
 };
 
 module.exports = { triggerBatchProcess, pollOperation };

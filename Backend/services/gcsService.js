@@ -1,17 +1,18 @@
 const { Storage } = require('@google-cloud/storage');
 
+// Singleton — avoids creating a new Storage instance on every GCS call
+let _storage = null;
 const getGcsClient = () => {
+  if (_storage) return _storage;
   const keyBase64 = process.env.GCS_KEY_BASE64;
   if (!keyBase64) throw new Error('GCS_KEY_BASE64 environment variable is not set');
   const credentials = JSON.parse(Buffer.from(keyBase64, 'base64').toString('utf8'));
-  return new Storage({ credentials, projectId: process.env.GCLOUD_PROJECT_ID });
+  _storage = new Storage({ credentials, projectId: process.env.GCLOUD_PROJECT_ID });
+  return _storage;
 };
 
 /**
  * Generate a v4 signed URL for direct client upload to GCS.
- * @param {string} fileName - The object name inside the input bucket
- * @param {string} contentType - MIME type of the file (default: application/pdf)
- * @returns {Promise<string>} The signed upload URL
  */
 const generateSignedUrl = async (fileName, contentType = 'application/pdf') => {
   const storage = getGcsClient();
@@ -19,9 +20,9 @@ const generateSignedUrl = async (fileName, contentType = 'application/pdf') => {
     .bucket(process.env.GCS_INPUT_BUCKET)
     .file(fileName)
     .getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: Date.now() + 15 * 60 * 1000, // 15 minutes
+      version:     'v4',
+      action:      'write',
+      expires:     Date.now() + 15 * 60 * 1000,
       contentType,
     });
   return url;
@@ -29,8 +30,6 @@ const generateSignedUrl = async (fileName, contentType = 'application/pdf') => {
 
 /**
  * List all files under a GCS prefix in the output bucket.
- * @param {string} prefix - GCS folder prefix (e.g., "ocr-output/<docId>/")
- * @returns {Promise<File[]>} Array of GCS File objects
  */
 const listOutputFiles = async (prefix) => {
   const storage = getGcsClient();
@@ -42,8 +41,6 @@ const listOutputFiles = async (prefix) => {
 
 /**
  * Download and parse a JSON file from GCS.
- * @param {File} gcsFile - GCS File object
- * @returns {Promise<Object>} Parsed JSON object
  */
 const downloadJsonFile = async (gcsFile) => {
   const [contents] = await gcsFile.download();
