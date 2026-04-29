@@ -2,8 +2,100 @@ const { v4: uuidv4 } = require('uuid');
 const { generateSignedUrl, listOutputFiles, downloadJsonFile } = require('../services/gcsService');
 const { triggerBatchProcess, pollOperation } = require('../services/documentAIService');
 const { parseDocumentAIJson, splitIntoChunks } = require('../services/chunkingService');
+const { ocrPdfToChunks } = require('../services/parallelPageOcrService');
 const { getBatchEmbeddings } = require('../services/embeddingService');
 const pool = require('../config/aiDocumentDB');
+
+/**
+ * GCS batch OCR: single LRO, then download shards, sort by file name, merge pages → chunks.
+ */
+async function runBatchOcrToChunks(docId, gcsInputPath, heartbeat, lap) {
+  const outputPrefix = `gs://${process.env.GCS_OUTPUT_BUCKET}/ocr-output/${docId}/`;
+  heartbeat(`Document AI batchProcessDocuments starting (input=${gcsInputPath}, outputPrefix=${outputPrefix})`);
+  const operationName = await triggerBatchProcess(gcsInputPath, outputPrefix);
+  heartbeat(`Document AI LRO created: ${operationName}`);
+  await pool.query(
+    `UPDATE documents SET operation_id = $1, updated_at = NOW() WHERE id = $2`,
+    [operationName, docId]
+  );
+
+  let done = false;
+  let delay = 3000;
+  const deadline = Date.now() + 20 * 60 * 1000;
+  let pollCount = 0;
+  let lastHeartbeatLog = Date.now();
+
+  while (!done) {
+    if (Date.now() > deadline) {
+      throw new Error('Document AI OCR timed out after 20 minutes');
+    }
+    await new Promise((r) => setTimeout(r, delay));
+    delay = Math.min(delay * 2, 30_000);
+
+    const { done: isDone, error } = await pollOperation(operationName);
+    if (error) throw new Error(`Document AI LRO error: ${JSON.stringify(error)}`);
+    done = isDone;
+    pollCount += 1;
+    const now = Date.now();
+    if (!done) {
+      const due = pollCount === 1 || now - lastHeartbeatLog >= 30_000;
+      if (due) {
+        lastHeartbeatLog = now;
+        heartbeat(
+          pollCount === 1
+            ? `OCR LRO first poll: still processing (next wait ${delay / 1000}s, ~${Math.round((deadline - now) / 1000)}s until timeout)`
+            : `OCR LRO still running (poll #${pollCount}, next wait ${delay / 1000}s, ~${Math.round((deadline - now) / 1000)}s until timeout)`
+        );
+      }
+    }
+  }
+
+  lap(`OCR complete (${pollCount} poll(s))`);
+  await pool.query(
+    `UPDATE documents SET processing_status = 'ocr_completed', updated_at = NOW() WHERE id = $1`,
+    [docId]
+  );
+
+  const files = await listOutputFiles(`ocr-output/${docId}/`);
+  const jsonFiles = files
+    .filter((f) => f.name.endsWith('.json'))
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  if (!jsonFiles.length) throw new Error('No Document AI output JSON files found in GCS');
+
+  const downloadedDocs = await Promise.all(jsonFiles.map((f) => downloadJsonFile(f)));
+  lap(`Downloaded ${jsonFiles.length} shard(s)`);
+
+  const shardResults = await Promise.all(
+    downloadedDocs.map((docAIJson, i) =>
+      new Promise((resolve) => {
+        setImmediate(() => {
+          const chunks = splitIntoChunks(parseDocumentAIJson(docAIJson));
+          resolve({
+            chunks,
+            pages: (docAIJson.pages || []).length,
+            path: `gs://${process.env.GCS_OUTPUT_BUCKET}/${jsonFiles[i].name}`,
+          });
+        });
+      })
+    )
+  );
+
+  let allChunks = [];
+  let totalPages = 0;
+  let ocrPath = null;
+
+  for (const shard of shardResults) {
+    totalPages += shard.pages;
+    if (!ocrPath) ocrPath = shard.path;
+    const offset = allChunks.length;
+    allChunks = allChunks.concat(
+      shard.chunks.map((c) => ({ ...c, chunk_index: c.chunk_index + offset }))
+    );
+  }
+
+  lap(`Parsed ${allChunks.length} chunks across ${shardResults.length} shard(s), ${totalPages} pages`);
+  return { allChunks, totalPages, ocrPath };
+}
 
 // ─── Pipeline concurrency limiter ─────────────────────────────────────────────
 // Caps parallel pipelines so the DB pool (max 10) and GCP quotas are not exhausted.
@@ -92,88 +184,63 @@ const processDocumentHandler = async (req, res) => {
 // ─── Background Pipeline ──────────────────────────────────────────────────────
 
 const runProcessingPipeline = async (docId, gcsInputPath) => {
-  await acquireSlot();
   const t0 = Date.now();
   const lap = (label) =>
     console.log(`⏱  [doc:${docId}] ${label} (+${((Date.now() - t0) / 1000).toFixed(1)}s)`);
+  const heartbeat = (msg) => {
+    // stderr is often less buffered than stdout when the process is not a TTY (e.g. some Docker/PM2 setups)
+    console.error(`[doc:${docId}] ${msg}`);
+  };
+
+  heartbeat('Pipeline scheduled — waiting for concurrency slot (max 3 parallel)…');
+  await acquireSlot();
+  heartbeat('Slot acquired — starting document processing');
 
   try {
     await pool.query(
       `UPDATE documents SET processing_status = 'ocr_processing', updated_at = NOW() WHERE id = $1`,
       [docId]
     );
-    lap('OCR submitted');
+    lap('DB status set to ocr_processing');
 
-    // ── Step 1: Trigger Document AI batch OCR ─────────────────────────────
-    const outputPrefix = `gs://${process.env.GCS_OUTPUT_BUCKET}/ocr-output/${docId}/`;
-    const operationName = await triggerBatchProcess(gcsInputPath, outputPrefix);
-    await pool.query(
-      `UPDATE documents SET operation_id = $1, updated_at = NOW() WHERE id = $2`,
-      [operationName, docId]
-    );
-
-    // ── Step 2: Poll LRO — exponential backoff up to 30s, 20-min timeout ──
-    // Starts at 3s, doubles each miss up to 30s ceiling, retries up to 20 min.
-    let done = false;
-    let delay = 3000;
-    const deadline = Date.now() + 20 * 60 * 1000; // 20 minutes
-
-    while (!done) {
-      if (Date.now() > deadline) {
-        throw new Error('Document AI OCR timed out after 20 minutes');
-      }
-      await new Promise((r) => setTimeout(r, delay));
-      delay = Math.min(delay * 2, 30_000); // cap at 30s
-
-      const { done: isDone, error } = await pollOperation(operationName);
-      if (error) throw new Error(`Document AI LRO error: ${JSON.stringify(error)}`);
-      done = isDone;
-    }
-
-    lap('OCR complete');
-    await pool.query(
-      `UPDATE documents SET processing_status = 'ocr_completed', updated_at = NOW() WHERE id = $1`,
-      [docId]
-    );
-
-    // ── Step 3: Download all GCS shard JSON files in parallel ─────────────
-    const files     = await listOutputFiles(`ocr-output/${docId}/`);
-    const jsonFiles = files.filter((f) => f.name.endsWith('.json'));
-    if (!jsonFiles.length) throw new Error('No Document AI output JSON files found in GCS');
-
-    const downloadedDocs = await Promise.all(jsonFiles.map((f) => downloadJsonFile(f)));
-    lap(`Downloaded ${jsonFiles.length} shard(s)`);
-
-    // ── Step 4: Parse + chunk all shards in parallel ──────────────────────
-    const shardResults = await Promise.all(
-      downloadedDocs.map((docAIJson, i) =>
-        new Promise((resolve) => {
-          setImmediate(() => {
-            const chunks = splitIntoChunks(parseDocumentAIJson(docAIJson));
-            resolve({
-              chunks,
-              pages: (docAIJson.pages || []).length,
-              path:  `gs://${process.env.GCS_OUTPUT_BUCKET}/${jsonFiles[i].name}`,
-            });
-          });
-        })
-      )
-    );
-
-    let allChunks  = [];
-    let totalPages = 0;
-    let ocrPath    = null;
-
-    for (const shard of shardResults) {
-      totalPages = Math.max(totalPages, shard.pages);
-      if (!ocrPath) ocrPath = shard.path;
-      const offset = allChunks.length;
-      allChunks = allChunks.concat(
-        shard.chunks.map((c) => ({ ...c, chunk_index: c.chunk_index + offset }))
+    const missing = ['GCLOUD_PROJECT_ID', 'DOCUMENT_AI_LOCATION', 'DOCUMENT_AI_PROCESSOR_ID', 'DOCUMENT_AI_OCR_VERSION', 'GCS_OUTPUT_BUCKET']
+      .filter((k) => !process.env[k] || String(process.env[k]).trim() === '');
+    if (missing.length) {
+      throw new Error(
+        `Missing Document AI / GCS env: ${missing.join(', ')}. (Docs may name OCR version DOCUMENT_AI_OCR_PROCESSOR_VERSION_ID — this app expects DOCUMENT_AI_OCR_VERSION.)`
       );
     }
 
-    lap(`Parsed ${allChunks.length} chunks across ${shardResults.length} shard(s), ${totalPages} pages`);
+    // ── OCR: parallel per-page processDocument (default for .pdf) or GCS batch LRO ──
+    const useBatchOnly = process.env.DOCUMENT_AI_USE_BATCH_OCR === 'true';
+    const isPdfPath = /\.pdf$/i.test(gcsInputPath);
+
+    let allChunks;
+    let totalPages;
+    let ocrPath;
+
+    if (!useBatchOnly && isPdfPath) {
+      try {
+        heartbeat('Using parallel small-batch Document AI OCR + merged chunking');
+        await pool.query(
+          `UPDATE documents SET operation_id = $1, updated_at = NOW() WHERE id = $2`,
+          ['parallel-batch-ocr', docId]
+        );
+        const parallel = await ocrPdfToChunks(gcsInputPath, { heartbeat, lap, docId });
+        allChunks = parallel.chunks;
+        totalPages = parallel.totalPages;
+        ocrPath = parallel.gcsOcrPath;
+        await pool.query(
+          `UPDATE documents SET processing_status = 'ocr_completed', updated_at = NOW() WHERE id = $1`,
+          [docId]
+        );
+      } catch (parallelErr) {
+        heartbeat(`Parallel batch OCR skipped (${parallelErr.message}) — using batch Document AI`);
+        ({ allChunks, totalPages, ocrPath } = await runBatchOcrToChunks(docId, gcsInputPath, heartbeat, lap));
+      }
+    } else {
+      ({ allChunks, totalPages, ocrPath } = await runBatchOcrToChunks(docId, gcsInputPath, heartbeat, lap));
+    }
 
     await pool.query(
       `UPDATE documents SET total_pages = $1, gcs_ocr_path = $2,

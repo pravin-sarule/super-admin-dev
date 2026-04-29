@@ -11,18 +11,37 @@ const getDocAIClient = () => {
   return _client;
 };
 
+const buildProcessorVersionName = () => {
+  const projectId = process.env.GCLOUD_PROJECT_ID;
+  const location = process.env.DOCUMENT_AI_LOCATION;
+  const processorId = process.env.DOCUMENT_AI_PROCESSOR_ID;
+  const processorVersion = process.env.DOCUMENT_AI_OCR_VERSION;
+  return `projects/${projectId}/locations/${location}/processors/${processorId}/processorVersions/${processorVersion}`;
+};
+
+/**
+ * Online processDocument — one PDF per call (used for parallel per-page OCR).
+ * Returns a plain JSON-like document matching batch output shape for chunking.
+ */
+const processDocumentRaw = async (pdfBuffer) => {
+  const client = getDocAIClient();
+  const buf = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
+  const [result] = await client.processDocument({
+    name: buildProcessorVersionName(),
+    rawDocument: { content: buf, mimeType: 'application/pdf' },
+  });
+  const doc = result.document;
+  if (!doc) throw new Error('Document AI processDocument returned an empty document');
+  return typeof doc.toJSON === 'function' ? doc.toJSON() : JSON.parse(JSON.stringify(doc));
+};
+
 /**
  * Trigger a Document AI batchProcessDocuments LRO.
  * Returns the GCP operation name (used to poll for completion).
  */
 const triggerBatchProcess = async (gcsInputPath, gcsOutputPrefix) => {
   const client = getDocAIClient();
-  const projectId    = process.env.GCLOUD_PROJECT_ID;
-  const location     = process.env.DOCUMENT_AI_LOCATION;
-  const processorId  = process.env.DOCUMENT_AI_PROCESSOR_ID;
-  const processorVersion = process.env.DOCUMENT_AI_OCR_VERSION;
-
-  const processorName = `projects/${projectId}/locations/${location}/processors/${processorId}/processorVersions/${processorVersion}`;
+  const processorName = buildProcessorVersionName();
 
   const request = {
     name: processorName,
@@ -54,6 +73,9 @@ const pollOperation = async (operationName, maxRetries = 3) => {
     } catch (err) {
       lastErr = err;
       if (attempt < maxRetries - 1) {
+        console.warn(
+          `[Document AI] getOperation transient error (attempt ${attempt + 1}/${maxRetries}): ${err.message}`
+        );
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
       }
     }
@@ -61,4 +83,4 @@ const pollOperation = async (operationName, maxRetries = 3) => {
   throw lastErr;
 };
 
-module.exports = { triggerBatchProcess, pollOperation };
+module.exports = { triggerBatchProcess, pollOperation, processDocumentRaw };

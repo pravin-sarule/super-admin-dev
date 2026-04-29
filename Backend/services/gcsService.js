@@ -47,4 +47,16 @@ const downloadJsonFile = async (gcsFile) => {
   return JSON.parse(contents.toString('utf8'));
 };
 
-module.exports = { getGcsClient, generateSignedUrl, listOutputFiles, downloadJsonFile };
+/**
+ * Download a file from a full gs://bucket/object path as a Buffer.
+ */
+const downloadGsUriToBuffer = async (gcsUri) => {
+  const m = String(gcsUri).match(/^gs:\/\/([^/]+)\/(.+)$/);
+  if (!m) throw new Error(`Invalid GCS URI: ${gcsUri}`);
+  const [, bucket, objectPath] = m;
+  const storage = getGcsClient();
+  const [buf] = await storage.bucket(bucket).file(objectPath).download();
+  return buf;
+};
+
+module.exports = { getGcsClient, generateSignedUrl, listOutputFiles, downloadJsonFile, downloadGsUriToBuffer };

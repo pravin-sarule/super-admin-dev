@@ -38,6 +38,25 @@ const parseDocumentAIJson = (docAIJson) => {
 };
 
 /**
+ * Parse a single-page (or any) Document AI JSON and force all segments to one logical page index.
+ * Used when OCR runs per physical page and each response uses pageNumber 1.
+ */
+const parseDocumentAIJsonWithPageOverride = (docAIJson, pageNumberOverride) => {
+  const segments = parseDocumentAIJson(docAIJson);
+  return segments.map((s) => ({ ...s, pageNumber: pageNumberOverride }));
+};
+
+/**
+ * Map segment page numbers from a sub-PDF (local pages 1..k) to document-global 1-based pages.
+ * Used when OCR runs on a small multi-page batch cropped from the original.
+ */
+const remapSegmentPagesToDocument = (segments, firstGlobalPage1Based) =>
+  segments.map((s) => ({
+    ...s,
+    pageNumber: firstGlobalPage1Based + (Number(s.pageNumber) || 1) - 1,
+  }));
+
+/**
  * Split segments into chunks of ~CHUNK_TOKEN_LIMIT words, preserving page metadata.
  */
 const splitIntoChunks = (segments) => {
@@ -78,4 +97,9 @@ const splitIntoChunks = (segments) => {
   return chunks;
 };
 
-module.exports = { parseDocumentAIJson, splitIntoChunks };
+module.exports = {
+  parseDocumentAIJson,
+  parseDocumentAIJsonWithPageOverride,
+  remapSegmentPagesToDocument,
+  splitIntoChunks,
+};

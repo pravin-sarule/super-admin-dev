@@ -640,6 +640,7 @@ const initializeAIDocumentTables = async () => {
         document_type        VARCHAR(50),
         checksum             TEXT,
         total_pages          INT,
+        ready_for_chat       BOOLEAN DEFAULT FALSE,
         created_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at           TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
@@ -655,6 +656,7 @@ const initializeAIDocumentTables = async () => {
       `ALTER TABLE documents ADD COLUMN IF NOT EXISTS document_type       VARCHAR(50)`,
       `ALTER TABLE documents ADD COLUMN IF NOT EXISTS checksum            TEXT`,
       `ALTER TABLE documents ADD COLUMN IF NOT EXISTS total_pages         INT`,
+      `ALTER TABLE documents ADD COLUMN IF NOT EXISTS ready_for_chat      BOOLEAN DEFAULT FALSE`,
       // Extra operational columns not in the base schema but needed by pipeline
       `ALTER TABLE documents ADD COLUMN IF NOT EXISTS total_chunks        INT`,
       `ALTER TABLE documents ADD COLUMN IF NOT EXISTS operation_id        TEXT`,
