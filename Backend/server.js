@@ -46,6 +46,7 @@ const userAdminRoutes = require('./routes/user_routes/users.routes');
 const llmChatConfigRoutes = require('./routes/llmChatConfigRoutes');
 const summarizationChatConfigRoutes = require('./routes/summarizationChatConfigRoutes');
 const aiDocumentRoutes = require('./routes/aiDocumentRoutes');
+const { recoverStuckDocuments } = require('./controllers/aiDocumentController');
 const chatbotConfigRoutes = require('./routes/chatbotConfigRoutes');
 const chatbotTokenUsageRoutes = require('./routes/chatbotTokenUsageRoutes');
 const chatHistoryRoutes = require('./routes/chatHistoryRoutes');
@@ -966,6 +967,7 @@ const startServer = async () => {
     await initializeSupportWorkspaceSchema();
     await initializeSupportPrioritiesTable();
     await initializeAIDocumentTables();
+    await recoverStuckDocuments();
 
     const shutdown = async (signal) => {
       console.log(`\n⚠️  ${signal} received. Closing server...`);

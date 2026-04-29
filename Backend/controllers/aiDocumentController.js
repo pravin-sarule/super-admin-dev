@@ -294,10 +294,45 @@ const deleteDocumentHandler = async (req, res) => {
   }
 };
 
+// ─── Startup Recovery (Cloud Run scale-to-zero safe) ─────────────────────────
+// Cloud Run can kill instances mid-pipeline. On startup this finds any document
+// stuck in an intermediate state for >15 min and re-queues it from scratch.
+const recoverStuckDocuments = async () => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, gcs_input_path FROM documents
+       WHERE processing_status IN ('ocr_processing', 'embedding_processing', 'ocr_completed')
+       AND updated_at < NOW() - INTERVAL '15 minutes'`
+    );
+    if (!rows.length) {
+      console.log('✅ No stuck documents found on startup.');
+      return;
+    }
+    console.log(`🔄 Found ${rows.length} stuck document(s) — recovering…`);
+    for (const doc of rows) {
+      // Clear partial chunks/embeddings (CASCADE deletes embeddings too)
+      await pool.query(`DELETE FROM document_chunks WHERE document_id = $1`, [doc.id]);
+      await pool.query(
+        `UPDATE documents SET processing_status = 'uploaded', operation_id = NULL,
+         error_message = NULL, total_chunks = 0, ready_for_chat = FALSE, updated_at = NOW()
+         WHERE id = $1`,
+        [doc.id]
+      );
+      runProcessingPipeline(doc.id, doc.gcs_input_path).catch((err) =>
+        console.error(`❌ Recovery pipeline failed for doc ${doc.id}:`, err.message)
+      );
+    }
+    console.log(`🔄 ${rows.length} document(s) queued for recovery.`);
+  } catch (err) {
+    console.error('❌ Document recovery check failed:', err.message);
+  }
+};
+
 module.exports = {
   generateSignedUrlHandler,
   processDocumentHandler,
   listDocumentsHandler,
   getDocumentHandler,
   deleteDocumentHandler,
+  recoverStuckDocuments,
 };
