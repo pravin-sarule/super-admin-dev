@@ -50,6 +50,28 @@ const StatusBadge = ({ status }) => {
   );
 };
 
+const DOT_COLOR = {
+  active:               'bg-emerald-500',
+  ocr_completed:        'bg-teal-500',
+  embedding_processing: 'bg-purple-500',
+  ocr_processing:       'bg-blue-500',
+  uploaded:             'bg-amber-400',
+  pending_upload:       'bg-gray-400',
+  failed:               'bg-red-500',
+};
+
+const PipelineStatus = ({ status }) => {
+  const { label } = getStatusMeta(status);
+  const dot = DOT_COLOR[status] || 'bg-gray-400';
+  const pulse = isProcessing(status);
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className={`w-2 h-2 rounded-full flex-shrink-0 ${dot} ${pulse ? 'animate-pulse' : ''}`} />
+      <span className="text-sm font-medium text-gray-700">{label}</span>
+    </span>
+  );
+};
+
 const isProcessing = (s) => ['ocr_processing', 'embedding_processing', 'uploaded'].includes(s);
 
 const formatDate = (d) => d ? new Date(d).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -199,14 +221,23 @@ const Accordion = ({ icon: Icon, iconColor, title, badge, defaultOpen = false, c
 
 // ─── Stat Card ─────────────────────────────────────────────────────────────────
 
-const StatCard = ({ label, value, icon: Icon, color }) => (
-  <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
+const StatCard = ({ label, value, icon: Icon, color, sub, rate }) => (
+  <div className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4 shadow-sm hover:shadow-md transition-shadow">
     <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
       <Icon className="w-5 h-5 text-white" />
     </div>
-    <div>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
-      <p className="text-xs text-gray-500 font-medium">{label}</p>
+    <div className="flex-1 min-w-0">
+      <p className="text-2xl font-bold text-gray-900 leading-none">{value}</p>
+      <p className="text-xs text-gray-500 font-medium mt-1">{label}</p>
+      {rate != null && (
+        <div className="mt-2">
+          <div className="w-full bg-gray-100 rounded-full h-1.5">
+            <div className="bg-emerald-500 h-1.5 rounded-full transition-all" style={{ width: `${Math.min(rate, 100)}%` }} />
+          </div>
+          <p className="text-xs text-emerald-600 font-semibold mt-1">{rate}% Rate</p>
+        </div>
+      )}
+      {sub && <p className="text-xs text-gray-400 mt-1.5">{sub}</p>}
     </div>
   </div>
 );
@@ -246,6 +277,7 @@ const DocumentManagement = () => {
   const [usagePeriod, setUsagePeriod]   = useState('daily');
   const [usageModel, setUsageModel]     = useState('all');
   const [usageLoading, setUsageLoading] = useState(false);
+  const [logsLimit, setLogsLimit]       = useState(10);
   const [usageError, setUsageError]     = useState(null);
 
   // ─── Chat History state ──────────────────────────────────────────────────────
@@ -339,6 +371,8 @@ const DocumentManagement = () => {
   useEffect(() => {
     if (activeTab === 'usage') fetchUsage();
   }, [activeTab, fetchUsage]);
+
+  useEffect(() => { setLogsLimit(10); }, [usagePeriod, usageModel]);
 
   // ─── Chat history fetch ───────────────────────────────────────────────────────
   const fetchChatSessions = useCallback(async (page = chatPage) => {
@@ -596,12 +630,14 @@ const DocumentManagement = () => {
 
         {/* ── Page header ────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-              <Cpu className="w-6 h-6 text-indigo-600" />
-              AI Document Processing
-            </h1>
-            <p className="text-sm text-gray-500 mt-0.5">Upload → OCR → Chunk → Embed → pgvector</p>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center shadow-sm">
+              <Bot className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold text-gray-900 leading-none">AI Chatbot</h1>
+              <p className="text-xs text-gray-400 mt-0.5">Upload → OCR → Chunk → Embed → Vector DB</p>
+            </div>
           </div>
           {selectedDoc && (
             <button onClick={() => setSelectedDoc(null)}
@@ -635,18 +671,39 @@ const DocumentManagement = () => {
           <>
             {/* Stat cards */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <StatCard label="Total Documents"   value={counts.all}        icon={FileText}    color="bg-indigo-500" />
-              <StatCard label="Active & Indexed"  value={counts.active}     icon={CheckCircle} color="bg-emerald-500" />
-              <StatCard label="Processing"        value={counts.processing}  icon={Clock}       color="bg-blue-500" />
-              <StatCard label="Total Chunks"      value={counts.chunks}     icon={Database}    color="bg-purple-500" />
+              <StatCard
+                label="Total Documents" value={counts.all} icon={FileText} color="bg-indigo-500"
+                sub={counts.all > 0 ? `${counts.active} active · ${counts.failed} failed` : 'No documents yet'}
+              />
+              <StatCard
+                label="Active & Indexed" value={counts.active} icon={CheckCircle} color="bg-emerald-500"
+                rate={counts.all > 0 ? Math.round((counts.active / counts.all) * 100) : 0}
+              />
+              <StatCard
+                label="Processing Queue" value={counts.processing} icon={Clock} color="bg-blue-500"
+                sub={counts.processing === 0 ? 'All queues clear' : `${counts.processing} in pipeline`}
+              />
+              <StatCard
+                label="Total Chunks" value={counts.chunks} icon={Database} color="bg-purple-500"
+                sub={counts.active > 0
+                  ? `AVG ${Math.round(counts.chunks / counts.active)}/DOC · Ready for vector DB`
+                  : 'Ready for vector DB'}
+              />
             </div>
 
             {/* Upload zone */}
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <h2 className="text-sm font-semibold text-gray-700 mb-4 flex items-center gap-2">
-                <CloudUpload className="w-4 h-4 text-indigo-500" />
-                Upload Document
-              </h2>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-semibold text-gray-800 flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-600 flex items-center justify-center">
+                    <CloudUpload className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  Document Ingestion
+                </h2>
+                <span className="text-xs text-gray-400 flex items-center gap-1">
+                  <Zap className="w-3 h-3 text-yellow-400" /> Secure pipeline
+                </span>
+              </div>
 
               {/* Drop zone */}
               <div
@@ -690,11 +747,15 @@ const DocumentManagement = () => {
                     )}
                   </div>
                 ) : (
-                  <>
-                    <FileUp className="w-10 h-10 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm font-medium text-gray-600">Drop a PDF here, or click to browse</p>
-                    <p className="text-xs text-gray-400 mt-1">Only PDF files are supported</p>
-                  </>
+                  <div className="flex flex-col items-center">
+                    <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center mb-3">
+                      <FileText className="w-7 h-7 text-red-400" />
+                    </div>
+                    <p className="text-sm font-semibold text-gray-700">Click to browse or drag PDF here</p>
+                    <p className="text-xs text-gray-400 mt-1.5 max-w-xs text-center leading-relaxed">
+                      Supports standard and scanned PDFs up to 50MB. Documents are processed asynchronously via secure pipelines.
+                    </p>
+                  </div>
                 )}
               </div>
 
@@ -712,19 +773,15 @@ const DocumentManagement = () => {
               )}
 
               {/* Controls row */}
-              <div className="flex flex-wrap items-end gap-3 mt-4">
-                <div className="flex-1 min-w-[180px]">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Document Type</label>
-                  <SelectInput
-                    value={uploadType}
-                    options={DOCUMENT_TYPES}
-                    onChange={setUploadType}
-                  />
+              <div className="flex flex-wrap items-end gap-3 mt-5 pt-4 border-t border-gray-100">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Processing Profile</label>
+                  <SelectInput value={uploadType} options={DOCUMENT_TYPES} onChange={setUploadType} />
                 </div>
                 <button
                   onClick={handleUpload}
                   disabled={uploadLoading || !uploadFile}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="inline-flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {uploadLoading ? (
                     <><RefreshCw className="w-4 h-4 animate-spin" />{stageLabel[uploadStage] || 'Working…'}</>
@@ -734,9 +791,9 @@ const DocumentManagement = () => {
                 </button>
               </div>
 
-              <p className="text-xs text-gray-400 mt-3 flex items-center gap-1">
-                <Zap className="w-3.5 h-3.5 text-yellow-400" />
-                File uploads directly to GCS via signed URL — no server buffering. OCR + embedding runs async.
+              <p className="text-xs text-gray-400 mt-3 flex items-center gap-1 uppercase tracking-wide font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
+                File uploads directly to GCS via signed URL — zero server buffering
               </p>
             </div>
 
@@ -746,21 +803,24 @@ const DocumentManagement = () => {
                 {/* Status chips */}
                 <div className="flex gap-2 flex-wrap">
                   {[
-                    { key: 'all',          label: `All (${counts.all})` },
-                    { key: 'active',       label: `Active (${counts.active})` },
-                    { key: 'ocr_processing', label: `Processing (${counts.processing})` },
-                    { key: 'failed',       label: `Failed (${counts.failed})` },
-                  ].map(({ key, label }) => (
+                    { key: 'all',            label: 'All',        count: counts.all },
+                    { key: 'active',         label: 'Active',     count: counts.active },
+                    { key: 'ocr_processing', label: 'Processing', count: counts.processing },
+                    { key: 'failed',         label: 'Failed',     count: counts.failed },
+                  ].map(({ key, label, count }) => (
                     <button
                       key={key}
                       onClick={() => { setStatusFilter(key); setCurrentPage(1); }}
-                      className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all border ${
+                      className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all border ${
                         statusFilter === key
                           ? 'bg-indigo-600 text-white border-indigo-600'
                           : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400 hover:text-indigo-600'
                       }`}
                     >
                       {label}
+                      <span className={`text-xs font-bold ${statusFilter === key ? 'text-indigo-200' : 'text-gray-400'}`}>
+                        {count}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -771,10 +831,10 @@ const DocumentManagement = () => {
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5" />
                     <input
                       type="text"
-                      placeholder="Search…"
+                      placeholder="Filter documents…"
                       value={searchValue}
                       onChange={(e) => { setSearchValue(e.target.value); setCurrentPage(1); }}
-                      className="pl-8 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-48"
+                      className="pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-48"
                     />
                   </div>
                   <div className="relative">
@@ -782,13 +842,14 @@ const DocumentManagement = () => {
                     <select
                       value={typeFilter}
                       onChange={(e) => { setTypeFilter(e.target.value); setCurrentPage(1); }}
-                      className="pl-7 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 appearance-none bg-white"
+                      className="pl-7 pr-8 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 appearance-none bg-white font-medium text-gray-700"
                     >
-                      <option value="all">All Types</option>
+                      <option value="all">Types</option>
                       {DOCUMENT_TYPES.map((t) => (
                         <option key={t.value} value={t.value}>{t.label}</option>
                       ))}
                     </select>
+                    <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
                   </div>
                   <button
                     onClick={fetchDocuments}
@@ -813,10 +874,10 @@ const DocumentManagement = () => {
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-100">
-                  <thead className="bg-gray-50">
+                  <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      {['Document', 'Type', 'Status', 'Pages', 'Chunks', 'Uploaded', 'Actions'].map((h) => (
-                        <th key={h} className="px-5 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      {['Document Details', 'Type Profile', 'Pipeline Status', 'Metrics', 'Added / Processed', 'Actions'].map((h) => (
+                        <th key={h} className="px-5 py-3.5 text-left text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap">
                           {h}
                         </th>
                       ))}
@@ -846,53 +907,65 @@ const DocumentManagement = () => {
                       </tr>
                     ) : (
                       paginated.map((doc) => (
-                        <tr key={doc.id} className="hover:bg-gray-50 transition-colors group">
-                          {/* Name */}
-                          <td className="px-5 py-3.5">
-                            <div className="flex items-center gap-2.5">
-                              <div className="w-8 h-8 bg-red-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <FileText className="w-4 h-4 text-red-400" />
+                        <tr key={doc.id} className="hover:bg-indigo-50/20 transition-colors group border-b border-gray-100 last:border-0">
+                          {/* Document Details */}
+                          <td className="px-5 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-9 h-9 bg-red-50 border border-red-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                                <FileText className="w-4 h-4 text-red-500" />
                               </div>
                               <div className="min-w-0">
-                                <p className="text-sm font-semibold text-gray-900 truncate max-w-[200px]">{doc.originalname}</p>
-                                <p className="text-xs text-gray-400 font-mono truncate max-w-[200px]">{doc.id}</p>
+                                <p className="text-sm font-semibold text-gray-900 truncate max-w-[220px]">{doc.originalname}</p>
+                                <p className="text-xs text-gray-400 font-mono truncate max-w-[220px] mt-0.5">{doc.id}</p>
                               </div>
                             </div>
                           </td>
-                          {/* Type */}
-                          <td className="px-5 py-3.5 whitespace-nowrap">
-                            <span className="text-xs font-medium px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full capitalize">
+                          {/* Type Profile */}
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <span className="text-xs font-bold px-2.5 py-1 bg-slate-100 text-slate-600 rounded-md tracking-wide uppercase">
                               {doc.document_type || 'general'}
                             </span>
                           </td>
-                          {/* Status */}
-                          <td className="px-5 py-3.5 whitespace-nowrap">
-                            <StatusBadge status={doc.status} />
-                            {isProcessing(doc.status) && (
-                              <div className="mt-1.5 w-20 bg-gray-200 rounded-full h-1">
-                                <div className="bg-indigo-500 h-1 rounded-full animate-pulse w-1/2" />
+                          {/* Pipeline Status */}
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <PipelineStatus status={doc.status} />
+                          </td>
+                          {/* Metrics (pages + chunks combined) */}
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            {doc.total_pages != null || doc.chunks_count != null ? (
+                              <div className="flex items-center gap-3 text-xs font-semibold text-gray-600">
+                                <span>
+                                  <span className="text-gray-900">{doc.total_pages ?? '—'}</span>
+                                  <span className="text-gray-400 font-normal ml-1">PGS</span>
+                                </span>
+                                <span className="text-gray-300">·</span>
+                                <span>
+                                  <span className="text-gray-900">{doc.chunks_count ?? '—'}</span>
+                                  <span className="text-gray-400 font-normal ml-1">CHK</span>
+                                </span>
                               </div>
+                            ) : (
+                              <span className="text-xs text-gray-300">—</span>
                             )}
                           </td>
-                          {/* Pages */}
-                          <td className="px-5 py-3.5 whitespace-nowrap text-sm text-gray-600">
-                            {doc.total_pages ?? '—'}
-                          </td>
-                          {/* Chunks */}
-                          <td className="px-5 py-3.5 whitespace-nowrap text-sm text-gray-600">
-                            {doc.chunks_count ?? '—'}
-                          </td>
-                          {/* Date */}
-                          <td className="px-5 py-3.5 whitespace-nowrap text-xs text-gray-400">
-                            {formatDate(doc.created_at)}
+                          {/* Added / Processed */}
+                          <td className="px-5 py-4 whitespace-nowrap">
+                            <div className="text-xs">
+                              <p className="text-gray-700 font-medium">
+                                {doc.created_at ? new Date(doc.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
+                              </p>
+                              <p className="text-gray-400 mt-0.5">
+                                {doc.created_at ? new Date(doc.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : ''}
+                              </p>
+                            </div>
                           </td>
                           {/* Actions */}
-                          <td className="px-5 py-3.5 whitespace-nowrap">
+                          <td className="px-5 py-4 whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
                               {doc.status === 'active' && (
                                 <button
                                   onClick={() => setSelectedDoc(doc)}
-                                  className="p-1.5 rounded-lg text-gray-500 hover:bg-indigo-50 hover:text-indigo-600 transition border border-transparent hover:border-indigo-200"
+                                  className="p-1.5 rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition border border-transparent hover:border-indigo-200"
                                   title="View details"
                                 >
                                   <Eye className="w-4 h-4" />
@@ -901,7 +974,7 @@ const DocumentManagement = () => {
                               <button
                                 onClick={() => handleDelete(doc.id, doc.originalname)}
                                 disabled={deleteLoading[doc.id]}
-                                className="p-1.5 rounded-lg text-gray-500 hover:bg-red-50 hover:text-red-600 transition border border-transparent hover:border-red-200 disabled:opacity-40"
+                                className="p-1.5 rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 transition border border-transparent hover:border-red-200 disabled:opacity-40"
                                 title="Delete"
                               >
                                 {deleteLoading[doc.id]
@@ -918,28 +991,32 @@ const DocumentManagement = () => {
               </div>
 
               {/* Pagination */}
-              {!docsLoading && filtered.length > itemsPerPage && (
-                <div className="px-5 py-3 flex items-center justify-between border-t border-gray-100 bg-gray-50">
+              {!docsLoading && (
+                <div className="px-5 py-3.5 flex items-center justify-between border-t border-gray-100 bg-gray-50/60">
                   <p className="text-xs text-gray-500">
-                    {(currentPage - 1) * itemsPerPage + 1}–{Math.min(currentPage * itemsPerPage, filtered.length)} of {filtered.length}
+                    {filtered.length === 0
+                      ? 'No results'
+                      : `Showing ${(currentPage - 1) * itemsPerPage + 1} to ${Math.min(currentPage * itemsPerPage, filtered.length)} of ${filtered.length} results`}
                   </p>
-                  <div className="flex gap-1.5">
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
-                    >
-                      <ChevronLeft className="w-3.5 h-3.5" /> Prev
-                    </button>
-                    <span className="px-3 py-1.5 text-xs text-gray-500">{currentPage} / {totalPages}</span>
-                    <button
-                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
-                    >
-                      Next <ChevronRight className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                  {filtered.length > itemsPerPage && (
+                    <div className="flex gap-1.5">
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                      >
+                        <ChevronLeft className="w-3.5 h-3.5" /> Prev
+                      </button>
+                      <span className="px-3 py-1.5 text-xs text-gray-500">{currentPage} / {totalPages}</span>
+                      <button
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
+                      >
+                        Next <ChevronRight className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1195,35 +1272,37 @@ const DocumentManagement = () => {
         {activeTab === 'usage' && (
           <div className="space-y-5">
 
-            {/* Filters row */}
+            {/* ── Filter bar ──────────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex gap-1 flex-wrap">
+              {/* Period pills */}
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-wrap">
                 {USAGE_PERIOD_OPTS.map(b => (
                   <button
                     key={b.value}
                     onClick={() => setUsagePeriod(b.value)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all ${
+                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
                       usagePeriod === b.value
-                        ? 'bg-indigo-600 text-white border-indigo-600'
-                        : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
+                        ? 'bg-white text-indigo-700 shadow-sm'
+                        : 'text-gray-500 hover:text-gray-700'
                     }`}
                   >
                     {b.label}
                   </button>
                 ))}
               </div>
+              {/* Model + Refresh */}
               <div className="flex items-center gap-2">
                 <div className="relative">
                   <select
                     value={usageModel}
                     onChange={e => setUsageModel(e.target.value)}
-                    className="pl-3 pr-8 py-1.5 border border-gray-300 rounded-lg text-xs font-medium bg-white focus:ring-2 focus:ring-indigo-500 appearance-none"
+                    className="pl-3 pr-8 py-2 border border-gray-300 rounded-lg text-sm font-medium bg-white focus:ring-2 focus:ring-indigo-500 appearance-none min-w-[140px]"
                   >
                     {USAGE_MODEL_OPTS.map(o => (
                       <option key={o.value} value={o.value}>{o.label}</option>
                     ))}
                   </select>
-                  <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                  <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                 </div>
                 <button
                   onClick={fetchUsage}
@@ -1239,14 +1318,13 @@ const DocumentManagement = () => {
             {/* Error */}
             {usageError && (
               <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                {usageError}
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />{usageError}
               </div>
             )}
 
-            {/* Loading skeleton */}
+            {/* Loading */}
             {usageLoading && !usageData && (
-              <div className="flex items-center justify-center py-20">
+              <div className="flex items-center justify-center py-24">
                 <div className="flex flex-col items-center gap-3">
                   <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600" />
                   <p className="text-sm text-gray-400">Loading analytics…</p>
@@ -1254,77 +1332,106 @@ const DocumentManagement = () => {
               </div>
             )}
 
-            {/* Data */}
+            {/* ── Data ──────────────────────────────────────────────────────────── */}
             {usageData && (
               <>
-                {/* Summary cards */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                {/* ── Big stat cards ──────────────────────────────────────────── */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { label: 'Total Input Tokens',  value: fmtNum(usageData.totals?.total_input),    icon: TrendingUp, color: 'bg-blue-500'   },
-                    { label: 'Total Output Tokens', value: fmtNum(usageData.totals?.total_output),   icon: Activity,   color: 'bg-purple-500' },
-                    { label: 'Total Tokens',        value: fmtNum(usageData.totals?.total_all),      icon: Zap,        color: 'bg-indigo-500' },
-                    { label: 'Total Cost (₹)',      value: fmtInr(getTotalCost(usageData)),          icon: BarChart3,  color: 'bg-green-500'  },
-                  ].map(({ label, value, icon: Icon, color }) => (
-                    <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-4 shadow-sm">
-                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-                        <Icon className="w-5 h-5 text-white" />
+                    {
+                      label: 'Total Input Tokens',
+                      value: fmtNum(usageData.totals?.total_input),
+                      icon: TrendingUp,
+                      gradient: 'from-blue-500 to-blue-600',
+                      bg: 'bg-blue-50',
+                    },
+                    {
+                      label: 'Total Output Tokens',
+                      value: fmtNum(usageData.totals?.total_output),
+                      icon: Activity,
+                      gradient: 'from-violet-500 to-purple-600',
+                      bg: 'bg-purple-50',
+                    },
+                    {
+                      label: 'Total Tokens',
+                      value: fmtNum(usageData.totals?.total_all),
+                      icon: Zap,
+                      gradient: 'from-cyan-500 to-blue-500',
+                      bg: 'bg-cyan-50',
+                    },
+                    {
+                      label: 'Total Cost (₹)',
+                      value: fmtInr(getTotalCost(usageData)),
+                      icon: BarChart3,
+                      gradient: 'from-emerald-500 to-green-600',
+                      bg: 'bg-emerald-50',
+                    },
+                  ].map(({ label, value, icon: Icon, gradient, bg }) => (
+                    <div key={label} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow">
+                      <div className="flex items-start justify-between mb-3">
+                        <div className={`w-9 h-9 rounded-lg bg-gradient-to-br ${gradient} flex items-center justify-center shadow-sm`}>
+                          <Icon className="w-4 h-4 text-white" />
+                        </div>
                       </div>
-                      <div>
-                        <p className="text-2xl font-bold text-gray-900">{value}</p>
-                        <p className="text-xs text-gray-500 font-medium">{label}</p>
-                      </div>
+                      <p className="text-2xl font-bold text-gray-900 tracking-tight leading-none">{value}</p>
+                      <p className="text-xs text-gray-500 font-medium mt-1.5">{label}</p>
                     </div>
                   ))}
                 </div>
 
-                <p className="text-xs text-gray-400">
-                  {fmtNum(usageData.totals?.total_requests)} total requests · Pricing: ₹28.33/M input, ₹236/M output (text) · ₹282/M input, ₹1,129/M output (audio)
+                {/* Pricing note */}
+                <p className="text-xs text-gray-400 flex items-center gap-1.5">
+                  <span className="font-semibold text-gray-600">{fmtNum(usageData.totals?.total_requests)} total requests</span>
+                  <span>·</span>
+                  Pricing: ₹28.33/M input, ₹236/M output (text) · ₹282/M input, ₹1,129/M output (audio)
                 </p>
 
-                {/* Model breakdown table */}
+                {/* ── Model Breakdown ──────────────────────────────────────────── */}
                 {usageData.model_breakdown?.length > 0 && (
                   <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3 border-b border-gray-100">
-                      <h3 className="text-sm font-semibold text-gray-800">Model Breakdown</h3>
+                    <div className="px-6 py-4 border-b border-gray-100">
+                      <h3 className="text-sm font-bold text-gray-900">Model Breakdown</h3>
                     </div>
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-100">
                             {['Model', 'Mode', 'Requests', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost (₹)'].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
+                              <th key={h} className="px-6 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
                                 {h}
                               </th>
                             ))}
                           </tr>
                         </thead>
-                        <tbody>
-                          {usageData.model_breakdown.map((row, i) => (
-                            <tr key={`${row.model_name}-${row.mode}`} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                              <td className="px-4 py-3 text-xs font-medium text-gray-900 whitespace-nowrap">{row.model_name}</td>
-                              <td className="px-4 py-3">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                  row.mode === 'audio' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                        <tbody className="divide-y divide-gray-50">
+                          {usageData.model_breakdown.map((row) => (
+                            <tr key={`${row.model_name}-${row.mode}`} className="hover:bg-gray-50/60 transition-colors">
+                              <td className="px-6 py-4 text-sm font-semibold text-gray-900 whitespace-nowrap">{row.model_name}</td>
+                              <td className="px-6 py-4">
+                                <span className={`px-2.5 py-1 rounded-md text-xs font-bold ${
+                                  row.mode === 'audio'
+                                    ? 'bg-purple-100 text-purple-700'
+                                    : 'bg-blue-100 text-blue-700'
                                 }`}>
                                   {row.mode}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.request_count)}</td>
-                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_input)}</td>
-                              <td className="px-4 py-3 text-xs text-gray-700">{fmtNum(row.total_output)}</td>
-                              <td className="px-4 py-3 text-xs font-semibold text-gray-900">{fmtNum(row.total_all)}</td>
-                              <td className="px-4 py-3 text-xs font-semibold text-green-600">{fmtInr(getBreakdownCost(row))}</td>
+                              <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{fmtNum(row.request_count)}</td>
+                              <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{fmtNum(row.total_input)}</td>
+                              <td className="px-6 py-4 text-sm text-gray-700 tabular-nums">{fmtNum(row.total_output)}</td>
+                              <td className="px-6 py-4 text-sm font-bold text-gray-900 tabular-nums">{fmtNum(row.total_all)}</td>
+                              <td className="px-6 py-4 text-sm font-bold text-emerald-600 tabular-nums">+{fmtInr(getBreakdownCost(row))}</td>
                             </tr>
                           ))}
                         </tbody>
-                        <tfoot className="border-t-2 border-gray-200 bg-indigo-50">
-                          <tr>
-                            <td colSpan={2} className="px-4 py-3 text-xs font-bold text-indigo-900">Grand Total</td>
-                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_requests)}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_input)}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_output)}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-indigo-900">{fmtNum(usageData.totals?.total_all)}</td>
-                            <td className="px-4 py-3 text-xs font-bold text-green-700">{fmtInr(getTotalCost(usageData))}</td>
+                        <tfoot>
+                          <tr className="border-t-2 border-gray-200 bg-gray-50">
+                            <td colSpan={2} className="px-6 py-4 text-sm font-bold text-indigo-700">Grand Total</td>
+                            <td className="px-6 py-4 text-sm font-bold text-indigo-700 tabular-nums">{fmtNum(usageData.totals?.total_requests)}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-indigo-700 tabular-nums">{fmtNum(usageData.totals?.total_input)}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-indigo-700 tabular-nums">{fmtNum(usageData.totals?.total_output)}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-indigo-700 tabular-nums">{fmtNum(usageData.totals?.total_all)}</td>
+                            <td className="px-6 py-4 text-sm font-bold text-emerald-600 tabular-nums">+{fmtInr(getTotalCost(usageData))}</td>
                           </tr>
                         </tfoot>
                       </table>
@@ -1332,57 +1439,80 @@ const DocumentManagement = () => {
                   </div>
                 )}
 
-                {/* Recent logs table */}
+                {/* ── Recent Logs ───────────────────────────────────────────────── */}
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                  <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-gray-800">Recent Logs</h3>
+                  <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                    <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                      Recent Logs
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    </h3>
                     {usageData.logs?.length > 0 && (
-                      <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full font-medium">
+                      <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2.5 py-1 rounded-lg">
                         {usageData.logs.length} entries
                       </span>
                     )}
                   </div>
+
                   {!usageData.logs?.length ? (
-                    <div className="px-5 py-12 text-center">
+                    <div className="px-6 py-16 text-center">
+                      <BarChart3 className="w-10 h-10 text-gray-200 mx-auto mb-3" />
                       <p className="text-sm text-gray-400">No records for the selected period / model.</p>
                     </div>
                   ) : (
-                    <div className="overflow-x-auto max-h-96 overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50 sticky top-0 z-10">
-                          <tr>
-                            {['#', 'Time', 'Mode', 'Model', 'Input', 'Output', 'Total', 'Cost (₹)', 'IP'].map(h => (
-                              <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
-                                {h}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {usageData.logs.map((row, i) => (
-                            <tr key={row.id} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-                              <td className="px-4 py-2.5 text-xs text-gray-400">{i + 1}</td>
-                              <td className="px-4 py-2.5 text-xs text-gray-600 whitespace-nowrap">
-                                {new Date(row.created_at).toLocaleString('en-IN')}
-                              </td>
-                              <td className="px-4 py-2.5">
-                                <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-                                  row.mode === 'audio' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                                }`}>
-                                  {row.mode}
-                                </span>
-                              </td>
-                              <td className="px-4 py-2.5 text-xs font-medium text-gray-900 whitespace-nowrap">{row.model_name}</td>
-                              <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.input_tokens)}</td>
-                              <td className="px-4 py-2.5 text-xs text-gray-700">{fmtNum(row.output_tokens)}</td>
-                              <td className="px-4 py-2.5 text-xs font-semibold text-gray-900">{fmtNum(row.total_tokens)}</td>
-                              <td className="px-4 py-2.5 text-xs font-semibold text-green-600">{fmtInr(getLogCost(row))}</td>
-                              <td className="px-4 py-2.5 text-xs text-gray-400">{row.ip_address || '—'}</td>
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead>
+                            <tr className="border-b border-gray-100 bg-gray-50/60">
+                              {['#', 'Time', 'Mode', 'Model', 'Input', 'Output', 'Total', 'Cost (₹)', 'IP'].map(h => (
+                                <th key={h} className="px-5 py-3 text-left text-xs font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
+                                  {h}
+                                </th>
+                              ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-gray-50">
+                            {usageData.logs.slice(0, logsLimit).map((row, i) => (
+                              <tr key={row.id} className="hover:bg-gray-50/40 transition-colors">
+                                <td className="px-5 py-3 text-xs text-gray-400 tabular-nums">{i + 1}</td>
+                                <td className="px-5 py-3 text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                                  {new Date(row.created_at).toLocaleString('en-IN', {
+                                    day: 'numeric', month: 'numeric', year: 'numeric',
+                                    hour: '2-digit', minute: '2-digit', hour12: true,
+                                  })}
+                                </td>
+                                <td className="px-5 py-3">
+                                  <span className={`px-2.5 py-0.5 rounded-md text-xs font-bold uppercase tracking-wide ${
+                                    row.mode === 'audio'
+                                      ? 'bg-purple-100 text-purple-700'
+                                      : 'bg-blue-100 text-blue-700'
+                                  }`}>
+                                    {row.mode}
+                                  </span>
+                                </td>
+                                <td className="px-5 py-3 text-xs font-semibold text-gray-800 whitespace-nowrap">{row.model_name}</td>
+                                <td className="px-5 py-3 text-xs text-gray-600 tabular-nums">{fmtNum(row.input_tokens)}</td>
+                                <td className="px-5 py-3 text-xs text-gray-600 tabular-nums">{fmtNum(row.output_tokens)}</td>
+                                <td className="px-5 py-3 text-xs font-bold text-gray-900 tabular-nums">{fmtNum(row.total_tokens)}</td>
+                                <td className="px-5 py-3 text-xs font-bold text-emerald-600 tabular-nums">+{fmtInr(getLogCost(row))}</td>
+                                <td className="px-5 py-3 text-xs text-gray-400">{row.ip_address || '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      {/* Load older logs */}
+                      {logsLimit < usageData.logs.length && (
+                        <div className="px-6 py-4 border-t border-gray-100 text-center">
+                          <button
+                            onClick={() => setLogsLimit(prev => prev + 10)}
+                            className="text-sm text-indigo-500 hover:text-indigo-700 font-semibold transition-colors inline-flex items-center gap-1"
+                          >
+                            Load older logs ↓
+                          </button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               </>
@@ -1531,39 +1661,61 @@ const DocumentManagement = () => {
             ) : (
               /* ── Sessions list ──────────────────────────────────────────────── */
               <>
-                {/* Filters */}
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex gap-1.5">
-                    {[
-                      { value: 'all',   label: 'All Modes' },
-                      { value: 'text',  label: 'Text' },
-                      { value: 'audio', label: 'Audio' },
-                    ].map(b => (
-                      <button
-                        key={b.value}
-                        onClick={() => { setChatModeFilter(b.value); setChatPage(1); }}
-                        className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-all ${
-                          chatModeFilter === b.value
-                            ? 'bg-indigo-600 text-white border-indigo-600'
-                            : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
-                        }`}
-                      >
-                        {b.label}
-                      </button>
-                    ))}
+                {/* ── Page header + controls ──────────────────────────────────── */}
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2.5">
+                      Session Log
+                      {chatTotal > 0 && (
+                        <span className="text-sm font-semibold text-blue-600 bg-blue-50 border border-blue-100 px-2.5 py-0.5 rounded-lg">
+                          Total: {chatTotal}
+                        </span>
+                      )}
+                    </h2>
+                    <p className="text-sm text-gray-400 mt-0.5">
+                      Review and audit all historical{' '}
+                      <span className="text-indigo-500 font-medium">AI interactions</span>{' '}
+                      across modes.
+                    </p>
                   </div>
-                  <div className="flex items-center gap-2">
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {/* Segmented mode control */}
+                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                      {[
+                        { value: 'all',   label: 'All Modes' },
+                        { value: 'text',  label: 'Text' },
+                        { value: 'audio', label: 'Audio' },
+                      ].map(b => (
+                        <button
+                          key={b.value}
+                          onClick={() => { setChatModeFilter(b.value); setChatPage(1); }}
+                          className={`px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                            chatModeFilter === b.value
+                              ? 'bg-white text-gray-900 shadow-sm'
+                              : 'text-gray-500 hover:text-gray-700'
+                          }`}
+                        >
+                          {b.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Search */}
                     <div className="relative">
                       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                       <input
                         type="text"
-                        placeholder="Search session ID…"
+                        placeholder="Search session ID or content"
                         value={chatSearch}
                         onChange={e => setChatSearch(e.target.value)}
                         onKeyDown={e => e.key === 'Enter' && fetchChatSessions(1)}
-                        className="pl-9 pr-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 w-52"
+                        className="pl-9 pr-10 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500 focus:border-transparent w-60"
                       />
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-300 font-mono hidden sm:block">⌘K</span>
                     </div>
+
+                    {/* Refresh */}
                     <button
                       onClick={() => fetchChatSessions(1)}
                       disabled={chatLoading}
@@ -1572,22 +1724,21 @@ const DocumentManagement = () => {
                     >
                       <RefreshCw className={`w-4 h-4 ${chatLoading ? 'animate-spin' : ''}`} />
                     </button>
+
+                    {/* Export CSV */}
                     <button
                       disabled={chatSessions.length === 0}
                       onClick={() => {
-                        const rows = [
+                        const csvRows = [
                           ['#', 'Session ID', 'Mode', 'Messages', 'Last User Message', 'Started', 'Last Active'],
                           ...chatSessions.map((s, i) => [
-                            i + 1,
-                            s.id,
-                            s.mode,
-                            s.message_count,
+                            i + 1, s.id, s.mode, s.message_count,
                             `"${(s.last_user_message || '').replace(/"/g, '""')}"`,
                             new Date(s.created_at).toLocaleString('en-IN'),
                             s.last_active_at ? new Date(s.last_active_at).toLocaleString('en-IN') : '',
                           ]),
                         ];
-                        const csv = rows.map(r => r.join(',')).join('\n');
+                        const csv = csvRows.map(r => r.join(',')).join('\n');
                         const blob = new Blob([csv], { type: 'text/csv' });
                         const a = document.createElement('a');
                         a.href = URL.createObjectURL(blob);
@@ -1595,131 +1746,203 @@ const DocumentManagement = () => {
                         a.click();
                         URL.revokeObjectURL(a.href);
                       }}
-                      className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-semibold border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                     >
-                      <FileUp className="w-4 h-4" /> Download CSV
+                      <FileUp className="w-4 h-4" /> Export CSV
                     </button>
                   </div>
                 </div>
 
-                {/* Summary bar */}
-                {chatTotal > 0 && (
-                  <div className="flex items-center gap-4 text-sm text-gray-500">
-                    <span className="flex items-center gap-1.5">
-                      <Users className="w-4 h-4" />
-                      <span><strong className="text-gray-800">{chatTotal}</strong> sessions</span>
-                    </span>
-                  </div>
-                )}
-
                 {/* Error */}
                 {chatError && (
                   <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-center gap-2 text-sm">
-                    <AlertCircle className="w-4 h-4 flex-shrink-0" />
-                    {chatError}
+                    <AlertCircle className="w-4 h-4 flex-shrink-0" />{chatError}
                   </div>
                 )}
 
-                {/* Sessions table */}
+                {/* ── Sessions table card ──────────────────────────────────────── */}
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   {chatLoading ? (
-                    <div className="flex items-center justify-center py-20">
+                    <div className="flex items-center justify-center py-24">
                       <div className="flex flex-col items-center gap-3">
                         <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600" />
                         <p className="text-sm text-gray-400">Loading sessions…</p>
                       </div>
                     </div>
                   ) : chatSessions.length === 0 ? (
-                    <div className="py-16 text-center">
+                    <div className="py-20 text-center">
                       <MessageSquare className="w-12 h-12 text-gray-200 mx-auto mb-3" />
                       <p className="text-sm font-medium text-gray-500">No chat sessions found</p>
+                      <p className="text-xs text-gray-400 mt-1">Try changing the mode filter or search term</p>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            {['#', 'Session ID', 'Mode', 'Messages', 'Last Message Preview', 'Started', 'Last Active', ''].map(h => (
-                              <th key={h} className="px-5 py-3.5 text-left text-sm font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-gray-100 bg-gray-50/60">
+                            {['#', 'Session ID', 'Mode', 'Messages', 'Last Message Preview', 'Started', 'Last Active', 'Actions'].map(h => (
+                              <th key={h} className="px-5 py-3.5 text-left text-xs font-bold text-gray-400 uppercase tracking-wider whitespace-nowrap">
                                 {h}
                               </th>
                             ))}
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {chatSessions.map((s, i) => (
-                            <tr key={s.id} className="hover:bg-indigo-50/30 transition-colors cursor-pointer group"
-                              onClick={() => fetchSessionMessages(s.id)}>
-                              <td className="px-5 py-3.5 text-sm text-gray-500">
-                                {(chatPage - 1) * CHAT_PAGE_LIMIT + i + 1}
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className="text-sm font-mono text-gray-700 truncate max-w-[160px] block">
-                                  {s.id}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                                  s.mode === 'audio'
-                                    ? 'bg-purple-100 text-purple-700'
-                                    : 'bg-blue-100 text-blue-700'
-                                }`}>
-                                  {s.mode}
-                                </span>
-                              </td>
-                              <td className="px-5 py-3.5 text-sm font-semibold text-gray-800 text-center">
-                                {s.message_count}
-                              </td>
-                              <td className="px-5 py-3.5 max-w-[300px]">
-                                <p className="text-sm text-gray-600 truncate">
-                                  {s.last_user_message || <span className="italic text-gray-300">—</span>}
-                                </p>
-                              </td>
-                              <td className="px-5 py-3.5 text-sm text-gray-500 whitespace-nowrap">
-                                {new Date(s.created_at).toLocaleString('en-IN')}
-                              </td>
-                              <td className="px-5 py-3.5 text-sm text-gray-500 whitespace-nowrap">
-                                {s.last_active_at
-                                  ? new Date(s.last_active_at).toLocaleString('en-IN')
-                                  : '—'}
-                              </td>
-                              <td className="px-5 py-3.5">
-                                <button className="flex items-center gap-1.5 text-sm text-indigo-500 group-hover:text-indigo-700 font-medium whitespace-nowrap">
-                                  <Eye className="w-4 h-4" /> View
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
+                        <tbody className="divide-y divide-gray-50">
+                          {chatSessions.map((s, i) => {
+                            const startedDate = new Date(s.created_at);
+                            const activeDate  = s.last_active_at ? new Date(s.last_active_at) : null;
+                            const fmtDt = (d) => d ? {
+                              date: d.toLocaleDateString('en-IN', { day: 'numeric', month: 'numeric', year: 'numeric' }),
+                              time: d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }),
+                            } : null;
+                            const started = fmtDt(startedDate);
+                            const active  = fmtDt(activeDate);
+                            const preview = s.last_user_message || s.last_message || '';
+                            const msgRole = s.last_message_role || 'user';
+                            const roleMeta = {
+                              user:      { tag: 'USER',        cls: 'bg-teal-50 text-teal-700 border-teal-200' },
+                              assistant: { tag: 'AI',          cls: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+                              system:    { tag: 'SYS',         cls: 'bg-orange-50 text-orange-600 border-orange-200' },
+                              context:   { tag: 'APP CONTEXT', cls: 'bg-gray-100 text-gray-500 border-gray-200' },
+                            }[msgRole] || { tag: 'USER', cls: 'bg-teal-50 text-teal-700 border-teal-200' };
+
+                            return (
+                              <tr
+                                key={s.id}
+                                className="hover:bg-indigo-50/20 transition-colors cursor-pointer group"
+                                onClick={() => fetchSessionMessages(s.id)}
+                              >
+                                {/* # */}
+                                <td className="px-5 py-4 text-sm text-gray-400 tabular-nums">
+                                  {(chatPage - 1) * CHAT_PAGE_LIMIT + i + 1}
+                                </td>
+                                {/* Session ID */}
+                                <td className="px-5 py-4">
+                                  <span className="text-sm font-mono text-gray-700">
+                                    {s.id.length > 20 ? `${s.id.slice(0, 20)}...` : s.id}
+                                  </span>
+                                </td>
+                                {/* Mode */}
+                                <td className="px-5 py-4 whitespace-nowrap">
+                                  {s.mode === 'audio' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                                      <Mic className="w-3 h-3" /> AUDIO
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500" /> TEXT
+                                    </span>
+                                  )}
+                                </td>
+                                {/* Messages */}
+                                <td className="px-5 py-4 text-sm font-semibold text-gray-800 tabular-nums">
+                                  {s.message_count}
+                                </td>
+                                {/* Last Message Preview */}
+                                <td className="px-5 py-4 max-w-xs">
+                                  {preview ? (
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className={`flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded border ${roleMeta.cls} uppercase tracking-wide`}>
+                                        {roleMeta.tag}
+                                      </span>
+                                      <p className="text-sm text-gray-600 truncate">{preview}</p>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-300 italic">No messages</span>
+                                  )}
+                                </td>
+                                {/* Started */}
+                                <td className="px-5 py-4 whitespace-nowrap">
+                                  <p className="text-xs text-gray-700 font-medium">{started?.date}</p>
+                                  <p className="text-xs text-gray-400 mt-0.5">{started?.time}</p>
+                                </td>
+                                {/* Last Active */}
+                                <td className="px-5 py-4 whitespace-nowrap">
+                                  {active ? (
+                                    <div className="flex items-start gap-1.5">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0" />
+                                      <div>
+                                        <p className="text-xs text-gray-700 font-medium">{active.date}</p>
+                                        <p className="text-xs text-gray-400 mt-0.5">{active.time}</p>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-xs text-gray-300">—</span>
+                                  )}
+                                </td>
+                                {/* Actions */}
+                                <td className="px-5 py-4">
+                                  <button
+                                    className="p-1.5 rounded-lg text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition border border-transparent hover:border-indigo-200"
+                                    title="View session"
+                                  >
+                                    <Eye className="w-4 h-4" />
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
                   )}
 
-                  {/* Pagination */}
-                  {!chatLoading && chatTotal > CHAT_PAGE_LIMIT && (
-                    <div className="px-5 py-3.5 flex items-center justify-between border-t border-gray-100 bg-gray-50">
+                  {/* ── Pagination footer ──────────────────────────────────────── */}
+                  {!chatLoading && chatTotal > 0 && (
+                    <div className="px-6 py-4 flex items-center justify-between border-t border-gray-100 bg-gray-50/40">
                       <p className="text-sm text-gray-500">
-                        {(chatPage - 1) * CHAT_PAGE_LIMIT + 1}–{Math.min(chatPage * CHAT_PAGE_LIMIT, chatTotal)} of {chatTotal}
+                        Showing{' '}
+                        <strong className="text-gray-800 font-semibold">{(chatPage - 1) * CHAT_PAGE_LIMIT + 1}</strong>
+                        {' '}to{' '}
+                        <strong className="text-gray-800 font-semibold">{Math.min(chatPage * CHAT_PAGE_LIMIT, chatTotal)}</strong>
+                        {' '}of{' '}
+                        <strong className="text-gray-800 font-semibold">{chatTotal}</strong> sessions
                       </p>
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => fetchChatSessions(chatPage - 1)}
-                          disabled={chatPage === 1}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
-                        >
-                          <ChevronLeft className="w-4 h-4" /> Prev
-                        </button>
-                        <span className="px-3 py-1.5 text-sm text-gray-500">
-                          {chatPage} / {Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
-                        </span>
-                        <button
-                          onClick={() => fetchChatSessions(chatPage + 1)}
-                          disabled={chatPage >= Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
-                          className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-300 text-gray-600 hover:bg-white disabled:opacity-40"
-                        >
-                          Next <ChevronRight className="w-4 h-4" />
-                        </button>
-                      </div>
+
+                      {chatTotal > CHAT_PAGE_LIMIT && (() => {
+                        const totalPages = Math.ceil(chatTotal / CHAT_PAGE_LIMIT);
+                        const getPageNums = () => {
+                          if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1);
+                          if (chatPage <= 3) return [1, 2, 3, '…', totalPages];
+                          if (chatPage >= totalPages - 2) return [1, '…', totalPages - 2, totalPages - 1, totalPages];
+                          return [1, '…', chatPage - 1, chatPage, chatPage + 1, '…', totalPages];
+                        };
+                        return (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => fetchChatSessions(chatPage - 1)}
+                              disabled={chatPage === 1}
+                              className="p-1.5 rounded-lg border border-gray-300 text-gray-500 hover:bg-white hover:text-indigo-600 transition disabled:opacity-40"
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </button>
+                            {getPageNums().map((p, idx) =>
+                              p === '…' ? (
+                                <span key={`ellipsis-${idx}`} className="px-2 text-gray-400 text-sm">…</span>
+                              ) : (
+                                <button
+                                  key={p}
+                                  onClick={() => fetchChatSessions(p)}
+                                  className={`w-8 h-8 rounded-lg text-sm font-semibold transition-all ${
+                                    chatPage === p
+                                      ? 'bg-indigo-600 text-white shadow-sm'
+                                      : 'border border-gray-300 text-gray-600 hover:bg-white hover:text-indigo-600'
+                                  }`}
+                                >
+                                  {p}
+                                </button>
+                              )
+                            )}
+                            <button
+                              onClick={() => fetchChatSessions(chatPage + 1)}
+                              disabled={chatPage >= Math.ceil(chatTotal / CHAT_PAGE_LIMIT)}
+                              className="p-1.5 rounded-lg border border-gray-300 text-gray-500 hover:bg-white hover:text-indigo-600 transition disabled:opacity-40"
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
