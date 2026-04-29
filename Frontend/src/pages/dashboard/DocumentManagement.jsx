@@ -83,54 +83,50 @@ const formatFileSize = (bytes) => {
 // ─── Chatbot config constants ──────────────────────────────────────────────────
 
 const GEMINI_TEXT_MODELS = [
-  'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro',
-  'gemini-2.0-flash', 'gemini-2.5-flash', 'gemini-2.5-pro',
+  'gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-pro',
 ];
 
-// Official Gemini Live API model IDs (ai.google.dev/gemini-api/docs/models)
 const GEMINI_LIVE_MODELS = [
   'gemini-3.1-flash-live-preview',
-  'gemini-2.5-flash-native-audio-preview-12-2025',
+  'gemini-2.5-flash-preview-native-audio-dialog',
+  'gemini-2.0-flash-live-001',
 ];
 
-// All 30 official Gemini Live API voices (ai.google.dev/gemini-api/docs/live)
-// speaking_rate / pitch / volume / language_code are NOT supported by the Live API
 const VOICE_OPTIONS = [
-  // Upbeat
-  { value: 'Puck',          style: 'Upbeat' },
-  { value: 'Fenrir',        style: 'Upbeat' },
-  { value: 'Laomedeia',     style: 'Upbeat' },
-  // Bright
-  { value: 'Zephyr',        style: 'Bright' },
-  { value: 'Kore',          style: 'Bright' },
-  { value: 'Orus',          style: 'Bright' },
-  { value: 'Autonoe',       style: 'Bright' },
-  // Clear
-  { value: 'Charon',        style: 'Clear' },
-  { value: 'Iapetus',       style: 'Clear' },
-  { value: 'Erinome',       style: 'Clear' },
-  { value: 'Alnilam',       style: 'Clear' },
-  // Calm
-  { value: 'Aoede',         style: 'Calm' },
-  { value: 'Umbriel',       style: 'Calm' },
-  { value: 'Callirrhoe',    style: 'Calm' },
-  { value: 'Despina',       style: 'Calm' },
-  { value: 'Algieba',       style: 'Calm' },
-  { value: 'Achernar',      style: 'Calm' },
-  // Distinct
-  { value: 'Schedar',       style: 'Distinct' },
-  { value: 'Achird',        style: 'Distinct' },
-  { value: 'Sadachbia',     style: 'Distinct' },
-  { value: 'Enceladus',     style: 'Distinct' },
-  { value: 'Algenib',       style: 'Distinct' },
-  { value: 'Gacrux',        style: 'Distinct' },
-  { value: 'Zubenelgenubi', style: 'Distinct' },
-  { value: 'Sadaltager',    style: 'Distinct' },
-  { value: 'Leda',          style: 'Distinct' },
-  { value: 'Rasalgethi',    style: 'Distinct' },
-  { value: 'Pulcherrima',   style: 'Distinct' },
-  { value: 'Vindemiatrix',  style: 'Distinct' },
-  { value: 'Sulafat',       style: 'Distinct' },
+  { value: 'Puck',          style: 'Upbeat',        desc: 'Upbeat & clear — default' },
+  { value: 'Zephyr',        style: 'Bright',        desc: 'Bright, energetic' },
+  { value: 'Aoede',         style: 'Breezy',        desc: 'Breezy, conversational' },
+  { value: 'Fenrir',        style: 'Excitable',     desc: 'Excitable, dynamic' },
+  { value: 'Leda',          style: 'Youthful',      desc: 'Youthful, friendly' },
+  { value: 'Kore',          style: 'Firm',          desc: 'Firm, professional' },
+  { value: 'Orus',          style: 'Firm',          desc: 'Firm, authoritative' },
+  { value: 'Alnilam',       style: 'Firm',          desc: 'Firm, steady' },
+  { value: 'Charon',        style: 'Informational', desc: 'Informational, deep' },
+  { value: 'Rasalgethi',    style: 'Informational', desc: 'Informational, warm' },
+  { value: 'Iapetus',       style: 'Clear',         desc: 'Clear, precise' },
+  { value: 'Erinome',       style: 'Clear',         desc: 'Clear, articulate' },
+  { value: 'Laomedeia',     style: 'Upbeat',        desc: 'Upbeat, lively' },
+  { value: 'Autonoe',       style: 'Bright',        desc: 'Bright, positive' },
+  { value: 'Umbriel',       style: 'Easygoing',     desc: 'Easygoing, relaxed' },
+  { value: 'Callirrhoe',    style: 'Easygoing',     desc: 'Easy-going, smooth' },
+  { value: 'Despina',       style: 'Smooth',        desc: 'Smooth, polished' },
+  { value: 'Algieba',       style: 'Smooth',        desc: 'Smooth, refined' },
+  { value: 'Achernar',      style: 'Soft',          desc: 'Soft, gentle' },
+  { value: 'Vindemiatrix',  style: 'Gentle',        desc: 'Gentle, warm' },
+  { value: 'Sulafat',       style: 'Warm',          desc: 'Warm, inviting' },
+  { value: 'Achird',        style: 'Friendly',      desc: 'Friendly, approachable' },
+  { value: 'Sadachbia',     style: 'Lively',        desc: 'Lively, spirited' },
+  { value: 'Zubenelgenubi', style: 'Casual',        desc: 'Casual, natural' },
+  { value: 'Sadaltager',    style: 'Knowledgeable', desc: 'Knowledgeable, confident' },
+  { value: 'Schedar',       style: 'Even',          desc: 'Even, balanced' },
+  { value: 'Enceladus',     style: 'Breathy',       desc: 'Breathy, expressive' },
+  { value: 'Algenib',       style: 'Gravelly',      desc: 'Gravelly, distinctive' },
+  { value: 'Gacrux',        style: 'Mature',        desc: 'Mature, seasoned' },
+  { value: 'Pulcherrima',   style: 'Forward',       desc: 'Forward, assertive' },
 ];
 
 const VOICE_STYLE_COLORS = {
@@ -143,10 +139,124 @@ const VOICE_STYLE_COLORS = {
 
 // Only fields that the Gemini Live API actually supports configuring
 const CONFIG_DEFAULTS = {
-  model_text: 'gemini-1.5-flash', max_tokens: 150, temperature: 0.1, top_p: 0.95, top_k_results: 5,
+  model_text: 'gemini-2.5-flash', max_tokens: 2048, temperature: 0.1, top_p: 0.95, top_k_results: 5,
   model_audio: 'gemini-3.1-flash-live-preview', voice_name: 'Puck',
-  system_prompt: "You are the Nexintel AI Support Agent. Provide fast, accurate solutions based ONLY on the provided document context. If the answer is not found, state: \"I'm sorry, I don't have information on that in our records.\" Keep responses under 3 sentences.",
-  audio_system_prompt: "You are the Nexintel AI Support Agent. Provide fast, accurate answers based ONLY on documents retrieved via search_documents. Keep spoken responses under 20 seconds.",
+  language_code: 'en-US', speaking_rate: 1.0, pitch: 0.0, volume_gain_db: 0.0,
+  system_prompt:
+`You are the JuriNex AI Legal Assistant, a high-speed legal intelligence agent
+specializing in the Indian legal system.
+
+Operating rules:
+- Provide legal information and research, not legal advice.
+- Always prioritize retrieved RAG context from JuriNex/Indian legal sources over
+  general model knowledge, especially for BNS, BNSS, and BSA versus IPC, CrPC,
+  and IEA.
+- If a user mentions a case name, section number, statute, or legal doctrine,
+  rely on retrieved context before answering.
+- Summarize the core legal principle first. Include citations when available in
+  the retrieved context, but do not over-list citations unless asked.
+- LANGUAGE: Always reply in the exact same language the user used. If the user
+  writes in Marathi → reply in Marathi. Hindi → Hindi. English → English.
+  Hinglish (mixed) → match the same mix. Never switch languages unprompted.
+- Keep initial answers concise. If the topic is complex, offer to provide more
+  detail.
+- If no retrieved context is available, say: "My current database doesn't have
+  the specific document, but based on general legal principles..." and clearly
+  mark the answer as general legal information.
+
+RESPONSE FORMATTING — always use rich Markdown:
+- Use **bold** for legal terms, section names, and key points.
+- Use numbered lists for step-by-step legal procedures.
+- Use bullet lists for provisions, rights, or comparisons.
+- Use ## or ### headings to separate sections (e.g. "## Key Provisions").
+- Use | tables | for comparing statutes, penalties, or timeframes.
+- Use > blockquotes for important warnings or legal notes.
+- Never write long unbroken paragraphs — keep answers scannable.`,
+
+  audio_system_prompt:
+`You are the JuriNex AI Assistant, a voice-first guide for the JuriNex legal platform.
+
+Voice behavior:
+- Speak clearly, professionally, and conversationally.
+- Always call search_documents first for every question — the knowledge base has
+  step-by-step platform guides and legal documents.
+- When you find relevant guide content, read the steps aloud in order:
+  "Step 1: ... Step 2: ... Step 3: ..."
+- Keep spoken answers clear and structured — read numbered steps one at a time.
+- Default to English. If the user speaks Marathi, Hindi, or Hinglish, respond in
+  that language but keep the step numbering ("Step 1", "Step 2", etc.) clear.
+- If interrupted, stop and listen for the new question.
+
+Retrieval behavior:
+- Call search_documents for EVERY question — platform guides are uploaded in the DB.
+- If the retrieved context has step-by-step instructions, follow them exactly.
+- If no relevant content is found, answer from general JuriNex platform knowledge.
+- For legal questions: prioritize retrieved context, especially for BNS, BNSS, BSA.
+- If retrieval returns nothing useful: "My knowledge base doesn't have that specific
+  document, but here is what I know about this topic..."`,
+
+  in_app_system_prompt:
+`You are the JuriNex Platform Assistant. You operate inside the JuriNex legal platform.
+The knowledge base contains uploaded step-by-step platform guides. You must search and
+use those guides to answer every question.
+
+━━━ ABSOLUTE RULES - NEVER BREAK THESE ━━━
+1. LANGUAGE: ALWAYS reply in the EXACT same language the user used.
+2. NEVER ask the user for clarification. Just search and answer immediately.
+3. NEVER reply with a paragraph of prose. ALWAYS use numbered steps (1. 2. 3.).
+4. ALWAYS call search_documents as the very first action for every single question.
+5. Assume every question is about JuriNex platform features unless proven otherwise.
+
+━━━ WORKFLOW - FOLLOW THIS EXACTLY ━━━
+Step A → Call search_documents immediately with the user's question as the query.
+Step B → Read the retrieved chunks.
+Step C → If chunks are relevant: write a numbered step-by-step answer quoting the guide.
+          If chunks are NOT relevant: answer from the CURRENT PAGE context,
+          still in numbered steps.
+Step D → NEVER produce a response without first completing Step A.
+
+━━━ ANSWER FORMAT - MANDATORY ━━━
+## [Short Title]
+1. **Step one action** - brief explanation
+2. **Step two action** - brief explanation
+3. **Step three action** - brief explanation
+> **Tip:** any helpful note
+Never offer demo booking, never call getAvailableSlots or bookDemo.`,
+
+  in_app_audio_override:
+`━━━ VOICE MODE — THESE RULES OVERRIDE EVERYTHING ABOVE ━━━
+ABSOLUTE PROHIBITION — NEVER output ANY of these in voice mode:
+  - Markdown headers: ##, ###  |  Bold/italic: **, __, *, _
+  - Bullet symbols: -, *, +    |  Tables: | column |
+  - Blockquotes: >             |  Code blocks: \` or \`\`\`
+
+SPEAK LIKE THIS instead:
+  - Replace numbered list → say 'First... Second... Third...'
+  - Replace bold term → just say the word normally
+  - Replace heading → say 'Here is how to...' as an intro sentence
+  - Keep answers to 3–5 spoken steps. Short, clear sentences.
+
+LANGUAGE: Detect the language the user spoke and reply in that exact language.
+ALWAYS call search_documents first before answering.
+Never offer demo booking in the in-app panel.`,
+
+  demo_text_addendum:
+`DEMO BOOKING CAPABILITY:
+- When the user asks to book, schedule, or see a demo — IMMEDIATELY call getAvailableSlots().
+- After getAvailableSlots() returns, reply with ONLY this raw JSON (no extra text before or after):
+  {"type":"slot_selection","message":"Great choice! Here are our available demo slots — pick a time that works for you and I'll collect your details.","slots":[{"id":<id>,"label":"<label>"},...]}
+- If no slots are returned, respond warmly: "I'm sorry, no demo slots are available right now. Please check back tomorrow or drop us an email at demo@jurinex.com."
+- After the user selects a slot and provides their name and email, call bookDemo() immediately to confirm — do not ask the user to fill any form.
+- On successful bookDemo(), confirm warmly: "Your demo is confirmed for <slot label>! We'll send details to <email> shortly."`,
+
+  demo_audio_addendum:
+`DEMO BOOKING CAPABILITY:
+- When the user asks to book or schedule a demo, IMMEDIATELY call getAvailableSlots().
+- Read the available slots aloud clearly, e.g.: "We have slots available: Option 1 — Monday, May 5th at 10 AM. Option 2 — Tuesday, May 6th at 2 PM." Then say: "A slot selection panel has appeared on your screen — please tap a slot to choose."
+- After the user picks a slot, ask: "What is your full name?" then "What is your email address?" then "Which company are you from?" (optional).
+- Once you have name, email and slot, call bookDemo() immediately to confirm the booking.
+- Confirm aloud: "Your demo is confirmed! We'll send details to your email shortly."
+- If no slots are available, apologise warmly and suggest trying again tomorrow.`,
 };
 
 // ─── Shared field components ───────────────────────────────────────────────────
@@ -278,6 +388,7 @@ const DocumentManagement = () => {
   const [usageModel, setUsageModel]     = useState('all');
   const [usageLoading, setUsageLoading] = useState(false);
   const [logsLimit, setLogsLimit]       = useState(10);
+  const [usageAllModels, setUsageAllModels] = useState([]);
   const [usageError, setUsageError]     = useState(null);
 
   // ─── Chat History state ──────────────────────────────────────────────────────
@@ -299,6 +410,11 @@ const DocumentManagement = () => {
   const [cfgLoaded, setCfgLoaded] = useState(false);
   const [cfgToast, setCfgToast] = useState(null);
   const [voiceStyleFilter, setVoiceStyleFilter] = useState('All');
+  const [promptTab, setPromptTab] = useState('landing');
+  const [playingVoice,  setPlayingVoice]  = useState(null);
+  const [loadingVoice,  setLoadingVoice]  = useState(null);
+  const voiceAudioCache = useRef({});
+  const voiceAudioRef   = useRef(null);
   const setCfgField = (key) => (val) => setCfg((f) => ({ ...f, [key]: val }));
 
   const showCfgToast = (type, msg) => {
@@ -345,8 +461,7 @@ const DocumentManagement = () => {
 
   const USAGE_MODEL_OPTS = [
     { value: 'all', label: 'All Models' },
-    ...GEMINI_TEXT_MODELS.map(m => ({ value: m, label: m })),
-    ...GEMINI_LIVE_MODELS.map(m => ({ value: m, label: m })),
+    ...usageAllModels.map(m => ({ value: m, label: m })),
   ];
 
   const fetchUsage = useCallback(async () => {
@@ -359,8 +474,14 @@ const DocumentManagement = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
       const json = await res.json();
-      if (json.success) setUsageData(json.data);
-      else setUsageError(json.error || 'Failed to load usage data');
+      if (json.success) {
+        setUsageData(json.data);
+        if (usageModel === 'all' && json.data.model_breakdown?.length) {
+          setUsageAllModels([...new Set(json.data.model_breakdown.map(r => r.model_name))]);
+        }
+      } else {
+        setUsageError(json.error || 'Failed to load usage data');
+      }
     } catch (err) {
       setUsageError(err.message || 'Failed to load usage data');
     } finally {
@@ -462,10 +583,13 @@ const DocumentManagement = () => {
       chatbotConfigService.getConfig()
         .then(({ config }) => {
           if (config) {
-            // Only merge the 13 editable fields — ignore id, config_key, updated_at etc.
+            // Merge editable fields; fall back to default when DB returns null/empty.
             const clean = {};
             for (const key of Object.keys(CONFIG_DEFAULTS)) {
-              if (config[key] !== undefined) clean[key] = config[key];
+              const val = config[key];
+              clean[key] = (val !== undefined && val !== null && val !== '')
+                ? val
+                : CONFIG_DEFAULTS[key];
             }
             setCfg((p) => ({ ...p, ...clean }));
           }
@@ -602,7 +726,10 @@ const DocumentManagement = () => {
       if (config) {
         const clean = {};
         for (const key of Object.keys(CONFIG_DEFAULTS)) {
-          if (config[key] !== undefined) clean[key] = config[key];
+          const val = config[key];
+          clean[key] = (val !== undefined && val !== null && val !== '')
+            ? val
+            : CONFIG_DEFAULTS[key];
         }
         setCfg((p) => ({ ...p, ...clean }));
       }
@@ -611,6 +738,50 @@ const DocumentManagement = () => {
       showCfgToast('error', err.message || 'Failed to save.');
     } finally {
       setCfgSaving(false);
+    }
+  };
+
+  // ─── Voice preview ───────────────────────────────────────────────────────────
+  const handlePlayVoice = async (voiceName) => {
+    // Stop any currently playing audio
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.pause();
+      voiceAudioRef.current = null;
+    }
+    if (playingVoice === voiceName) {
+      setPlayingVoice(null);
+      return;
+    }
+
+    try {
+      setLoadingVoice(voiceName);
+      setPlayingVoice(null);
+
+      // Use cached audio if available
+      let audioUrl = voiceAudioCache.current[voiceName];
+      if (!audioUrl) {
+        const token = getToken();
+        const res = await fetch(`${API_BASE_URL}/admin/chatbot-config/voice-preview/${voiceName}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const json = await res.json();
+        if (!json.success) throw new Error(json.error || 'Preview failed');
+        const bytes = Uint8Array.from(atob(json.data), (c) => c.charCodeAt(0));
+        const blob = new Blob([bytes], { type: json.mimeType || 'audio/wav' });
+        audioUrl = URL.createObjectURL(blob);
+        voiceAudioCache.current[voiceName] = audioUrl;
+      }
+
+      const audio = new Audio(audioUrl);
+      voiceAudioRef.current = audio;
+      audio.onended = () => setPlayingVoice(null);
+      audio.onerror = () => setPlayingVoice(null);
+      await audio.play();
+      setPlayingVoice(voiceName);
+    } catch (err) {
+      showCfgToast('error', `Voice preview failed: ${err.message}`);
+    } finally {
+      setLoadingVoice(null);
     }
   };
 
@@ -1090,11 +1261,63 @@ const DocumentManagement = () => {
         {/* ══════════════════════════════════════════════════════════════════════
             ── AI CONFIG TAB ─────────────────────────────────────────────────── */}
         {activeTab === 'config' && (
-          <div className="space-y-4">
+          <div className="space-y-5">
 
-            {/* Loading overlay */}
+            {/* ── Action Bar ──────────────────────────────────────────────────── */}
+            <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-sm flex-shrink-0">
+                  <Settings2 className="w-4 h-4 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-gray-900">AI Configuration</p>
+                  <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-blue-50 text-blue-700 px-2 py-0.5 rounded-md border border-blue-100 whitespace-nowrap">
+                      <Cpu className="w-2.5 h-2.5 flex-shrink-0" />{cfg.model_text}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-purple-50 text-purple-700 px-2 py-0.5 rounded-md border border-purple-100 whitespace-nowrap">
+                      <Mic className="w-2.5 h-2.5 flex-shrink-0" />{cfg.model_audio}
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-violet-50 text-violet-700 px-2 py-0.5 rounded-md border border-violet-100 whitespace-nowrap">
+                      <Volume2 className="w-2.5 h-2.5 flex-shrink-0" />{cfg.voice_name}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {cfgToast && (
+                  <div className={`flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border ${
+                    cfgToast.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-red-50 text-red-700 border-red-200'
+                  }`}>
+                    {cfgToast.type === 'success'
+                      ? <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                      : <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" />}
+                    <span className="hidden sm:inline max-w-[200px] truncate">{cfgToast.msg}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => { setCfg(CONFIG_DEFAULTS); showCfgToast('success', 'Reset to defaults — click Save to apply.'); }}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50 hover:border-gray-300 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Reset</span>
+                </button>
+                <button
+                  onClick={handleSaveCfg}
+                  disabled={cfgSaving || cfgLoading}
+                  className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm disabled:opacity-60"
+                >
+                  {cfgSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {cfgSaving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </div>
+            </div>
+
+            {/* Loading */}
             {cfgLoading && (
-              <div className="flex items-center justify-center py-16">
+              <div className="flex items-center justify-center py-20">
                 <div className="flex flex-col items-center gap-3">
                   <div className="animate-spin rounded-full h-9 w-9 border-b-2 border-indigo-600" />
                   <p className="text-sm text-gray-400">Loading configuration…</p>
@@ -1103,166 +1326,290 @@ const DocumentManagement = () => {
             )}
 
             {!cfgLoading && (
-              <>
-                {/* Toast */}
-                {cfgToast && (
-                  <div className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium border ${
-                    cfgToast.type === 'success'
-                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                      : 'bg-red-50 border-red-200 text-red-800'
-                  }`}>
-                    {cfgToast.type === 'success'
-                      ? <CheckCircle className="w-4 h-4 text-emerald-500 flex-shrink-0" />
-                      : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0" />}
-                    {cfgToast.msg}
-                  </div>
-                )}
+              <div className="grid grid-cols-1 xl:grid-cols-5 gap-4 items-start">
 
-                {/* ── Text Model ─────────────────────────────────────────── */}
-                <Accordion icon={Cpu} iconColor="bg-blue-500" title="Text Model" defaultOpen badge={cfg.model_text}>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 pt-4">
-                    <div>
-                      <FieldLabel hint="Used for text-based Q&A responses">Model</FieldLabel>
-                      <SelectInput value={cfg.model_text} options={GEMINI_TEXT_MODELS} onChange={setCfgField('model_text')} />
+                {/* ── LEFT COLUMN: Parameter Panels ────────────────────────── */}
+                <div className="xl:col-span-2 space-y-4">
+
+                  {/* Text Chat Card */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100 bg-blue-50/40">
+                      <div className="w-6 h-6 rounded-md bg-blue-500 flex items-center justify-center flex-shrink-0">
+                        <Cpu className="w-3 h-3 text-white" />
+                      </div>
+                      <span className="text-xs font-bold text-gray-800">Text Chat</span>
+                      <span className="ml-auto text-[11px] font-mono text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded truncate max-w-[160px]">{cfg.model_text}</span>
                     </div>
-                    <div>
-                      <FieldLabel hint="Max tokens in a single response (50–2048)">Max Output Tokens</FieldLabel>
-                      <input type="number" min={50} max={2048} step={50} value={cfg.max_tokens}
-                        onChange={(e) => setCfgField('max_tokens')(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
-                    </div>
-                    <RangeSlider label="Temperature" hint="Lower = more deterministic"
-                      value={cfg.temperature} min={0} max={1} step={0.01}
-                      format={(v) => v.toFixed(2)} onChange={setCfgField('temperature')} />
-                    <RangeSlider label="Top-P" hint="Controls output diversity"
-                      value={cfg.top_p} min={0} max={1} step={0.01}
-                      format={(v) => v.toFixed(2)} onChange={setCfgField('top_p')} />
-                    <div>
-                      <FieldLabel hint="Number of chunks retrieved for RAG context">Top-K Results (RAG)</FieldLabel>
-                      <input type="number" min={1} max={20} step={1} value={cfg.top_k_results}
-                        onChange={(e) => setCfgField('top_k_results')(Number(e.target.value))}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
+                    <div className="p-4 space-y-4">
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Model</label>
+                        <SelectInput value={cfg.model_text} options={GEMINI_TEXT_MODELS} onChange={setCfgField('model_text')} />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                          Max Response Tokens
+                        </label>
+                        <div className="flex gap-2 items-center">
+                          <input type="number" min={1} max={8192} step={16} value={cfg.max_tokens}
+                            onChange={(e) => setCfgField('max_tokens')(Number(e.target.value))}
+                            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-gray-50/60" />
+                          <span className="text-[11px] text-gray-400 whitespace-nowrap">/ 8192</span>
+                        </div>
+                      </div>
+
+                      {[
+                        { key: 'temperature', label: 'Temperature', min: 0, max: 2, step: 0.01, fmt: v => v.toFixed(2), hint: ['Factual', 'Creative'] },
+                        { key: 'top_p',       label: 'Top P',        min: 0, max: 1, step: 0.01, fmt: v => v.toFixed(2), hint: ['Low', 'High'] },
+                      ].map(({ key, label, min, max, step, fmt, hint }) => (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">{label}</label>
+                            <span className="text-xs font-bold text-blue-600 tabular-nums">{fmt(cfg[key])}</span>
+                          </div>
+                          <input type="range" min={min} max={max} step={step} value={cfg[key]}
+                            onChange={(e) => setCfgField(key)(Number(e.target.value))}
+                            className="w-full accent-blue-600 cursor-pointer h-1.5" />
+                          <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                            <span>{hint[0]}</span><span>{hint[1]}</span>
+                          </div>
+                        </div>
+                      ))}
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">RAG Results</label>
+                          <span className="text-xs font-bold text-blue-600 tabular-nums">{cfg.top_k_results} chunks</span>
+                        </div>
+                        <input type="range" min={1} max={20} step={1} value={cfg.top_k_results}
+                          onChange={(e) => setCfgField('top_k_results')(Number(e.target.value))}
+                          className="w-full accent-blue-600 cursor-pointer h-1.5" />
+                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                          <span>1</span><span>20</span>
+                        </div>
+                      </div>
+
                     </div>
                   </div>
-                </Accordion>
 
-                {/* ── Live Audio Model ───────────────────────────────────── */}
-                <Accordion icon={Mic} iconColor="bg-purple-500" title="Live Audio Model" badge={cfg.model_audio}>
-                  <div className="pt-4 max-w-sm">
-                    <FieldLabel hint="Real-time voice conversation model">Live Model</FieldLabel>
-                    <SelectInput value={cfg.model_audio} options={GEMINI_LIVE_MODELS} onChange={setCfgField('model_audio')} />
-                    <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                      The Gemini Live API does not expose speaking rate, pitch, volume, or language code as configurable parameters — the model handles these automatically.
-                    </p>
+                  {/* Voice Chat Card */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100 bg-purple-50/40">
+                      <div className="w-6 h-6 rounded-md bg-purple-500 flex items-center justify-center flex-shrink-0">
+                        <Mic className="w-3 h-3 text-white" />
+                      </div>
+                      <span className="text-xs font-bold text-gray-800">Voice Chat</span>
+                      <span className="ml-auto text-[11px] font-mono text-purple-600 bg-purple-50 border border-purple-100 px-2 py-0.5 rounded truncate max-w-[160px]">{cfg.model_audio}</span>
+                    </div>
+                    <div className="p-4 space-y-4">
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Model</label>
+                        <SelectInput value={cfg.model_audio} options={GEMINI_LIVE_MODELS} onChange={setCfgField('model_audio')} />
+                      </div>
+
+                      <div>
+                        <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Language Code</label>
+                        <input type="text" placeholder="en-US" value={cfg.language_code ?? 'en-US'}
+                          onChange={(e) => setCfgField('language_code')(e.target.value)}
+                          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-gray-50/60" />
+                        <p className="text-[11px] text-gray-400 mt-1">BCP-47 · e.g. en-US, hi-IN, mr-IN</p>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Speaking Rate</label>
+                          <span className="text-xs font-bold text-purple-600 tabular-nums">{(cfg.speaking_rate ?? 1.0).toFixed(2)}×</span>
+                        </div>
+                        <input type="range" min={0.25} max={4.0} step={0.05} value={cfg.speaking_rate ?? 1.0}
+                          onChange={(e) => setCfgField('speaking_rate')(Number(e.target.value))}
+                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
+                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                          <span>0.25× Slow</span><span>1.0 Normal</span><span>4.0× Fast</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Pitch</label>
+                          <span className="text-xs font-bold text-purple-600 tabular-nums">
+                            {(cfg.pitch ?? 0) >= 0 ? `+${(cfg.pitch ?? 0).toFixed(1)}` : (cfg.pitch ?? 0).toFixed(1)} st
+                          </span>
+                        </div>
+                        <input type="range" min={-20} max={20} step={0.5} value={cfg.pitch ?? 0}
+                          onChange={(e) => setCfgField('pitch')(Number(e.target.value))}
+                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
+                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                          <span>−20 Low</span><span>0 Natural</span><span>+20 High</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Volume Gain</label>
+                          <span className="text-xs font-bold text-purple-600 tabular-nums">
+                            {(cfg.volume_gain_db ?? 0) >= 0 ? `+${(cfg.volume_gain_db ?? 0).toFixed(1)}` : (cfg.volume_gain_db ?? 0).toFixed(1)} dB
+                          </span>
+                        </div>
+                        <input type="range" min={-96} max={16} step={0.5} value={cfg.volume_gain_db ?? 0}
+                          onChange={(e) => setCfgField('volume_gain_db')(Number(e.target.value))}
+                          className="w-full accent-purple-600 cursor-pointer h-1.5" />
+                        <div className="flex justify-between text-[11px] text-gray-400 mt-1">
+                          <span>−96 dB</span><span>0 Normal</span><span>+16 dB</span>
+                        </div>
+                      </div>
+
+                    </div>
                   </div>
-                </Accordion>
 
-                {/* ── Voice Picker — all 30 official voices ─────────────── */}
-                <Accordion icon={Volume2} iconColor="bg-violet-500" title="Voice Selection" badge={cfg.voice_name}>
-                  <div className="pt-4 space-y-3">
-                    {/* Style filter chips */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {['All', 'Upbeat', 'Bright', 'Clear', 'Calm', 'Distinct'].map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setVoiceStyleFilter(s)}
-                          className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${
-                            voiceStyleFilter === s
-                              ? 'bg-indigo-600 text-white border-indigo-600'
-                              : 'bg-white text-gray-600 border-gray-300 hover:border-indigo-400'
+                </div>
+
+                {/* ── RIGHT COLUMN: Voice Picker + Prompts ─────────────────── */}
+                <div className="xl:col-span-3 space-y-4">
+
+                  {/* Voice Picker */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-violet-50/40 flex-wrap gap-2">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-md bg-violet-500 flex items-center justify-center flex-shrink-0">
+                          <Volume2 className="w-3 h-3 text-white" />
+                        </div>
+                        <div>
+                          <span className="text-xs font-bold text-gray-800">AI Voice</span>
+                          <span className="ml-2 text-[11px] text-gray-400">Active: <span className="font-bold text-violet-600">{cfg.voice_name}</span></span>
+                        </div>
+                      </div>
+                      <div className="relative">
+                        <select value={voiceStyleFilter} onChange={(e) => setVoiceStyleFilter(e.target.value)}
+                          className="text-xs border border-gray-200 rounded-lg pl-3 pr-7 py-1.5 bg-white font-medium text-gray-600 focus:ring-2 focus:ring-violet-500 appearance-none cursor-pointer">
+                          {['All','Upbeat','Bright','Breezy','Excitable','Youthful','Firm','Informational','Clear','Easygoing','Smooth','Soft','Gentle','Warm','Friendly','Lively','Casual','Knowledgeable','Even','Breathy','Gravelly','Mature','Forward'].map(s => (
+                            <option key={s} value={s}>{s === 'All' ? 'All Styles' : s}</option>
+                          ))}
+                        </select>
+                        <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="p-4">
+                      <p className="text-[11px] text-gray-400 mb-3">Click a card to select · <Volume2 className="inline w-3 h-3 mb-0.5" /> to preview (cached after first play)</p>
+                      <div className="grid grid-cols-4 sm:grid-cols-5 lg:grid-cols-6 gap-2 max-h-64 overflow-y-auto pr-0.5">
+                        {VOICE_OPTIONS
+                          .filter(v => voiceStyleFilter === 'All' || v.style === voiceStyleFilter)
+                          .map(({ value, style }) => {
+                            const isSelected = cfg.voice_name === value;
+                            const isPlaying  = playingVoice === value;
+                            const isLoading  = loadingVoice === value;
+                            return (
+                              <div
+                                key={value}
+                                onClick={() => setCfgField('voice_name')(value)}
+                                className={`relative flex flex-col items-center gap-1.5 p-2 rounded-xl border-2 cursor-pointer transition-all select-none group ${
+                                  isSelected
+                                    ? 'border-violet-500 bg-violet-50'
+                                    : 'border-transparent bg-gray-50 hover:border-violet-200 hover:bg-violet-50/40'
+                                }`}
+                              >
+                                {isSelected && (
+                                  <div className="absolute -top-1 -right-1 w-4 h-4 bg-violet-500 rounded-full flex items-center justify-center shadow">
+                                    <CheckCircle className="w-2.5 h-2.5 text-white" />
+                                  </div>
+                                )}
+                                <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${
+                                  isSelected ? 'bg-violet-500' : 'bg-white border border-gray-200 group-hover:border-violet-300'
+                                }`}>
+                                  <Mic className={`w-4 h-4 ${isSelected ? 'text-white' : 'text-gray-400'}`} />
+                                </div>
+                                <p className={`text-[11px] font-bold text-center truncate w-full leading-tight ${isSelected ? 'text-violet-700' : 'text-gray-800'}`}>{value}</p>
+                                <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full leading-tight whitespace-nowrap ${
+                                  isSelected ? 'bg-violet-100 text-violet-600' : 'bg-gray-100 text-gray-500'
+                                }`}>{style}</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handlePlayVoice(value); }}
+                                  disabled={isLoading}
+                                  title={isPlaying ? 'Stop' : 'Preview'}
+                                  className={`w-full flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] font-bold transition-all border ${
+                                    isPlaying  ? 'bg-emerald-500 text-white border-emerald-500' :
+                                    isLoading  ? 'bg-gray-50 text-gray-300 border-gray-100 cursor-wait' :
+                                    isSelected ? 'bg-violet-100 text-violet-700 border-violet-200 hover:bg-violet-200' :
+                                                 'bg-white text-gray-500 border-gray-200 hover:bg-violet-50 hover:text-violet-600 hover:border-violet-200'
+                                  }`}
+                                >
+                                  {isLoading ? <RefreshCw className="w-2.5 h-2.5 animate-spin" /> :
+                                   isPlaying  ? <Volume2 className="w-2.5 h-2.5" /> :
+                                                <Volume2 className="w-2.5 h-2.5" />}
+                                </button>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* System Prompts — Tabbed */}
+                  <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                    <div className="flex items-center gap-2.5 px-4 py-3 border-b border-gray-100 bg-emerald-50/40">
+                      <div className="w-6 h-6 rounded-md bg-emerald-500 flex items-center justify-center flex-shrink-0">
+                        <MessageSquare className="w-3 h-3 text-white" />
+                      </div>
+                      <span className="text-xs font-bold text-gray-800">System Prompts</span>
+                      <span className="text-[11px] text-gray-400 ml-1">6 prompts · 3 modes</span>
+                    </div>
+
+                    {/* Tab bar */}
+                    <div className="flex border-b border-gray-100 bg-gray-50/40">
+                      {[
+                        { key: 'landing', label: 'Landing Page',  activeClass: 'border-blue-500 text-blue-600',    dot: 'bg-blue-500'    },
+                        { key: 'panel',   label: 'App Panel',     activeClass: 'border-emerald-500 text-emerald-600', dot: 'bg-emerald-500' },
+                        { key: 'demo',    label: 'Demo Booking',  activeClass: 'border-orange-500 text-orange-600',  dot: 'bg-orange-500'  },
+                      ].map(({ key, label, activeClass, dot }) => (
+                        <button key={key} onClick={() => setPromptTab(key)}
+                          className={`flex items-center gap-1.5 px-5 py-2.5 text-xs font-semibold border-b-2 transition-colors ${
+                            promptTab === key ? activeClass : 'border-transparent text-gray-400 hover:text-gray-700'
                           }`}
                         >
-                          {s}
+                          <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${promptTab === key ? dot : 'bg-gray-300'}`} />
+                          {label}
                         </button>
                       ))}
                     </div>
-                    {/* Voice grid */}
-                    <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2 max-h-64 overflow-y-auto pr-1">
-                      {VOICE_OPTIONS
-                        .filter((v) => voiceStyleFilter === 'All' || v.style === voiceStyleFilter)
-                        .map(({ value, style }) => (
-                          <button
-                            key={value}
-                            onClick={() => setCfgField('voice_name')(value)}
-                            className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all ${
-                              cfg.voice_name === value
-                                ? 'border-indigo-500 bg-indigo-50'
-                                : 'border-gray-200 hover:border-indigo-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                              cfg.voice_name === value ? 'bg-indigo-500' : 'bg-gray-100'
-                            }`}>
-                              <Mic className={`w-3.5 h-3.5 ${cfg.voice_name === value ? 'text-white' : 'text-gray-500'}`} />
+
+                    <div className="p-4 space-y-4">
+                      {(() => {
+                        const prompts = {
+                          landing: [
+                            { num: 1, label: 'Text Chat',   hint: 'landing_page_agent — typed legal Q&A on public site',                   key: 'system_prompt',       ring: 'focus:ring-blue-500',    rows: 8  },
+                            { num: 2, label: 'Voice Mode',  hint: 'handle_audio_session (landing) — Gemini Live voice guide',              key: 'audio_system_prompt', ring: 'focus:ring-blue-500',    rows: 7  },
+                          ],
+                          panel: [
+                            { num: 3, label: 'Text Chat',   hint: 'app_panel_agent — base for in-app text & audio',                        key: 'in_app_system_prompt',  ring: 'focus:ring-emerald-500', rows: 10 },
+                            { num: 4, label: 'Voice Override', hint: 'Appended in voice mode — strips Markdown, enforces spoken style',     key: 'in_app_audio_override', ring: 'focus:ring-emerald-500', rows: 7  },
+                          ],
+                          demo: [
+                            { num: 5, label: 'Text',        hint: 'Appended to Landing Text — enables getAvailableSlots / bookDemo calls',  key: 'demo_text_addendum',  ring: 'focus:ring-orange-500',  rows: 8  },
+                            { num: 6, label: 'Voice',       hint: 'Appended to Landing Voice — voice-friendly booking instructions',        key: 'demo_audio_addendum', ring: 'focus:ring-orange-500',  rows: 8  },
+                          ],
+                        };
+                        return prompts[promptTab].map(({ num, label, hint, key, ring, rows }) => (
+                          <div key={key}>
+                            <div className="flex items-center justify-between mb-1.5">
+                              <label className="text-xs font-semibold text-gray-700">
+                                <span className="text-gray-400 font-mono mr-1">{num}.</span>{label}
+                              </label>
+                              <span className="text-[11px] text-gray-400 tabular-nums font-mono">{(cfg[key] ?? '').length} ch</span>
                             </div>
-                            <span className={`text-xs font-semibold leading-tight text-center ${
-                              cfg.voice_name === value ? 'text-indigo-700' : 'text-gray-700'
-                            }`}>{value}</span>
-                            <VoiceStyleBadge style={style} />
-                          </button>
-                        ))}
+                            <p className="text-[11px] text-gray-400 mb-1.5">{hint}</p>
+                            <textarea rows={rows} value={cfg[key] ?? ''}
+                              onChange={(e) => setCfgField(key)(e.target.value)}
+                              className={`w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono ${ring} focus:ring-2 focus:border-transparent resize-y bg-gray-50/60 leading-relaxed`}
+                            />
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </div>
-                </Accordion>
 
-                {/* ── System Prompts ─────────────────────────────────────── */}
-                <Accordion icon={MessageSquare} iconColor="bg-emerald-500" title="System Prompts">
-                  <div className="space-y-4 pt-4">
-                    <div>
-                      <FieldLabel hint="Injected before every text-model conversation">Text Chat System Prompt</FieldLabel>
-                      <textarea rows={5} value={cfg.system_prompt}
-                        onChange={(e) => setCfgField('system_prompt')(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 resize-y"
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel hint="Injected before every live audio session — keep concise">Audio / Live Model System Prompt</FieldLabel>
-                      <textarea rows={4} value={cfg.audio_system_prompt}
-                        onChange={(e) => setCfgField('audio_system_prompt')(e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-indigo-500 resize-y"
-                      />
-                    </div>
-                  </div>
-                </Accordion>
-
-                {/* ── Summary card ───────────────────────────────────────── */}
-                <Accordion icon={BarChart3} iconColor="bg-orange-500" title="Active Configuration Summary">
-                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-4">
-                    {[
-                      { label: 'Text Model',    value: cfg.model_text },
-                      { label: 'Live Model',    value: cfg.model_audio },
-                      { label: 'Voice',         value: cfg.voice_name },
-                      { label: 'Temperature',   value: cfg.temperature?.toFixed(2) ?? '—' },
-                      { label: 'Top-P',         value: cfg.top_p?.toFixed(2) ?? '—' },
-                      { label: 'Max Tokens',    value: cfg.max_tokens },
-                      { label: 'Top-K Results', value: cfg.top_k_results },
-                    ].map(({ label, value }) => (
-                      <div key={label} className="bg-white rounded-lg border border-gray-200 p-3">
-                        <p className="text-xs font-medium text-gray-500 mb-0.5">{label}</p>
-                        <p className="text-sm font-bold text-gray-900 truncate">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                </Accordion>
-
-                {/* Save / Reset row */}
-                <div className="flex justify-end gap-3 pb-2">
-                  <button
-                    onClick={() => { setCfg(CONFIG_DEFAULTS); showCfgToast('success', 'Reset to defaults (not saved yet).'); }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 transition flex items-center gap-2"
-                  >
-                    <RefreshCw className="w-4 h-4" /> Reset Defaults
-                  </button>
-                  <button
-                    onClick={handleSaveCfg}
-                    disabled={cfgSaving}
-                    className="inline-flex items-center gap-2 px-5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition disabled:opacity-60 shadow-sm"
-                  >
-                    {cfgSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                    {cfgSaving ? 'Saving…' : 'Save Configuration'}
-                  </button>
                 </div>
-              </>
+              </div>
             )}
           </div>
         )}

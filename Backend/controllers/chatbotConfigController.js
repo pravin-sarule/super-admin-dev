@@ -3,11 +3,14 @@ const aiDocumentPool = require('../config/aiDocumentDB');
 const EDITABLE_COLUMNS = [
   // text model
   'model_text', 'max_tokens', 'temperature', 'top_p', 'top_k_results',
-  // audio / live model — speaking_rate, pitch, volume_gain_db, language_code
-  // are NOT supported parameters in the Gemini Live API
-  'model_audio', 'voice_name',
-  // prompts
+  // audio / live model
+  'model_audio', 'voice_name', 'language_code', 'speaking_rate', 'pitch', 'volume_gain_db',
+  // prompts — landing page
   'system_prompt', 'audio_system_prompt',
+  // prompts — in-app panel
+  'in_app_system_prompt', 'in_app_audio_override',
+  // demo booking addendums
+  'demo_text_addendum', 'demo_audio_addendum',
 ];
 
 // GET /api/admin/chatbot-config
@@ -32,7 +35,8 @@ const updateConfig = async (req, res) => {
   try {
     const updates = {};
     for (const col of EDITABLE_COLUMNS) {
-      if (req.body[col] !== undefined) updates[col] = req.body[col];
+      const val = req.body[col];
+      if (val !== undefined && val !== null) updates[col] = val;
     }
 
     if (!Object.keys(updates).length) {
