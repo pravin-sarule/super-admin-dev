@@ -145,6 +145,7 @@ export const DEFAULT_AGENT_BUILDER_SETTINGS = {
     end_on_silence_minutes: 1,
     max_duration_minutes: 15.3,
     ring_duration_seconds: 30,
+    recording_enabled: true,
   },
   post_call_extraction: [
     { key: 'call_summary', label: 'Call Summary', type: 'text', enabled: true },
@@ -152,10 +153,9 @@ export const DEFAULT_AGENT_BUILDER_SETTINGS = {
     { key: 'user_sentiment', label: 'User Sentiment', type: 'enum', enabled: true },
     { key: 'preferred_language', label: 'preferred_language', type: 'string', enabled: true },
   ],
-  post_call_model: 'gemini-3.1-flash-live-preview',
+  post_call_model: 'gemini-2.5-flash',
   security: {
     fallback_phrase: 'I am sorry, I do not have information on that in our records.',
     allow_interruptions: true,
-    pii_redaction: true,
   },
 };

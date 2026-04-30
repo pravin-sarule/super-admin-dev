@@ -758,6 +758,18 @@ const AgentSettingsPanel = ({
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <span>
+              <span className="block text-sm font-semibold text-slate-950">Call Recording</span>
+              <span className="block text-xs text-slate-500">
+                Record both sides of the call (caller mic + agent audio) and upload the WAV to GCS for review.
+              </span>
+            </span>
+            <Toggle
+              checked={builderSettings.call?.recording_enabled !== false}
+              onChange={(checked) => updateBuilder({ call: { recording_enabled: checked } })}
+            />
+          </div>
+          <div className="flex items-center justify-between gap-4">
+            <span>
               <span className="block text-sm font-semibold text-slate-950">User Keypad Input Detection</span>
               <span className="block text-xs text-slate-500">Enable the AI to listen for keypad input during a call.</span>
             </span>
@@ -993,13 +1005,6 @@ const AgentSettingsPanel = ({
             className="mt-2 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
           />
         </label>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-sm font-semibold text-slate-950">PII Redaction</span>
-          <Toggle
-            checked={Boolean(builderSettings.security?.pii_redaction)}
-            onChange={(checked) => updateBuilder({ security: { pii_redaction: checked } })}
-          />
-        </div>
       </AccordionSection>
     </aside>
     {editingFunction === 'end_call' && (

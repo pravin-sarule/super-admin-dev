@@ -91,6 +91,25 @@ const ALL_DECLARATIONS = [
     },
   },
   {
+    name: 'search_knowledge_base',
+    description:
+      'Search the agent\'s product/policy knowledge base by semantic similarity and return the top matching snippets. Always call this BEFORE answering any product, pricing, feature, or policy question — never invent facts. The result has `confident: true` only when the top match is above the configured similarity floor.',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'A short, focused phrase summarizing what the caller is asking. Example: "Smart Case Summarizer pricing", "supported document formats".',
+        },
+        k: {
+          type: 'integer',
+          description: 'How many top snippets to fetch. Default 5; raise only when the question is broad.',
+        },
+      },
+      required: ['query'],
+    },
+  },
+  {
     name: 'calendar_book',
     description:
       'Book an appointment on the configured Google Calendar. Always read back the chosen time and attendee email to confirm before calling this tool.',

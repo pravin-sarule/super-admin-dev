@@ -23,6 +23,7 @@ const tools = {
   agent_transfer: require('./agentTransfer.tool'),
   calendar_check: require('./calendarCheck.tool'),
   calendar_book: require('./calendarBook.tool'),
+  search_knowledge_base: require('./searchKnowledgeBase.tool'),
 };
 
 const insertExecutionRow = async ({ sessionId, agentId, traceId, functionCallId, name, args }) => {

@@ -13,6 +13,8 @@ const agentTest = require('./agentTest.service');
 const toolDispatcher = require('../tools/dispatcher');
 const toolDeclarations = require('../tools/declarations');
 const toolPromptsRepo = require('../tools/toolPrompts.repository');
+const promptFragments = require('../tools/systemPromptFragments.repository');
+const postCallExtractor = require('../postcall/postCallExtractor');
 
 const LIVE_TEST_PATH_RE =
   /^\/(?:api\/)?admin\/jurinex-voice\/agents\/([^/]+)\/live-test\/?$/;
@@ -178,25 +180,28 @@ const fetchKnowledgeBaseContext = async (documentIds) => {
   return { sections, totalBytes, truncated };
 };
 
-const formatKnowledgeBaseBlock = (kb) => {
+// Async — pulls the wrapper template (header + rules) from
+// voice_system_prompt_fragments and substitutes the actual KB chunks.
+const formatKnowledgeBaseBlock = async (kb) => {
   if (!kb || !kb.sections.length) return '';
-  const blocks = kb.sections.map(
-    (section, idx) => `### Document ${idx + 1}: ${section.title}\n${section.body}`
-  );
-  return [
-    '---',
-    'KNOWLEDGE BASE (the only source of truth for product/policy questions):',
-    blocks.join('\n\n'),
-    kb.truncated ? '[Note: knowledge base content was truncated due to size budget.]' : '',
-    '---',
-    'Rules for using the knowledge base above:',
-    '- Answer product/policy/feature questions ONLY from the knowledge base content above.',
-    '- If the answer is not present in the knowledge base, say so plainly in the caller\'s language and offer to transfer or take a callback. Do not invent facts.',
-    '- Quote document titles or sections naturally when helpful, but never read raw markdown or section markers.',
-    '- For account-specific or out-of-scope requests, follow the agent prompt\'s transfer policy.',
-  ]
-    .filter(Boolean)
-    .join('\n');
+  const sectionsBlock = kb.sections
+    .map((section, idx) => `### Document ${idx + 1}: ${section.title}\n${section.body}`)
+    .join('\n\n');
+  const truncatedNote = kb.truncated
+    ? await promptFragments.renderFragment('knowledge_base_truncated_note').catch(() => '')
+    : '';
+  const rendered = await promptFragments
+    .renderFragment('knowledge_base_header', {
+      kb_sections_block: sectionsBlock,
+      kb_truncated_note: truncatedNote,
+    })
+    .catch((err) => {
+      voiceLogger.warn('knowledge_base_header fragment render failed', {
+        summary: { error: err.message },
+      });
+      return '';
+    });
+  return rendered;
 };
 
 const DAY_LABELS = {
@@ -267,14 +272,23 @@ const buildLiveSystemInstruction = async ({
       return '';
     });
 
-  return [
-    agentTest.buildSystemInstruction({ audioPrompt, languageLabel }),
-    '',
-    'This is a realtime phone-call style audio session.',
-    'Listen continuously, answer as soon as the caller finishes a thought, and allow interruption if the caller starts speaking again.',
-    'Keep the same selected language unless the caller clearly asks to switch.',
-    'Do not describe internal settings, test mode, or streaming mechanics.',
+  // Pull the two non-tool live-session fragments from DB. Falls back to
+  // empty string if a row is missing/inactive so the live session never
+  // dies on a prompt-table edit.
+  const fragmentVars = { language_label: languageLabel || 'English' };
+  const [liveBase, realtimeRules, kbBlock] = await Promise.all([
+    promptFragments.renderFragment('live_session_base', fragmentVars).catch(() => ''),
+    promptFragments.renderFragment('live_session_realtime_rules', fragmentVars).catch(() => ''),
     formatKnowledgeBaseBlock(knowledgeBase),
+  ]);
+
+  return [
+    String(audioPrompt || '').trim(),
+    '',
+    liveBase,
+    '',
+    realtimeRules,
+    kbBlock,
     toolBlock,
   ]
     .filter(Boolean)
@@ -321,6 +335,13 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
     let geminiClosed = false;
     let liveState = null;
     let lastInputTranscript = '';
+    // Accumulator for the post-call extraction job. Pushed every time
+    // Gemini emits a final input or output transcription (i.e. after a
+    // turn completes). We keep this on the connection scope so it
+    // survives until ws.on('close') fires the extractor.
+    let pendingInputTranscript = '';
+    let pendingOutputTranscript = '';
+    const transcriptTurns = [];
     let counters = {
       audioPacketsIn: 0,
       audioBytesIn: 0,
@@ -580,7 +601,12 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       if (liveState.shouldSpeakFirst && liveState.welcomeMessage && !liveState.welcomeSent) {
         liveState.welcomeSent = true;
         liveState.awaitingWelcomeComplete = true;
-        const welcomePrompt = `Start the call now by saying this greeting naturally in ${liveState.languageLabel}: ${liveState.welcomeMessage}`;
+        // Prefer the DB-rendered template; fall back to a minimal hardcoded
+        // line only if the fragment row is missing/inactive so the call
+        // doesn't die silently.
+        const welcomePrompt =
+          liveState.welcomePromptTemplate ||
+          `Start the call now by saying this greeting naturally in ${liveState.languageLabel}: ${liveState.welcomeMessage}`;
         pipeline('welcome_sent', {
           source,
           welcome_preview: liveState.welcomeMessage.slice(0, 120),
@@ -645,7 +671,19 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       }
     };
 
+    // Tunable. 3 attempts is enough to ride through transient Google
+    // backend hiccups without infinite-looping when the model itself is
+    // permanently broken for the project.
+    const MAX_RESUME_ATTEMPTS = Number(
+      process.env.JURINEX_VOICE_LIVE_MAX_RESUMES || 3
+    );
+
     const handleGeminiMessage = (message) => {
+      // Stash the latest session-resumption handle BEFORE the kind filter
+      // so we always have one ready when a 1011 fires mid-conversation.
+      if (message?.sessionResumptionUpdate?.newHandle && liveState) {
+        liveState.lastResumeHandle = message.sessionResumptionUpdate.newHandle;
+      }
       const kind = messageKind(message);
       // One-line trace per server message so we can see exactly what
       // Gemini emitted (and in what order) right before any 1008 close.
@@ -764,6 +802,7 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           });
         }
         lastInputTranscript = inputTranscript;
+        pendingInputTranscript = inputTranscript;
         counters.inputTranscripts += 1;
         sendJson(ws, {
           type: 'input_transcript',
@@ -781,12 +820,38 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           });
         }
         counters.outputTranscripts += 1;
+        // Gemini sends partial deltas; concatenate until a turnComplete /
+        // generationComplete frame, then commit the full agent turn to
+        // the post-call transcript accumulator.
+        pendingOutputTranscript = `${pendingOutputTranscript || ''}${outputTranscript}`;
         sendJson(ws, {
           type: 'output_transcript',
           text: outputTranscript,
           final: Boolean(message?.serverContent?.generationComplete || message?.serverContent?.turnComplete),
           session_id: sessionId,
         });
+      }
+
+      const isTurnFinal =
+        Boolean(message?.serverContent?.turnComplete) ||
+        Boolean(message?.serverContent?.generationComplete);
+      if (isTurnFinal) {
+        if (pendingInputTranscript) {
+          transcriptTurns.push({
+            role: 'user',
+            text: pendingInputTranscript,
+            ts: new Date().toISOString(),
+          });
+          pendingInputTranscript = '';
+        }
+        if (pendingOutputTranscript) {
+          transcriptTurns.push({
+            role: 'agent',
+            text: pendingOutputTranscript,
+            ts: new Date().toISOString(),
+          });
+          pendingOutputTranscript = '';
+        }
       }
 
       const text = extractLiveTextParts(message);
@@ -882,15 +947,6 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           apiVersion: process.env.JURINEX_VOICE_LIVE_API_VERSION || 'v1beta',
         },
       });
-      const knowledgeBase = await fetchKnowledgeBaseContext(
-        builderSettings.knowledge_base?.document_ids
-      ).catch((err) => {
-        voiceLogger.warn('live voice test KB fetch failed', {
-          summary: { agentId, error: err.message },
-        });
-        return { sections: [], totalBytes: 0, truncated: false };
-      });
-
       // Fetch per-agent transfer + tool settings so the dispatcher
       // knows the destination phone, calendar id, etc.
       const agentConfig = await agentConfigRepo.get(agentId).catch(() => null);
@@ -906,11 +962,33 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         {};
 
       // Resolve which tools the model is allowed to call from
-      // builder_settings.functions[].
+      // builder_settings.functions[]. Auto-enable
+      // `search_knowledge_base` whenever the agent has KB docs selected
+      // so the model has a way to retrieve chunks at conversation time
+      // (matches the "Tool first, speech after" rule in agent prompts).
+      const docIds = Array.isArray(builderSettings.knowledge_base?.document_ids)
+        ? builderSettings.knowledge_base.document_ids.filter(Boolean)
+        : [];
       const enabledFunctionKeys = (builderSettings.functions || [])
         .filter((fn) => fn && fn.enabled !== false)
         .map((fn) => fn.key)
         .filter(Boolean);
+      if (docIds.length && !enabledFunctionKeys.includes('search_knowledge_base')) {
+        enabledFunctionKeys.push('search_knowledge_base');
+      }
+      const useKbSearchTool = enabledFunctionKeys.includes('search_knowledge_base');
+
+      // When the model has the search tool, fetch chunks on demand at
+      // query time (low latency, focused context). Otherwise fall back
+      // to dumping the entire KB into the system prompt.
+      const knowledgeBase = useKbSearchTool
+        ? { sections: [], totalBytes: 0, truncated: false }
+        : await fetchKnowledgeBaseContext(docIds).catch((err) => {
+            voiceLogger.warn('live voice test KB fetch failed', {
+              summary: { agentId, error: err.message },
+            });
+            return { sections: [], totalBytes: 0, truncated: false };
+          });
       const functionDeclarations = toolDeclarations.getDeclarationsForAgent(enabledFunctionKeys);
       console.log('[JURINEX_VOICE_LIVE] tool declarations resolved', {
         sessionId,
@@ -934,6 +1012,18 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         truncated: knowledgeBase.truncated,
         budgetBytes: KNOWLEDGE_BASE_BUDGET_BYTES,
       });
+      // Pre-render the welcome turn template from the DB-stored fragment
+      // (voice_system_prompt_fragments / welcome_turn_template). Cached
+      // here so the sync advanceLiveConversation() doesn't need to await.
+      const welcomePromptTemplate = welcomeMessage
+        ? await promptFragments
+            .renderFragment('welcome_turn_template', {
+              language_label: languageLabel,
+              welcome_message: welcomeMessage,
+            })
+            .catch(() => '')
+        : '';
+
       liveState = {
         liveModel,
         voiceName,
@@ -944,6 +1034,7 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         history: Array.isArray(payload.history) ? payload.history : [],
         shouldSpeakFirst: Boolean(shouldSpeakFirst),
         welcomeMessage,
+        welcomePromptTemplate,
         welcomeSent: false,
         awaitingWelcomeComplete: false,
         listeningReadySent: false,
@@ -990,27 +1081,53 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         }
       );
 
-      geminiSession = await ai.live.connect({
-        model: liveModelPath,
-        callbacks: {
-          onopen: () => {
-            pipeline('gemini_socket_open', {
-              live_model: liveModel,
-              live_model_path: liveModelPath,
-              voice_name: voiceName,
-              language_code: languageCode,
-            });
-            sendJson(ws, {
-              type: 'model_socket_open',
-              session_id: sessionId,
-              live_model: liveModel,
-              live_model_path: liveModelPath,
-              language_code: languageCode,
-              voice_name: voiceName,
-            });
-          },
-          onmessage: handleGeminiMessage,
-          onerror: (event) => {
+      // Single source of truth for the Gemini Live config. Used by the
+      // initial connect and by every subsequent auto-resume after 1011.
+      const buildLiveConfig = (resumeHandle) => ({
+        responseModalities: [Modality.AUDIO],
+        systemInstruction,
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName } },
+        },
+        thinkingConfig: { thinkingLevel: 'minimal' },
+        ...(functionDeclarations.length ? { tools: [{ functionDeclarations }] } : {}),
+        contextWindowCompression: {
+          triggerTokens: 104857,
+          slidingWindow: { targetTokens: 52428 },
+        },
+        // Empty {} on first connect opts the session into receiving
+        // sessionResumptionUpdate frames; on resume we pass the latest
+        // handle so the model rebuilds prior context.
+        sessionResumption: resumeHandle ? { handle: resumeHandle } : {},
+      });
+
+      const connectGemini = async (resumeHandle = null) => {
+        return ai.live.connect({
+          model: liveModelPath,
+          callbacks: {
+            onopen: () => {
+              pipeline(resumeHandle ? 'gemini_socket_resumed' : 'gemini_socket_open', {
+                live_model: liveModel,
+                live_model_path: liveModelPath,
+                voice_name: voiceName,
+                language_code: languageCode,
+                resume_handle_present: Boolean(resumeHandle),
+                resume_attempts: liveState?.resumeAttempts || 0,
+              });
+              sendJson(ws, {
+                type: resumeHandle ? 'model_socket_resumed' : 'model_socket_open',
+                session_id: sessionId,
+                live_model: liveModel,
+                live_model_path: liveModelPath,
+                language_code: languageCode,
+                voice_name: voiceName,
+                resume_attempt: liveState?.resumeAttempts || 0,
+              });
+            },
+            onmessage: handleGeminiMessage,
+            onerror: (event) => {
             const error = event?.error || event;
             const summary = summarizeError(error);
             pipeline('gemini_error', {
@@ -1080,6 +1197,60 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
               counters,
               breakStage,
             });
+
+            // ── AUTO-RESUME ON 1011 ────────────────────────────────────
+            // Gemini Live native-audio sometimes returns WS 1011
+            // "Internal error occurred." mid-conversation (most often
+            // right after an `interrupted` event). If the model already
+            // gave us a resumption handle and the session was actually
+            // productive, transparently reconnect with that handle so
+            // the conversation continues with full prior context.
+            const canResume =
+              code === 1011 &&
+              Boolean(liveState?.lastResumeHandle) &&
+              counters.audioChunksOut > 0 &&
+              (liveState.resumeAttempts || 0) < MAX_RESUME_ATTEMPTS &&
+              !closed &&
+              !liveState?.endingScheduled;
+            if (canResume) {
+              const attempt = (liveState.resumeAttempts || 0) + 1;
+              liveState.resumeAttempts = attempt;
+              const handle = liveState.lastResumeHandle;
+              pipeline('gemini_session_resuming', {
+                attempt,
+                max_attempts: MAX_RESUME_ATTEMPTS,
+                handle_present: true,
+                trigger: 'ws_1011',
+              });
+              sendJson(ws, {
+                type: 'model_resuming',
+                attempt,
+                max_attempts: MAX_RESUME_ATTEMPTS,
+                session_id: sessionId,
+              });
+              setTimeout(() => {
+                if (closed || liveState?.endingScheduled) return;
+                connectGemini(handle)
+                  .then((session) => {
+                    geminiSession = session;
+                    geminiClosed = false;
+                  })
+                  .catch((err) => {
+                    pipeline('gemini_session_resume_failed', {
+                      attempt,
+                      error: err && err.message ? err.message : String(err),
+                    });
+                    sendJson(ws, {
+                      type: 'model_resume_failed',
+                      attempt,
+                      error: err && err.message ? err.message : String(err),
+                      session_id: sessionId,
+                    });
+                  });
+              }, 500).unref?.();
+              return;
+            }
+
             sendJson(ws, {
               type: 'model_socket_closed',
               code,
@@ -1116,41 +1287,12 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
             }
           },
         },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          systemInstruction,
-          // Required for the input/output transcript fields we extract in
-          // handleGeminiMessage. Without these, serverContent does not
-          // populate inputTranscription / outputTranscription and the UI
-          // shows no transcript bar even when audio works.
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName,
-              },
-            },
-          },
-          // Gemini 3.1 Live exposes thinkingLevel; 'minimal' optimizes for
-          // lowest first-byte latency on conversational audio (the default
-          // is already minimal, set explicitly for clarity).
-          thinkingConfig: {
-            thinkingLevel: 'minimal',
-          },
-          // Declare any agent-enabled tools so Gemini Live knows it may
-          // emit toolCall messages. Omit entirely when no tools are
-          // enabled — passing an empty tools[] is rejected by some
-          // builds and is a known cause of WS 1008 mid-turn.
-          ...(functionDeclarations.length
-            ? { tools: [{ functionDeclarations }] }
-            : {}),
-          contextWindowCompression: {
-            triggerTokens: 104857,
-            slidingWindow: { targetTokens: 52428 },
-          },
-        },
-      });
+          config: buildLiveConfig(resumeHandle),
+        });
+      };
+
+      // Initial connect (no resume handle).
+      geminiSession = await connectGemini(null);
 
       sendJson(ws, {
         type: 'session_started',
@@ -1274,11 +1416,30 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       closed = true;
       const reason = reasonBuffer?.toString?.() || '';
       closeGemini();
+      // Flush any in-progress turn before extraction so the last words
+      // aren't lost if the caller hung up mid-utterance.
+      if (pendingInputTranscript) {
+        transcriptTurns.push({
+          role: 'user',
+          text: pendingInputTranscript,
+          ts: new Date().toISOString(),
+        });
+        pendingInputTranscript = '';
+      }
+      if (pendingOutputTranscript) {
+        transcriptTurns.push({
+          role: 'agent',
+          text: pendingOutputTranscript,
+          ts: new Date().toISOString(),
+        });
+        pendingOutputTranscript = '';
+      }
       pipeline('browser_socket_close', {
         close_code: code,
         close_reason: reason,
         duration_ms: Date.now() - connectedAt,
         counters,
+        transcript_turns: transcriptTurns.length,
         timeline: pipelineMarks.map((m) => ({ stage: m.stage, t_ms: m.t_ms })),
       });
       console.log('[JURINEX_VOICE_LIVE] browser socket closed', {
@@ -1289,6 +1450,28 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         durationMs: Date.now() - connectedAt,
         counters,
       });
+
+      // Fire the post-call extraction job. Fully fire-and-forget so a
+      // slow Gemini call never holds the WS handler open.
+      const fieldList =
+        liveState?.builderSettings?.post_call_extraction ||
+        [];
+      const postCallModel =
+        liveState?.builderSettings?.post_call_model || undefined;
+      void postCallExtractor
+        .runExtraction({
+          sessionId,
+          agentId,
+          agentName: liveState?.builderSettings?.agent_name || null,
+          transcriptTurns: [...transcriptTurns],
+          fieldList,
+          model: postCallModel,
+        })
+        .catch((err) => {
+          voiceLogger.warn('post_call_extraction failed', {
+            summary: { sessionId, agentId, error: err.message },
+          });
+        });
       logLifecycle(
         'agent_test_live_socket_closed',
         'live_test_socket',
