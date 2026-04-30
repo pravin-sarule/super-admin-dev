@@ -42,6 +42,52 @@ const debugLive = (event, summary = {}, context = {}) => {
   console.groupEnd();
 };
 
+// Per-test pipeline tracer: records each stage transition with timestamps
+// and counters, prints a styled console line per stage, and dumps the full
+// timeline with computed latencies on test end. Lets you see exactly where
+// the live pipeline broke without scrolling through hundreds of unrelated
+// log lines.
+const createPipelineTracer = (label) => {
+  const startedAt = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const stageTimes = { test_start: startedAt };
+  const marks = [];
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  const mark = (stage, payload = {}) => {
+    const t = now();
+    if (!stageTimes[stage]) stageTimes[stage] = t;
+    const tFromStart = Math.round(t - startedAt);
+    const entry = { stage, t_ms: tFromStart, ...payload };
+    marks.push(entry);
+    if (typeof console !== 'undefined') {
+      console.log(
+        `%c[PIPELINE ${label}] %c+${(tFromStart / 1000).toFixed(2)}s %c→ ${stage}`,
+        'color:#0ea5e9;font-weight:600',
+        'color:#64748b',
+        'color:#0f172a;font-weight:600',
+        payload
+      );
+    }
+  };
+
+  const sinceStage = (stage) => (stageTimes[stage] ? Math.round(now() - stageTimes[stage]) : null);
+
+  const summary = (final = {}) => {
+    if (typeof console === 'undefined') return marks;
+    const totalMs = Math.round(now() - startedAt);
+    console.groupCollapsed(
+      `%c[PIPELINE ${label}] FINAL TIMELINE (${(totalMs / 1000).toFixed(2)}s, ${marks.length} stages)`,
+      'color:#0ea5e9;font-weight:700'
+    );
+    console.table(marks.map(({ stage, t_ms, ...rest }) => ({ stage, t_ms, ...rest })));
+    console.log('final', final);
+    console.groupEnd();
+    return marks;
+  };
+
+  return { mark, summary, sinceStage };
+};
+
 const base64ToArrayBuffer = (base64) => {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -130,6 +176,7 @@ const AgentTestPanel = ({
   const lastLevelUpdateRef = useRef(0);
   const sessionIdRef = useRef(null);
   const captureStartedRef = useRef(false);
+  const pipelineRef = useRef(null);
 
   const welcomeMessage = deriveWelcomeMessage(audioPrompt, builderSettings);
   const model = getModelMeta(liveModel, models);
@@ -308,30 +355,48 @@ const AgentTestPanel = ({
       }
     };
 
+    const trace = pipelineRef.current;
+
     switch (data.type) {
       case 'socket_ready':
+        trace?.mark('socket_ready');
         setStatusText('Socket ready');
         break;
       case 'model_socket_open':
+        trace?.mark('model_socket_open', { live_model: data.live_model, voice: data.voice_name });
         setStatusText('Live model connected');
         break;
       case 'session_started':
+        trace?.mark('session_started');
         setStatusText('Live session created');
         break;
       case 'model_ready':
+        trace?.mark('model_ready', {
+          latency_from_ws_open_ms: trace?.sinceStage('ws_open'),
+        });
         setStatusText('Live model ready');
         break;
       case 'listening_ready':
+        trace?.mark('listening_ready', { reason: data.reason });
         setPhase('listening');
         setStatusText('Listening to microphone');
         beginMicrophoneStreaming();
         break;
       case 'welcome_started':
+        trace?.mark('welcome_started', { text_preview: String(data.text || '').slice(0, 60) });
         pendingWelcomeRef.current = data.text || welcomeMessage;
         setPhase('speaking');
         setStatusText('Agent greeting');
         break;
       case 'audio_chunk':
+        if (playbackChunkCountRef.current === 0) {
+          trace?.mark('audio_out_first', {
+            mime_type: data.mime_type,
+            byte_length: data.byte_length,
+            latency_from_ws_open_ms: trace?.sinceStage('ws_open'),
+            latency_from_listening_ready_ms: trace?.sinceStage('listening_ready'),
+          });
+        }
         if (pendingWelcomeRef.current && playbackChunkCountRef.current === 0) {
           flushOutputTranscript(pendingWelcomeRef.current);
         }
@@ -347,10 +412,16 @@ const AgentTestPanel = ({
         });
         break;
       case 'input_transcript':
+        if (!inputTranscriptRef.current) {
+          trace?.mark('input_transcript_first', { text_preview: String(data.text || '').slice(0, 60) });
+        }
         inputTranscriptRef.current = data.text || inputTranscriptRef.current;
         if (data.final) flushInputTranscript(data.text);
         break;
       case 'output_transcript':
+        if (!outputTranscriptRef.current) {
+          trace?.mark('output_transcript_first', { text_preview: String(data.text || '').slice(0, 60) });
+        }
         outputTranscriptRef.current += data.text || '';
         if (data.final) flushOutputTranscript(outputTranscriptRef.current);
         break;
@@ -358,6 +429,10 @@ const AgentTestPanel = ({
         outputTranscriptRef.current += data.text || '';
         break;
       case 'turn_complete':
+        trace?.mark('turn_complete', {
+          generation_complete: Boolean(data.generation_complete),
+          turn_complete: Boolean(data.turn_complete),
+        });
         flushInputTranscript();
         flushOutputTranscript();
         if (runningRef.current) {
@@ -366,17 +441,41 @@ const AgentTestPanel = ({
         }
         break;
       case 'interrupted':
+        trace?.mark('interrupted');
         setPhase('interrupted');
         setStatusText('Caller interrupted agent');
         break;
       case 'error':
+        trace?.mark('error', { message: data.message, detail: data.error || null });
         setError(data.message || 'Live call failed.');
         logTest('agent_test_live_socket_error', 'live_test_socket', 'Live test socket returned an error', {
           error: data.message,
           detail: data.error || null,
         });
         break;
+      case 'tool_session_end':
+        trace?.mark('tool_session_end', {
+          reason: data.reason,
+          source: data.source,
+          transfer: data.transfer || null,
+          agent_transfer: data.agent_transfer || null,
+        });
+        if (data.transfer?.destination) {
+          setStatusText(`Transferring to ${data.transfer.destination}…`);
+        } else if (data.agent_transfer?.to_agent_name) {
+          setStatusText(`Handing off to ${data.agent_transfer.to_agent_name}…`);
+        } else {
+          setStatusText('Ending call…');
+        }
+        break;
       case 'model_socket_closed':
+        trace?.mark('model_socket_closed', {
+          code: data.code,
+          reason: data.reason,
+          fatal: data.fatal,
+          unsupported: data.unsupported,
+          latency_from_ws_open_ms: trace?.sinceStage('ws_open'),
+        });
         stopCapture();
         if (data.unsupported) {
           setStatusText('Live audio not enabled for this model/key');
@@ -430,6 +529,14 @@ const AgentTestPanel = ({
       );
 
       sentPacketCountRef.current += 1;
+      if (sentPacketCountRef.current === 1) {
+        pipelineRef.current?.mark('mic_first_packet', {
+          source_rate: context.sampleRate,
+          target_rate: INPUT_SAMPLE_RATE,
+          bytes: pcmBuffer.byteLength,
+          latency_from_listening_ready_ms: pipelineRef.current?.sinceStage('listening_ready'),
+        });
+      }
       if (sentPacketCountRef.current === 1 || sentPacketCountRef.current % 50 === 0) {
         debugLive('mic_packet_sent', {
           packets: sentPacketCountRef.current,
@@ -486,6 +593,14 @@ const AgentTestPanel = ({
       playbackChunkCountRef.current = 0;
       sentPacketCountRef.current = 0;
 
+      pipelineRef.current = createPipelineTracer(`${liveModel}/${voice.name}`);
+      pipelineRef.current.mark('test_start', {
+        live_model: liveModel,
+        voice: voice.name,
+        language_code: languageCode,
+        speaker: builderSettings.welcome?.speaker || 'ai_first',
+      });
+
       const wsUrl = getVoiceAgentLiveTestUrl(agentId);
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
@@ -493,6 +608,7 @@ const AgentTestPanel = ({
       setStatusText('Connecting live call');
 
       ws.onopen = async () => {
+        pipelineRef.current?.mark('ws_open');
         debugLive('socket_open', {
           agentId,
           model: liveModel,
@@ -532,6 +648,19 @@ const AgentTestPanel = ({
       };
 
       ws.onclose = (event) => {
+        pipelineRef.current?.mark('ws_close', {
+          code: event.code,
+          reason: event.reason,
+          packets_sent: sentPacketCountRef.current,
+          playback_chunks: playbackChunkCountRef.current,
+        });
+        pipelineRef.current?.summary({
+          ws_code: event.code,
+          ws_reason: event.reason,
+          packets_sent: sentPacketCountRef.current,
+          playback_chunks: playbackChunkCountRef.current,
+        });
+        pipelineRef.current = null;
         debugLive('socket_closed', {
           code: event.code,
           reason: event.reason,

@@ -27,6 +27,7 @@ import {
   normalizeModelOptions,
 } from './agentBuilderUtils';
 import KnowledgeDocumentPickerModal from './KnowledgeDocumentPickerModal';
+import CalendarFunctionModal, { DEFAULT_CALENDAR_TOOL_SETTINGS } from './CalendarFunctionModal';
 
 const Toggle = ({ checked, onChange }) => (
   <button
@@ -446,7 +447,23 @@ const AgentSettingsPanel = ({
         ...(transferCall || {}),
       });
       setEditingFunction('transfer_call');
+      return;
     }
+    if (key === 'calendar_check' || key === 'calendar_book') {
+      setEditingFunction(key);
+    }
+  };
+
+  const calendarSettings =
+    builderSettings.tool_settings?.calendar || DEFAULT_CALENDAR_TOOL_SETTINGS;
+  const saveCalendarSettings = (next) => {
+    updateBuilder({
+      tool_settings: {
+        ...(builderSettings.tool_settings || {}),
+        calendar: next,
+      },
+    });
+    setEditingFunction(null);
   };
 
   const saveEndCall = () => {
@@ -1008,6 +1025,13 @@ const AgentSettingsPanel = ({
       onClose={() => setKbPickerOpen(false)}
       onApply={(ids) => updateBuilder({ knowledge_base: { document_ids: ids } })}
       onNavigateUpload={onNavigateUpload}
+    />
+    <CalendarFunctionModal
+      open={editingFunction === 'calendar_check' || editingFunction === 'calendar_book'}
+      mode={editingFunction === 'calendar_book' ? 'book' : 'check'}
+      value={calendarSettings}
+      onSave={saveCalendarSettings}
+      onClose={() => setEditingFunction(null)}
     />
     </>
   );

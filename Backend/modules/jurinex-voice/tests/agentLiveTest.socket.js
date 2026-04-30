@@ -1,21 +1,25 @@
 const { randomUUID } = require('crypto');
 const jwt = require('jsonwebtoken');
-const { MediaResolution, Modality } = require('@google/genai');
+const { Modality } = require('@google/genai');
 const { WebSocketServer, WebSocket } = require('ws');
 
 const { JWT_SECRET } = require('../../../config/env');
 const agentRepo = require('../agents/voiceAgent.repository');
+const agentConfigRepo = require('../agents/voiceAgentConfig.repository');
 const kbRepo = require('../kb/kb.repository');
 const dataflow = require('../observability/dataflowLogger');
 const voiceLogger = require('../observability/voiceLogger');
 const agentTest = require('./agentTest.service');
+const toolDispatcher = require('../tools/dispatcher');
+const toolDeclarations = require('../tools/declarations');
+const toolPromptsRepo = require('../tools/toolPrompts.repository');
 
 const LIVE_TEST_PATH_RE =
   /^\/(?:api\/)?admin\/jurinex-voice\/agents\/([^/]+)\/live-test\/?$/;
 
 const DEFAULT_LIVE_MODEL = 'gemini-2.5-flash-native-audio-preview-12-2025';
 const INPUT_AUDIO_MIME_TYPE = 'audio/pcm;rate=16000';
-const OUTPUT_AUDIO_MIME_TYPE = 'audio/L16;rate=24000';
+const OUTPUT_AUDIO_MIME_TYPE = 'audio/pcm;rate=24000';
 const WELCOME_TURN_TIMEOUT_MS = Number(process.env.JURINEX_VOICE_LIVE_WELCOME_TIMEOUT_MS || 3500);
 
 const toLiveModelPath = (model) => {
@@ -195,8 +199,75 @@ const formatKnowledgeBaseBlock = (kb) => {
     .join('\n');
 };
 
-const buildLiveSystemInstruction = ({ audioPrompt, languageLabel, knowledgeBase }) =>
-  [
+const DAY_LABELS = {
+  monday: 'Monday',
+  tuesday: 'Tuesday',
+  wednesday: 'Wednesday',
+  thursday: 'Thursday',
+  friday: 'Friday',
+  saturday: 'Saturday',
+  sunday: 'Sunday',
+};
+
+// Compute the variables that the DB-stored prompt templates can reference.
+// Templates use {{var}} placeholders rendered by toolPromptsRepo.
+const buildToolPromptVariables = ({
+  languageLabel,
+  calendarSettings = {},
+  transferConfig = {},
+}) => {
+  const wh = calendarSettings.working_hours || {};
+  const enabledDays = Object.entries(wh)
+    .filter(([, cfg]) => cfg?.enabled)
+    .map(([day, cfg]) => `  - ${DAY_LABELS[day] || day}: ${cfg.start}–${cfg.end}`);
+  const disabledDays = Object.entries(wh)
+    .filter(([, cfg]) => !cfg?.enabled)
+    .map(([day]) => DAY_LABELS[day] || day);
+  const blocked = Array.isArray(calendarSettings.blocked_dates)
+    ? calendarSettings.blocked_dates
+    : [];
+  return {
+    language_label: languageLabel || 'English',
+    timezone: calendarSettings.timezone || 'Asia/Kolkata',
+    default_meeting_minutes: Number(calendarSettings.default_meeting_minutes) || 30,
+    working_hours_block: enabledDays.length
+      ? enabledDays.join('\n')
+      : '  - (no working hours configured — refuse all bookings politely)',
+    disabled_days: disabledDays.length ? disabledDays.join(', ') : '(none)',
+    blocked_dates: blocked.length ? blocked.join(', ') : '(none)',
+    view_only_warning: calendarSettings.view_only
+      ? 'VIEW-ONLY MODE: you may CHECK availability but you must NOT call calendar_book. If a caller asks to book, say bookings are not available right now and offer a callback.'
+      : '',
+    transfer_destination:
+      transferConfig.static_destination || transferConfig.destination || '(not configured)',
+    transfer_type: transferConfig.transfer_type || 'warm',
+  };
+};
+
+// Async because it reads tool prompt rows from the database (cached 60s).
+const buildLiveSystemInstruction = async ({
+  audioPrompt,
+  languageLabel,
+  knowledgeBase,
+  enabledFunctionKeys = [],
+  calendarSettings = {},
+  transferConfig = {},
+}) => {
+  const variables = buildToolPromptVariables({
+    languageLabel,
+    calendarSettings,
+    transferConfig,
+  });
+  const toolBlock = await toolPromptsRepo
+    .renderForEnabledTools({ enabledFunctionKeys, variables })
+    .catch((err) => {
+      voiceLogger.warn('tool prompt render failed; continuing without tool guidance', {
+        summary: { error: err.message, enabledFunctionKeys },
+      });
+      return '';
+    });
+
+  return [
     agentTest.buildSystemInstruction({ audioPrompt, languageLabel }),
     '',
     'This is a realtime phone-call style audio session.',
@@ -204,9 +275,11 @@ const buildLiveSystemInstruction = ({ audioPrompt, languageLabel, knowledgeBase 
     'Keep the same selected language unless the caller clearly asks to switch.',
     'Do not describe internal settings, test mode, or streaming mechanics.',
     formatKnowledgeBaseBlock(knowledgeBase),
+    toolBlock,
   ]
     .filter(Boolean)
     .join('\n');
+};
 
 const attachAgentLiveTestSocket = (server, { pool } = {}) => {
   const wss = new WebSocketServer({
@@ -281,6 +354,147 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           });
         });
 
+    // ── PIPELINE TRACER ────────────────────────────────────────────
+    // Records every meaningful pipeline transition with elapsed-time
+    // latencies, prints a Rich-style box, and persists to
+    // voice_debug_events so we can replay the timeline from the
+    // Debug Logs UI even after console output is gone.
+    const pipelineTimes = { session_open: connectedAt };
+    const pipelineMarks = [];
+    const sinceConn = () => Date.now() - connectedAt;
+    const sinceStage = (label) =>
+      pipelineTimes[label] ? Date.now() - pipelineTimes[label] : null;
+
+    // Circular-safe stringify so a payload that accidentally references a
+    // shared array (e.g. pipelineMarks) cannot crash the server during
+    // log formatting. Truncates output to keep box rows readable.
+    const safeStringify = (value) => {
+      const seen = new WeakSet();
+      try {
+        return JSON.stringify(value, (_key, v) => {
+          if (v && typeof v === 'object') {
+            if (seen.has(v)) return '[Circular]';
+            seen.add(v);
+          }
+          return v;
+        });
+      } catch (err) {
+        return `[unserializable: ${err.message}]`;
+      }
+    };
+
+    const drawPipelineBox = (stage, lines) => {
+      const width = 64;
+      const top = '┏' + '━'.repeat(width - 2) + '┓';
+      const sep = '┠' + '─'.repeat(width - 2) + '┨';
+      const bot = '┗' + '━'.repeat(width - 2) + '┛';
+      const pad = (text) => {
+        const t = text.length > width - 4 ? text.slice(0, width - 5) + '…' : text;
+        return `┃ ${t}${' '.repeat(width - 3 - t.length)}┃`;
+      };
+      const out = [top, pad(`🎙️  PIPELINE → ${stage.toUpperCase()}`), sep];
+      for (const [k, v] of lines) {
+        const display = v == null ? '-' : typeof v === 'object' ? safeStringify(v) : String(v);
+        out.push(pad(`${String(k).padEnd(14)} ${display.length > 44 ? display.slice(0, 43) + '…' : display}`));
+      }
+      out.push(bot);
+      return out.join('\n');
+    };
+
+    // Strip live references (the pipelineMarks array, functions, very long
+    // strings) before persisting/logging so we never produce a payload that
+    // can self-reference once it gets pushed onto pipelineMarks.
+    const sanitizePayload = (payload) => {
+      const out = {};
+      for (const [k, v] of Object.entries(payload || {})) {
+        if (v == null) {
+          out[k] = v;
+        } else if (Array.isArray(v)) {
+          // Shallow-clone arrays so the persisted snapshot never aliases
+          // the live pipelineMarks array.
+          out[k] = v.map((item) =>
+            item && typeof item === 'object' ? { ...item } : item
+          );
+        } else if (typeof v === 'object') {
+          out[k] = { ...v };
+        } else {
+          out[k] = v;
+        }
+      }
+      return out;
+    };
+
+    const pipeline = (stage, payload = {}) => {
+      try {
+        pipelineTimes[stage] = pipelineTimes[stage] || Date.now();
+        const tFromConn = sinceConn();
+        const sanitized = sanitizePayload(payload);
+        const mark = {
+          stage,
+          t_ms: tFromConn,
+          ts: new Date().toISOString(),
+          ...sanitized,
+        };
+        pipelineMarks.push(mark);
+
+        const lines = [
+          ['Session', sessionId.slice(0, 8) + '…'],
+          ['Agent', agentId.slice(0, 8) + '…'],
+          ['t+', `${(tFromConn / 1000).toFixed(2)}s since socket open`],
+        ];
+        Object.entries(sanitized).forEach(([k, v]) => lines.push([k, v]));
+        console.log(drawPipelineBox(stage, lines));
+
+        void dataflow
+          .logVoiceEvent(
+            `live_pipeline_${stage}`,
+            'live_pipeline',
+            `Live pipeline reached stage: ${stage}`,
+            {
+              session_id: sessionId,
+              agent_id: agentId,
+              admin_actor: auth?.method || 'unknown',
+              stage,
+              t_ms_since_socket_open: tFromConn,
+              ...sanitized,
+            }
+          )
+          .catch(() => {});
+      } catch (err) {
+        // Never let a logging bug bring down the server. Just emit a
+        // plain console line and move on.
+        console.warn('[JURINEX_VOICE_LIVE] pipeline log failed', {
+          stage,
+          error: err && err.message ? err.message : String(err),
+        });
+      }
+    };
+
+    // Lightweight categorizer for incoming Gemini server messages.
+    const messageKind = (m) => {
+      if (!m || typeof m !== 'object') return 'unknown';
+      if (m.setupComplete) return 'setupComplete';
+      if (m.toolCall) return 'toolCall';
+      if (m.toolCallCancellation) return 'toolCallCancellation';
+      if (m.sessionResumptionUpdate) return 'sessionResumptionUpdate';
+      if (m.goAway) return 'goAway';
+      if (m.usageMetadata && !m.serverContent) return 'usageMetadata';
+      const sc = m.serverContent;
+      if (!sc) return 'unknownServerMessage';
+      const tags = [];
+      if (sc.inputTranscription) tags.push('inputTranscription');
+      if (sc.outputTranscription) tags.push('outputTranscription');
+      if (sc.modelTurn) {
+        const audio = (sc.modelTurn.parts || []).filter((p) => p.inlineData).length;
+        const text = (sc.modelTurn.parts || []).filter((p) => p.text).length;
+        tags.push(`modelTurn(audio=${audio},text=${text})`);
+      }
+      if (sc.interrupted) tags.push('interrupted');
+      if (sc.generationComplete) tags.push('generationComplete');
+      if (sc.turnComplete) tags.push('turnComplete');
+      return tags.length ? tags.join('+') : 'serverContent(empty)';
+    };
+
     const closeGemini = () => {
       try {
         geminiSession?.sendRealtimeInput?.({ audioStreamEnd: true });
@@ -293,6 +507,38 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         /* ignore close errors */
       }
       geminiSession = null;
+    };
+
+    // Tools that decide the call is over (end_call, transfer_call,
+    // agent_transfer) call this so we can let any in-flight farewell
+    // audio finish, notify the browser, then close everything cleanly.
+    const SESSION_END_GRACE_MS = Number(
+      process.env.JURINEX_VOICE_LIVE_TOOL_END_GRACE_MS || 4500
+    );
+    const scheduleSessionEnd = ({ reason, farewell, source, transfer, agentTransfer }) => {
+      if (liveState?.endingScheduled) return;
+      if (liveState) liveState.endingScheduled = true;
+      pipeline('tool_session_end_scheduled', {
+        reason,
+        source,
+        farewell_preview: farewell ? String(farewell).slice(0, 80) : null,
+        grace_ms: SESSION_END_GRACE_MS,
+        transfer: transfer || null,
+        agent_transfer: agentTransfer || null,
+      });
+      sendJson(ws, {
+        type: 'tool_session_end',
+        reason,
+        source,
+        farewell: farewell || null,
+        transfer: transfer || null,
+        agent_transfer: agentTransfer || null,
+        session_id: sessionId,
+      });
+      setTimeout(() => {
+        closeGemini();
+        closeSocket(1000, `Session ended by ${source || 'tool'} (${reason})`);
+      }, SESSION_END_GRACE_MS).unref?.();
     };
 
     const closeSocket = (code = 1011, reason = 'Live voice test failed') => {
@@ -311,11 +557,10 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       if (liveState.awaitingWelcomeComplete) {
         liveState.awaitingWelcomeComplete = false;
       }
-      console.log('[JURINEX_VOICE_LIVE] listening ready sent to browser', {
-        sessionId,
-        agentId,
+      pipeline('listening_ready', {
         reason,
-        welcomeSent: Boolean(liveState.welcomeSent),
+        welcome_sent: Boolean(liveState.welcomeSent),
+        latency_from_setup_ms: sinceStage('setup_complete'),
       });
       sendJson(ws, { type: 'listening_ready', reason, session_id: sessionId });
     };
@@ -335,18 +580,34 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       if (liveState.shouldSpeakFirst && liveState.welcomeMessage && !liveState.welcomeSent) {
         liveState.welcomeSent = true;
         liveState.awaitingWelcomeComplete = true;
-        console.log('[JURINEX_VOICE_LIVE] sending AI-first welcome turn to Gemini', {
-          sessionId,
-          agentId,
+        const welcomePrompt = `Start the call now by saying this greeting naturally in ${liveState.languageLabel}: ${liveState.welcomeMessage}`;
+        pipeline('welcome_sent', {
           source,
-          welcomePreview: liveState.welcomeMessage.slice(0, 120),
+          welcome_preview: liveState.welcomeMessage.slice(0, 120),
+          language_label: liveState.languageLabel,
+          envelope: 'realtimeInput.text',
         });
-        geminiSession.sendClientContent({
-          turns: [
-            `Start the call now by saying this greeting naturally in ${liveState.languageLabel}: ${liveState.welcomeMessage}`,
-          ],
-          turnComplete: true,
-        });
+        // Per Google's Live API doc, live text input must use
+        // realtimeInput.text. Using clientContent (history/prefill) here
+        // mixes turn semantics with audio output and is a known
+        // trigger for `1008 / Operation is not implemented` on
+        // Gemini Live audio sessions.
+        try {
+          geminiSession.sendRealtimeInput({ text: welcomePrompt });
+        } catch (err) {
+          // Fallback for older SDK builds that don't accept text on
+          // sendRealtimeInput — use sendClientContent so the welcome
+          // still goes out. Logged so we can see if this branch fires.
+          console.warn('[JURINEX_VOICE_LIVE] sendRealtimeInput(text) unsupported, falling back to sendClientContent', {
+            sessionId,
+            agentId,
+            error: err && err.message,
+          });
+          geminiSession.sendClientContent({
+            turns: [welcomePrompt],
+            turnComplete: true,
+          });
+        }
         liveState.welcomeTimer = setTimeout(() => {
           if (!liveState || liveState.listeningReadySent || geminiClosed) return;
           console.warn('[JURINEX_VOICE_LIVE] welcome turn timed out before audio/turnComplete; starting microphone anyway', {
@@ -385,18 +646,123 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
     };
 
     const handleGeminiMessage = (message) => {
+      const kind = messageKind(message);
+      // One-line trace per server message so we can see exactly what
+      // Gemini emitted (and in what order) right before any 1008 close.
+      if (kind !== 'sessionResumptionUpdate') {
+        console.log('[JURINEX_VOICE_LIVE_MSG]', {
+          sessionId,
+          agentId,
+          tMs: sinceConn(),
+          kind,
+          counters: {
+            in: counters.audioPacketsIn,
+            out: counters.audioChunksOut,
+            txOut: counters.textDeltasOut,
+            inTr: counters.inputTranscripts,
+            outTr: counters.outputTranscripts,
+          },
+        });
+      }
+
       if (message?.setupComplete) {
         modelReady = true;
         sendJson(ws, { type: 'model_ready', session_id: sessionId });
-        console.log('[JURINEX_VOICE_LIVE] Gemini Live setup complete', {
-          sessionId,
-          agentId,
+        pipeline('setup_complete', {
+          latency_from_socket_open_ms: sinceStage('session_open'),
         });
         advanceLiveConversation('setup_complete');
       }
 
+      if (message?.toolCall) {
+        const calls = message.toolCall.functionCalls || [];
+        const fnNames = calls.map((c) => c?.name).filter(Boolean);
+        pipeline('tool_call_received', {
+          function_names: fnNames,
+          ack_strategy: 'real_dispatcher',
+        });
+        // Per the Live API docs, every toolCall MUST be answered with a
+        // toolResponse — otherwise Gemini Live closes 1008 mid-turn.
+        // Hand off to the real dispatcher (tools/dispatcher.js); the
+        // promise chain runs after handleGeminiMessage returns so we
+        // never block subsequent server frames.
+        void (async () => {
+          const functionResponses = [];
+          for (const call of calls) {
+            const result = await toolDispatcher
+              .execute({
+                name: call?.name,
+                args: call?.args || {},
+                sessionId,
+                agentId,
+                traceId: liveState?.traceId,
+                functionCallId: call?.id,
+                toolSettings: liveState?.toolSettings || {},
+                transferConfig: liveState?.transferConfig || {},
+                endSession: ({ reason, farewell, source, transfer, agentTransfer }) => {
+                  scheduleSessionEnd({
+                    reason: reason || 'tool_request',
+                    farewell,
+                    source: source || 'tool',
+                    transfer,
+                    agentTransfer,
+                  });
+                },
+                bridgeTwilioCall: liveState?.bridgeTwilioCall || null,
+              })
+              .catch((err) => ({
+                status: 'dispatcher_exception',
+                detail: err && err.message ? err.message : String(err),
+              }));
+            functionResponses.push({
+              id: call?.id,
+              name: call?.name,
+              response: { result },
+            });
+          }
+          try {
+            if (typeof geminiSession?.sendToolResponse === 'function') {
+              geminiSession.sendToolResponse({ functionResponses });
+            } else if (typeof geminiSession?.sendClientContent === 'function') {
+              geminiSession.sendClientContent({
+                turns: [
+                  {
+                    role: 'function',
+                    parts: functionResponses.map((fr) => ({ functionResponse: fr })),
+                  },
+                ],
+                turnComplete: false,
+              });
+            }
+            pipeline('tool_response_sent', {
+              function_count: functionResponses.length,
+              function_names: fnNames,
+              statuses: functionResponses.map((fr) => fr.response?.result?.status || 'ok'),
+            });
+          } catch (err) {
+            pipeline('tool_response_failed', {
+              error: err && err.message,
+              function_names: fnNames,
+            });
+          }
+        })();
+      }
+
+      if (message?.goAway) {
+        pipeline('go_away', {
+          time_left: message.goAway.timeLeft,
+          reason: message.goAway.reason || null,
+        });
+      }
+
       const inputTranscript = extractTranscriptText(message?.serverContent?.inputTranscription);
       if (inputTranscript) {
+        if (counters.inputTranscripts === 0) {
+          pipeline('input_transcript_first', {
+            text_preview: String(inputTranscript).slice(0, 80),
+            latency_from_first_mic_ms: sinceStage('mic_first_packet'),
+          });
+        }
         lastInputTranscript = inputTranscript;
         counters.inputTranscripts += 1;
         sendJson(ws, {
@@ -409,6 +775,11 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
 
       const outputTranscript = extractTranscriptText(message?.serverContent?.outputTranscription);
       if (outputTranscript) {
+        if (counters.outputTranscripts === 0) {
+          pipeline('output_transcript_first', {
+            text_preview: String(outputTranscript).slice(0, 80),
+          });
+        }
         counters.outputTranscripts += 1;
         sendJson(ws, {
           type: 'output_transcript',
@@ -420,6 +791,9 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
 
       const text = extractLiveTextParts(message);
       if (text) {
+        if (counters.textDeltasOut === 0) {
+          pipeline('text_delta_first', { text_preview: String(text).slice(0, 80) });
+        }
         counters.textDeltasOut += 1;
         sendJson(ws, { type: 'text_delta', text, session_id: sessionId });
       }
@@ -437,6 +811,15 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           byte_length: byteLength,
           session_id: sessionId,
         });
+        if (counters.audioChunksOut === 1) {
+          pipeline('audio_out_first', {
+            byte_length: byteLength,
+            mime_type: part.mime_type,
+            latency_from_setup_ms: sinceStage('setup_complete'),
+            latency_from_welcome_ms: sinceStage('welcome_sent'),
+            latency_from_first_mic_ms: sinceStage('mic_first_packet'),
+          });
+        }
         if (counters.audioChunksOut === 1 || counters.audioChunksOut % 20 === 0) {
           console.log('[JURINEX_VOICE_LIVE] audio chunk streamed to browser', {
             sessionId,
@@ -449,10 +832,18 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       }
 
       if (message?.serverContent?.interrupted) {
+        pipeline('interrupted', { audio_chunks_so_far: counters.audioChunksOut });
         sendJson(ws, { type: 'interrupted', session_id: sessionId });
       }
 
       if (message?.serverContent?.generationComplete || message?.serverContent?.turnComplete) {
+        if (!pipelineTimes.turn_complete_first) {
+          pipeline('turn_complete_first', {
+            audio_chunks_total: counters.audioChunksOut,
+            audio_bytes_total: counters.audioBytesOut,
+            latency_from_setup_ms: sinceStage('setup_complete'),
+          });
+        }
         sendJson(ws, {
           type: 'turn_complete',
           generation_complete: Boolean(message?.serverContent?.generationComplete),
@@ -499,10 +890,41 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         });
         return { sections: [], totalBytes: 0, truncated: false };
       });
-      const systemInstruction = buildLiveSystemInstruction({
+
+      // Fetch per-agent transfer + tool settings so the dispatcher
+      // knows the destination phone, calendar id, etc.
+      const agentConfig = await agentConfigRepo.get(agentId).catch(() => null);
+      const transferConfig = agentConfig?.transfer_call || {};
+      // tool_settings can live in three places; preferred location is
+      // custom_settings.agent_builder.tool_settings (saved through the
+      // existing builder save flow). Fall back to legacy paths for
+      // backward compatibility.
+      const toolSettings =
+        agentConfig?.custom_settings?.agent_builder?.tool_settings ||
+        agentConfig?.custom_settings?.tool_settings ||
+        agentConfig?.tool_settings ||
+        {};
+
+      // Resolve which tools the model is allowed to call from
+      // builder_settings.functions[].
+      const enabledFunctionKeys = (builderSettings.functions || [])
+        .filter((fn) => fn && fn.enabled !== false)
+        .map((fn) => fn.key)
+        .filter(Boolean);
+      const functionDeclarations = toolDeclarations.getDeclarationsForAgent(enabledFunctionKeys);
+      console.log('[JURINEX_VOICE_LIVE] tool declarations resolved', {
+        sessionId,
+        agentId,
+        enabledFunctionKeys,
+        declared: functionDeclarations.map((d) => d.name),
+      });
+      const systemInstruction = await buildLiveSystemInstruction({
         audioPrompt: payload.audio_prompt,
         languageLabel,
         knowledgeBase,
+        enabledFunctionKeys,
+        calendarSettings: toolSettings?.calendar || {},
+        transferConfig,
       });
       console.log('[JURINEX_VOICE_LIVE] knowledge base loaded for live session', {
         sessionId,
@@ -526,6 +948,12 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         awaitingWelcomeComplete: false,
         listeningReadySent: false,
         welcomeTimer: null,
+        transferConfig,
+        toolSettings,
+        enabledFunctionKeys,
+        functionDeclarations,
+        traceId: payload.trace_id || null,
+        endingScheduled: false,
       };
       geminiClosed = false;
       modelReady = false;
@@ -566,6 +994,12 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         model: liveModelPath,
         callbacks: {
           onopen: () => {
+            pipeline('gemini_socket_open', {
+              live_model: liveModel,
+              live_model_path: liveModelPath,
+              voice_name: voiceName,
+              language_code: languageCode,
+            });
             sendJson(ws, {
               type: 'model_socket_open',
               session_id: sessionId,
@@ -579,6 +1013,12 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           onerror: (event) => {
             const error = event?.error || event;
             const summary = summarizeError(error);
+            pipeline('gemini_error', {
+              error_name: summary.name,
+              error_message: summary.message,
+              error_code: summary.code,
+              counters,
+            });
             console.error('[JURINEX_VOICE_LIVE] Gemini Live error', {
               sessionId,
               agentId,
@@ -603,6 +1043,34 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
             const reason = event?.reason || null;
             geminiClosed = true;
             geminiSession = null;
+            const breakStage = !modelReady
+              ? 'before_setup_complete'
+              : !pipelineTimes.welcome_sent && liveState?.shouldSpeakFirst
+                ? 'before_welcome_sent'
+                : counters.audioChunksOut === 0 && pipelineTimes.welcome_sent
+                  ? 'after_welcome_sent_no_audio_out'
+                  : counters.audioChunksOut === 0
+                    ? 'after_setup_no_audio_out'
+                    : counters.audioPacketsIn > 0 && pipelineTimes.audio_out_first
+                      ? 'mid_conversation'
+                      : 'after_first_audio_out';
+            pipeline('gemini_socket_close', {
+              close_code: code,
+              close_reason: reason,
+              break_stage: breakStage,
+              model_ready: modelReady,
+              counters: { ...counters },
+              latency_from_session_open_ms: sinceConn(),
+              latency_from_setup_ms: sinceStage('setup_complete'),
+              latency_from_first_mic_ms: sinceStage('mic_first_packet'),
+              hint:
+                code === 1008
+                  ? 'WS 1008 typically means a request was made that the model/session does not support: invalid voice, missing tools declaration, or preview-tier audio not enabled. Compare against the prior 2.5-native-audio session that succeeded.'
+                  : null,
+              // Snapshot of the timeline so far (cloned to avoid the
+              // self-reference circular-JSON crash that killed the server).
+              timeline: pipelineMarks.map((m) => ({ stage: m.stage, t_ms: m.t_ms })),
+            });
             console.log('[JURINEX_VOICE_LIVE] Gemini Live socket closed', {
               sessionId,
               agentId,
@@ -610,6 +1078,7 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
               reason,
               modelReady,
               counters,
+              breakStage,
             });
             sendJson(ws, {
               type: 'model_socket_closed',
@@ -649,8 +1118,13 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
         },
         config: {
           responseModalities: [Modality.AUDIO],
-          mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
           systemInstruction,
+          // Required for the input/output transcript fields we extract in
+          // handleGeminiMessage. Without these, serverContent does not
+          // populate inputTranscription / outputTranscription and the UI
+          // shows no transcript bar even when audio works.
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
           speechConfig: {
             voiceConfig: {
               prebuiltVoiceConfig: {
@@ -658,6 +1132,19 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
               },
             },
           },
+          // Gemini 3.1 Live exposes thinkingLevel; 'minimal' optimizes for
+          // lowest first-byte latency on conversational audio (the default
+          // is already minimal, set explicitly for clarity).
+          thinkingConfig: {
+            thinkingLevel: 'minimal',
+          },
+          // Declare any agent-enabled tools so Gemini Live knows it may
+          // emit toolCall messages. Omit entirely when no tools are
+          // enabled — passing an empty tools[] is rejected by some
+          // builds and is a known cause of WS 1008 mid-turn.
+          ...(functionDeclarations.length
+            ? { tools: [{ functionDeclarations }] }
+            : {}),
           contextWindowCompression: {
             triggerTokens: 104857,
             slidingWindow: { targetTokens: 52428 },
@@ -688,6 +1175,10 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       sessionId,
       agentId,
       adminActor: auth?.method || 'unknown',
+      ip: req.socket?.remoteAddress || null,
+    });
+    pipeline('browser_socket_open', {
+      admin_actor: auth?.method || 'unknown',
       ip: req.socket?.remoteAddress || null,
     });
 
@@ -722,6 +1213,13 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
           const byteLength = Buffer.byteLength(message.data, 'base64');
           counters.audioPacketsIn += 1;
           counters.audioBytesIn += byteLength;
+          if (counters.audioPacketsIn === 1) {
+            pipeline('mic_first_packet', {
+              byte_length: byteLength,
+              mime_type: mimeType,
+              latency_from_listening_ready_ms: sinceStage('listening_ready'),
+            });
+          }
           geminiSession.sendRealtimeInput({
             audio: {
               data: message.data,
@@ -776,6 +1274,13 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       closed = true;
       const reason = reasonBuffer?.toString?.() || '';
       closeGemini();
+      pipeline('browser_socket_close', {
+        close_code: code,
+        close_reason: reason,
+        duration_ms: Date.now() - connectedAt,
+        counters,
+        timeline: pipelineMarks.map((m) => ({ stage: m.stage, t_ms: m.t_ms })),
+      });
       console.log('[JURINEX_VOICE_LIVE] browser socket closed', {
         sessionId,
         agentId,
