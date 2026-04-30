@@ -16,6 +16,22 @@ const adminApiKey = () => {
   return key ? String(key).trim() : '';
 };
 
+export const getVoiceAgentLiveTestUrl = (agentId) => {
+  const origin =
+    typeof window !== 'undefined' && window.location?.origin
+      ? window.location.origin
+      : 'http://localhost:4000';
+  const baseUrl = new URL(`${BASE}/agents/${agentId}/live-test`, origin);
+  const apiKey = adminApiKey();
+  const token = getToken();
+
+  if (apiKey) baseUrl.searchParams.set('admin_key', apiKey);
+  if (token) baseUrl.searchParams.set('token', token);
+
+  baseUrl.protocol = baseUrl.protocol === 'https:' ? 'wss:' : 'ws:';
+  return baseUrl.toString();
+};
+
 const headers = (extra = {}) => {
   const token = getToken();
   const apiKey = adminApiKey();
@@ -69,11 +85,125 @@ export const updateVoiceAgent = (agentId, payload) =>
     body: JSON.stringify(payload),
   }).then(handle);
 
+export const getVoiceAgentConfiguration = (agentId) =>
+  fetch(`${BASE}/agents/${agentId}/config`, { headers: headers() }).then(handle);
+
+export const updateVoiceAgentConfiguration = (agentId, payload) =>
+  fetch(`${BASE}/agents/${agentId}/config`, {
+    method: 'PUT',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+export const runVoiceAgentTestTurn = (agentId, payload) =>
+  fetch(`${BASE}/agents/${agentId}/test-turn`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+export const runVoiceAgentTestAudioTurn = (agentId, { audioBlob, ...payload }) => {
+  const fd = new FormData();
+  fd.append('audio', audioBlob, `agent-test-${Date.now()}.webm`);
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    fd.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+  });
+
+  const token = getToken();
+  const apiKey = adminApiKey();
+  return fetch(`${BASE}/agents/${agentId}/test-audio-turn`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(apiKey ? { 'X-Admin-API-Key': apiKey } : {}),
+    },
+    body: fd,
+  }).then(handle);
+};
+
+export const streamVoiceAgentTestAudioTurn = async (agentId, { audioBlob, onEvent, ...payload }) => {
+  const fd = new FormData();
+  fd.append('audio', audioBlob, `agent-test-${Date.now()}.webm`);
+  Object.entries(payload || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
+    fd.append(key, typeof value === 'string' ? value : JSON.stringify(value));
+  });
+
+  const token = getToken();
+  const apiKey = adminApiKey();
+  const res = await fetch(`${BASE}/agents/${agentId}/test-audio-turn-stream`, {
+    method: 'POST',
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(apiKey ? { 'X-Admin-API-Key': apiKey } : {}),
+    },
+    body: fd,
+  });
+
+  if (!res.ok || !res.body) {
+    return handle(res);
+  }
+
+  const decoder = new TextDecoder();
+  const reader = res.body.getReader();
+  let buffer = '';
+
+  const emitEventBlock = (block) => {
+    const lines = block.split('\n');
+    const event = lines.find((line) => line.startsWith('event:'))?.slice(6).trim() || 'message';
+    const dataLines = lines
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice(5).trim());
+    if (!dataLines.length) return;
+    let data = null;
+    try {
+      data = JSON.parse(dataLines.join('\n'));
+    } catch {
+      data = { raw: dataLines.join('\n') };
+    }
+    onEvent?.({ event, data });
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+      blocks.filter(Boolean).forEach(emitEventBlock);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) emitEventBlock(buffer);
+  return { success: true };
+};
+
 export const deleteVoiceAgent = (agentId) =>
   fetch(`${BASE}/agents/${agentId}`, {
     method: 'DELETE',
     headers: headers(),
   }).then(handle);
+
+// ── Platform voices ────────────────────────────────────────────────
+
+export const listPlatformVoices = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.gender) q.set('gender', params.gender);
+  if (params.accent) q.set('accent', params.accent);
+  if (params.search) q.set('search', params.search);
+  return fetch(`${BASE}/platform-voices?${q.toString()}`, { headers: headers() }).then(handle);
+};
+
+export const getPlatformVoicePreview = (voiceKey, payload) =>
+  fetch(`${BASE}/platform-voices/${encodeURIComponent(voiceKey)}/preview`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+export const listVoiceModelPricing = () =>
+  fetch(`${BASE}/models/pricing`, { headers: headers() }).then(handle);
 
 // ── Documents ───────────────────────────────────────────────────────
 
@@ -154,3 +284,43 @@ export const listVoiceDebugEvents = (params = {}) => {
   if (params.limit) q.set('limit', params.limit);
   return fetch(`${BASE}/debug/events?${q.toString()}`, { headers: headers() }).then(handle);
 };
+
+export const recordVoiceDebugEvent = (payload) =>
+  fetch(`${BASE}/debug/events`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+// ── Call analytics & history ───────────────────────────────────────
+
+const callQuery = (params = {}) => {
+  const q = new URLSearchParams();
+  [
+    'start_date',
+    'end_date',
+    'timezone',
+    'agent_id',
+    'direction',
+    'status',
+    'outcome',
+    'sentiment',
+    'search',
+    'limit',
+    'offset',
+  ].forEach((key) => {
+    if (params[key] !== undefined && params[key] !== null && params[key] !== '') {
+      q.set(key, params[key]);
+    }
+  });
+  return q.toString();
+};
+
+export const getVoiceCallAnalytics = (params = {}) =>
+  fetch(`${BASE}/calls/analytics?${callQuery(params)}`, { headers: headers() }).then(handle);
+
+export const listVoiceCallHistory = (params = {}) =>
+  fetch(`${BASE}/calls/history?${callQuery(params)}`, { headers: headers() }).then(handle);
+
+export const getVoiceCall = (callId) =>
+  fetch(`${BASE}/calls/${callId}`, { headers: headers() }).then(handle);

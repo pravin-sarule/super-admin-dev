@@ -66,6 +66,12 @@ const buildGcsObjectName = (agentId, documentId, originalFilename) => {
 
 const getGcsUri = (bucket, objectName) => `gs://${bucket}/${objectName}`;
 
+const getPublicUrl = (bucket, objectName) =>
+  `https://storage.googleapis.com/${encodeURIComponent(bucket)}/${objectName
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/')}`;
+
 const uploadFileToGcs = async (fileBuffer, objectName, contentType) => {
   const bucketName = getBucketName();
   const bucket = getBucket();
@@ -85,6 +91,31 @@ const uploadFileToGcs = async (fileBuffer, objectName, contentType) => {
     objectName,
     gcsUri: getGcsUri(bucketName, objectName),
   };
+};
+
+const buildVoicePreviewAudioObjectName = ({
+  voiceKey,
+  languageCode,
+  liveModel,
+  ttsModel,
+  promptHash,
+}) => {
+  const voiceSegment = safeFilename(voiceKey || 'voice');
+  const langSegment = safeFilename(languageCode || 'language');
+  const modelSegment = safeFilename(liveModel || ttsModel || 'model');
+  const hashSegment = safeFilename(promptHash || String(Date.now())).slice(0, 64);
+  return `platform-voices/previews/${voiceSegment}/${langSegment}/${modelSegment}/${hashSegment}.wav`;
+};
+
+const getSignedReadUrl = async (bucketName, objectName, expiresInMinutes = 60) => {
+  const bucket = bucketName ? getStorageClient().bucket(bucketName) : getBucket();
+  const file = bucket.file(objectName);
+  const [url] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + expiresInMinutes * 60 * 1000,
+  });
+  return url;
 };
 
 const downloadFileFromGcs = async (bucketName, objectName) => {
@@ -116,7 +147,10 @@ const detectContentTypeFromName = (filename = '') => {
 module.exports = {
   getBucketName,
   buildGcsObjectName,
+  buildVoicePreviewAudioObjectName,
   getGcsUri,
+  getPublicUrl,
+  getSignedReadUrl,
   uploadFileToGcs,
   downloadFileFromGcs,
   deleteFileFromGcs,

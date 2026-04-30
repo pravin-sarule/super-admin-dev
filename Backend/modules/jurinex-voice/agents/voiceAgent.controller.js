@@ -2,6 +2,7 @@
  * HTTP controllers for voice agents.
  */
 const repo = require('./voiceAgent.repository');
+const configRepo = require('./voiceAgentConfig.repository');
 const voiceLogger = require('../observability/voiceLogger');
 
 const ALLOWED_STATUS = ['active', 'inactive', 'draft'];
@@ -57,6 +58,7 @@ const create = async (req, res) => {
       system_prompt,
       created_by: req.user?.email || req.adminAuth?.method || null,
     });
+    await configRepo.ensureRows(agent.id);
     return res.status(201).json({ success: true, agent });
   } catch (err) {
     voiceLogger.errorWithContext('createAgent failed', err, { requestId: req.requestId });

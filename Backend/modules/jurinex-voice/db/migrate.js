@@ -16,16 +16,36 @@ const run = async () => {
   console.log('🎙️  Jurinex Voice DB migration');
   console.log('='.repeat(60));
 
-  const sqlPath = path.join(__dirname, '..', 'migrations', '001_jurinex_voice_init.sql');
-  const sql = fs.readFileSync(sqlPath, 'utf8');
+  const migrationsDir = path.join(__dirname, '..', 'migrations');
+  const migrationFiles = fs
+    .readdirSync(migrationsDir)
+    .filter((file) => file.endsWith('.sql'))
+    .sort();
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    await client.query(sql);
+    for (const file of migrationFiles) {
+      const sqlPath = path.join(migrationsDir, file);
+      const sql = fs.readFileSync(sqlPath, 'utf8');
+      console.log(`  • running ${file}`);
+      await client.query(sql);
+    }
     await client.query('COMMIT');
 
-    const tables = ['voice_agents', 'kb_documents', 'kb_chunks', 'kb_search_logs', 'voice_debug_events'];
+    const tables = [
+      'voice_agents',
+      'voice_agent_configurations',
+      'voice_agent_transfer_configs',
+      'kb_documents',
+      'kb_chunks',
+      'kb_search_logs',
+      'voice_debug_events',
+      'voice_call_enrichments',
+      'platform_voices',
+      'platform_voice_preview_audios',
+      'voice_model_pricing',
+    ];
     for (const t of tables) {
       const { rows } = await client.query(
         `SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1) AS ok`,

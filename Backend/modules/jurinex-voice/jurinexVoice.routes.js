@@ -10,7 +10,12 @@ const Multer = require('multer');
 
 const adminApiKey = require('./middleware/adminApiKey.middleware');
 const agentCtrl = require('./agents/voiceAgent.controller');
+const agentConfigCtrl = require('./agents/voiceAgentConfig.controller');
 const kbCtrl = require('./kb/kb.controller');
+const callCtrl = require('./calls/voiceCall.controller');
+const platformVoiceCtrl = require('./voices/platformVoice.controller');
+const modelPricingCtrl = require('./models/modelPricing.controller');
+const agentTestCtrl = require('./tests/agentTest.controller');
 
 const upload = Multer({
   storage: Multer.memoryStorage(),
@@ -21,9 +26,21 @@ const buildRouter = (pool) => {
   const router = express.Router();
   const auth = adminApiKey(pool);
 
+  // ── Platform Voices ─────────────────────────────────────────────
+  router.get('/platform-voices', auth, platformVoiceCtrl.list);
+  router.post('/platform-voices/:voiceKey/preview', auth, platformVoiceCtrl.preview);
+
+  // ── Allowed Voice Models & Pricing ──────────────────────────────
+  router.get('/models/pricing', auth, modelPricingCtrl.list);
+
   // ── Voice Agents ─────────────────────────────────────────────────
   router.get('/agents', auth, agentCtrl.list);
   router.post('/agents', auth, agentCtrl.create);
+  router.get('/agents/:agentId/config', auth, agentConfigCtrl.get);
+  router.put('/agents/:agentId/config', auth, agentConfigCtrl.update);
+  router.post('/agents/:agentId/test-turn', auth, agentTestCtrl.runTurn);
+  router.post('/agents/:agentId/test-audio-turn', auth, upload.single('audio'), agentTestCtrl.runAudioTurn);
+  router.post('/agents/:agentId/test-audio-turn-stream', auth, upload.single('audio'), agentTestCtrl.runAudioTurnStream);
   router.get('/agents/:agentId', auth, agentCtrl.get);
   router.patch('/agents/:agentId', auth, agentCtrl.update);
   router.delete('/agents/:agentId', auth, agentCtrl.remove);
@@ -39,8 +56,14 @@ const buildRouter = (pool) => {
   router.post('/kb/search', auth, kbCtrl.search);
   router.get('/kb/search-logs', auth, kbCtrl.listSearchLogs);
 
+  // ── Call Analytics & History ────────────────────────────────────
+  router.get('/calls/analytics', auth, callCtrl.getAnalytics);
+  router.get('/calls/history', auth, callCtrl.listCalls);
+  router.get('/calls/:callId', auth, callCtrl.getCall);
+
   // ── Debug ────────────────────────────────────────────────────────
   router.get('/debug/events', auth, kbCtrl.listDebugEvents);
+  router.post('/debug/events', auth, kbCtrl.createDebugEvent);
 
   // ── Health (no auth — used by deployment / status pages) ────────
   router.get('/health', (req, res) =>

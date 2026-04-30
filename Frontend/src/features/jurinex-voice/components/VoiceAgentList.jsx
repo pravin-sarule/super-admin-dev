@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { RefreshCw, Bot, CheckCircle, AlertCircle, Plus } from 'lucide-react';
 import { listVoiceAgents, createVoiceAgent } from '../api/jurinexVoiceApi';
+import VoiceAgentConfiguration from './VoiceAgentConfiguration';
+import { logVoiceBuilderFlow } from '../utils/voiceDataflowLogger';
 
 const StatusPill = ({ status }) => {
   const cls =
@@ -17,13 +19,14 @@ const StatusPill = ({ status }) => {
   );
 };
 
-const VoiceAgentList = ({ onRefresh }) => {
+const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [draft, setDraft] = useState({ name: '', display_name: '', description: '' });
   const [creating, setCreating] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -62,6 +65,46 @@ const VoiceAgentList = ({ onRefresh }) => {
       setCreating(false);
     }
   };
+
+  const handleSaved = (agent) => {
+    const next = agents.map((item) =>
+      item.id === agent.id ? { ...item, ...agent, document_count: item.document_count } : item
+    );
+    setAgents(next);
+    setSelectedAgent((current) =>
+      current?.id === agent.id
+        ? { ...current, ...agent, document_count: current.document_count }
+        : current
+    );
+    onRefresh?.(next);
+  };
+
+  const handleSelectAgent = (agent) => {
+    setSelectedAgent(agent);
+    void logVoiceBuilderFlow({
+      agentId: agent.id,
+      stage: 'agent_row_clicked',
+      message: 'Admin clicked voice agent row',
+      eventType: 'agent_builder_row_clicked',
+      payload: {
+        agent_name: agent.name,
+        display_name: agent.display_name,
+        status: agent.status,
+        document_count: agent.document_count ?? 0,
+      },
+    });
+  };
+
+  if (selectedAgent) {
+    return (
+      <VoiceAgentConfiguration
+        agent={selectedAgent}
+        onBack={() => setSelectedAgent(null)}
+        onSaved={handleSaved}
+        onNavigateUpload={onNavigateUpload}
+      />
+    );
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
@@ -148,7 +191,12 @@ const VoiceAgentList = ({ onRefresh }) => {
               </tr>
             )}
             {agents.map((a) => (
-              <tr key={a.id} className="hover:bg-slate-50">
+              <tr
+                key={a.id}
+                onClick={() => handleSelectAgent(a)}
+                className="hover:bg-slate-50 cursor-pointer"
+                title="Configure agent"
+              >
                 <td className="px-6 py-3 font-medium text-slate-900">
                   {a.display_name || a.name}
                 </td>

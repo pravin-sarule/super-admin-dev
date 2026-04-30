@@ -331,6 +331,47 @@ const listDebugEvents = async (req, res) => {
   }
 };
 
+const createDebugEvent = async (req, res) => {
+  try {
+    const {
+      event_type = 'agent_builder_ui',
+      event_stage = 'ui',
+      message,
+      trace_id = null,
+      agent_id = null,
+      payload = {},
+    } = req.body || {};
+
+    if (!message || typeof message !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: { message: '`message` is required' },
+      });
+    }
+
+    const safePayload = {
+      ...(payload && typeof payload === 'object' ? payload : {}),
+      request_id: req.requestId || null,
+      admin_actor: req.user?.email || req.adminAuth?.method || 'admin',
+      source: 'admin_voice_builder',
+    };
+
+    await dataflow.logAgentBuilderEvent({
+      event_type: String(event_type).slice(0, 80),
+      stage: String(event_stage || 'ui').slice(0, 80),
+      message: String(message).slice(0, 500),
+      trace_id,
+      agent_id,
+      payload: safePayload,
+    });
+
+    return res.status(201).json({ success: true });
+  } catch (err) {
+    voiceLogger.errorWithContext('createDebugEvent failed', err, { requestId: req.requestId });
+    return res.status(500).json({ success: false, error: { message: err.message } });
+  }
+};
+
 module.exports = {
   uploadDocument,
   uploadText,
@@ -341,4 +382,5 @@ module.exports = {
   search,
   listSearchLogs,
   listDebugEvents,
+  createDebugEvent,
 };

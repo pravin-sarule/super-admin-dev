@@ -53,6 +53,7 @@ const chatHistoryRoutes = require('./routes/chatHistoryRoutes');
 const demoRoutes = require('./routes/demoRoutes');
 const aiDocumentPool = require('./config/aiDocumentDB');
 const jurinexVoiceRoutes = require('./modules/jurinex-voice');
+const { attachAgentLiveTestSocket } = require('./modules/jurinex-voice/tests/agentLiveTest.socket');
 const requestIdMiddleware = require('./middleware/requestId.middleware');
 const errorMiddleware = require('./middleware/error.middleware');
 const app = express();
@@ -960,6 +961,8 @@ const startServer = async () => {
       console.log(`📄 docDB Database: ${process.env.DOCDB_URL?.split('@')[1]?.split('/')[1] || 'Connected'}`);
       console.log('='.repeat(60) + '\n');
     });
+
+    attachAgentLiveTestSocket(server, { pool });
 
     // Run DB initialization after port is open (avoids Cloud Run startup probe timeout)
     await sequelize.sync({ alter: true });

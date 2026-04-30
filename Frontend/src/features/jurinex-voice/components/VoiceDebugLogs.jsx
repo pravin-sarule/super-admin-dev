@@ -14,6 +14,18 @@ const TYPE_COLOR = {
   document_failed: 'bg-red-100 text-red-700',
   search_started: 'bg-slate-100 text-slate-700',
   search_completed: 'bg-emerald-100 text-emerald-700',
+  agent_builder_row_clicked: 'bg-blue-100 text-blue-700',
+  agent_builder_opened: 'bg-blue-100 text-blue-700',
+  agent_builder_data_ready: 'bg-emerald-100 text-emerald-700',
+  agent_builder_field_changed: 'bg-amber-100 text-amber-700',
+  agent_builder_publish_started: 'bg-indigo-100 text-indigo-700',
+  agent_builder_publish_completed: 'bg-emerald-100 text-emerald-700',
+  agent_builder_publish_failed: 'bg-red-100 text-red-700',
+  agent_config_loaded: 'bg-cyan-100 text-cyan-700',
+  agent_config_saved: 'bg-emerald-100 text-emerald-700',
+  agent_test_audio_started: 'bg-violet-100 text-violet-700',
+  agent_test_audio_ended: 'bg-slate-100 text-slate-700',
+  agent_test_llm_simulated: 'bg-purple-100 text-purple-700',
 };
 
 const VoiceDebugLogs = () => {

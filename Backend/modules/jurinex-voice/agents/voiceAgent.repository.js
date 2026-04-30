@@ -19,7 +19,7 @@ const list = async ({ status } = {}) => {
     SELECT ${SELECT_COLS}
     FROM voice_agents
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY created_at DESC
+    ORDER BY updated_at DESC, created_at DESC
   `;
   const { rows } = await pool.query(sql, params);
   return rows;

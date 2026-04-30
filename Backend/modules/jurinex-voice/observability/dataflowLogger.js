@@ -83,6 +83,33 @@ const logVoiceEvent = async (eventType, stage, message, payload = {}) => {
   });
 };
 
+const logAgentBuilderEvent = async ({
+  trace_id = null,
+  agent_id = null,
+  event_type = 'agent_builder_event',
+  stage = 'ui',
+  message,
+  payload = {},
+}) => {
+  const safePayload = {
+    ...payload,
+    trace_id: trace_id || payload.trace_id || payload.traceId || null,
+    agent_id: agent_id || payload.agent_id || null,
+  };
+
+  console.log(
+    drawBox('JURINEX VOICE AGENT BUILDER', [
+      ['Event', event_type],
+      ['Stage', stage],
+      ['Agent ID', safePayload.agent_id || '-'],
+      ['Trace ID', safePayload.trace_id || '-'],
+      ['Message', message],
+    ])
+  );
+
+  await logVoiceEvent(event_type, stage, message, safePayload);
+};
+
 const logUploadStarted = async ({ document_id, agent_id, filename, bucket, content_type, size }) => {
   console.log(
     drawBox('🎙️  JURINEX VOICE DOCUMENT UPLOAD STARTED', [
@@ -241,6 +268,7 @@ const logSearchCompleted = async ({
 
 module.exports = {
   logVoiceEvent,
+  logAgentBuilderEvent,
   logUploadStarted,
   logGcsUploaded,
   logGcsFailed,

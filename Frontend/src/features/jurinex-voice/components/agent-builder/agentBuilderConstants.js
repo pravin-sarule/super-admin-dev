@@ -1,0 +1,161 @@
+import { PLATFORM_VOICE_SEED } from './platformVoiceSeed';
+
+export const LIVE_MODELS = [
+  {
+    id: 'gemini-3.1-flash-live-preview',
+    model_id: 'gemini-3.1-flash-live-preview',
+    label: 'Gemini 3.1 Flash Live Preview',
+    display_name: 'Gemini 3.1 Flash Live Preview',
+    group: 'Live audio models',
+    category: 'live_audio',
+    badge: 'New',
+    cost: '₹2.18/min',
+    inr_one_minute_total: 2.18,
+    description: 'Low-latency audio-to-audio model optimized for real-time dialogue.',
+    unit_pricing: { input_audio: '₹0.47/min', output_audio: '₹1.71/min', total: '₹2.18/min' },
+    pricing_rows: [
+      { duration: '1 minute', input_estimate: '₹0.47', output_estimate: '₹1.71', total_estimate: '₹2.18' },
+      { duration: '5 minutes', input_estimate: '₹2.37', output_estimate: '₹8.53', total_estimate: '₹10.90' },
+      { duration: '10 minutes', input_estimate: '₹4.74', output_estimate: '₹17.06', total_estimate: '₹21.80' },
+      { duration: '30 minutes', input_estimate: '₹14.22', output_estimate: '₹51.18', total_estimate: '₹65.39' },
+      { duration: '1 hour', input_estimate: '₹28.43', output_estimate: '₹102.35', total_estimate: '₹130.78' },
+    ],
+  },
+  {
+    id: 'gemini-3.1-flash-tts-preview',
+    model_id: 'gemini-3.1-flash-tts-preview',
+    label: 'Gemini 3.1 Flash TTS Preview',
+    display_name: 'Gemini 3.1 Flash TTS Preview',
+    group: 'Text-to-speech models',
+    category: 'tts',
+    badge: 'New',
+    cost: '₹3.66/min',
+    inr_one_minute_total: 3.66,
+    description: 'Powerful, low-latency speech generation with natural outputs.',
+    unit_pricing: { text_input: '₹0.02/min', audio_output: '₹3.64/min', total: '₹3.66/min' },
+    pricing_rows: [
+      { duration: '1 minute', input_estimate: '₹0.02', output_estimate: '₹3.64', total_estimate: '₹3.66' },
+      { duration: '5 minutes', input_estimate: '₹0.09', output_estimate: '₹18.20', total_estimate: '₹18.29' },
+      { duration: '10 minutes', input_estimate: '₹0.19', output_estimate: '₹36.39', total_estimate: '₹36.58' },
+      { duration: '30 minutes', input_estimate: '₹0.57', output_estimate: '₹109.18', total_estimate: '₹109.74' },
+      { duration: '1 hour', input_estimate: '₹1.14', output_estimate: '₹218.35', total_estimate: '₹219.49' },
+    ],
+  },
+  {
+    id: 'gemini-2.5-pro-preview-tts',
+    model_id: 'gemini-2.5-pro-preview-tts',
+    label: 'Gemini 2.5 Pro Preview TTS',
+    display_name: 'Gemini 2.5 Pro Preview TTS',
+    group: 'Text-to-speech models',
+    category: 'tts',
+    cost: '₹3.66/min',
+    inr_one_minute_total: 3.66,
+    description: 'Text-to-speech model optimized for powerful, low-latency speech generation.',
+    unit_pricing: { text_input: '₹0.02/min', audio_output: '₹3.64/min', total: '₹3.66/min' },
+    pricing_rows: [
+      { duration: '1 minute', input_estimate: '₹0.02', output_estimate: '₹3.64', total_estimate: '₹3.66' },
+      { duration: '5 minutes', input_estimate: '₹0.09', output_estimate: '₹18.20', total_estimate: '₹18.29' },
+      { duration: '10 minutes', input_estimate: '₹0.19', output_estimate: '₹36.39', total_estimate: '₹36.58' },
+      { duration: '30 minutes', input_estimate: '₹0.57', output_estimate: '₹109.18', total_estimate: '₹109.74' },
+      { duration: '1 hour', input_estimate: '₹1.14', output_estimate: '₹218.35', total_estimate: '₹219.49' },
+    ],
+  },
+  {
+    id: 'gemini-2.5-flash-preview-tts',
+    model_id: 'gemini-2.5-flash-preview-tts',
+    label: 'Gemini 2.5 Flash Preview TTS',
+    display_name: 'Gemini 2.5 Flash Preview TTS',
+    group: 'Text-to-speech models',
+    category: 'tts',
+    cost: '₹1.83/min',
+    inr_one_minute_total: 1.83,
+    description: 'Price-performant, low-latency, controllable speech generation.',
+    unit_pricing: { text_input: '₹0.01/min', audio_output: '₹1.82/min', total: '₹1.83/min' },
+    pricing_rows: [
+      { duration: '1 minute', input_estimate: '₹0.01', output_estimate: '₹1.82', total_estimate: '₹1.83' },
+      { duration: '5 minutes', input_estimate: '₹0.05', output_estimate: '₹9.10', total_estimate: '₹9.15' },
+      { duration: '10 minutes', input_estimate: '₹0.09', output_estimate: '₹18.20', total_estimate: '₹18.29' },
+      { duration: '30 minutes', input_estimate: '₹0.28', output_estimate: '₹54.59', total_estimate: '₹54.87' },
+      { duration: '1 hour', input_estimate: '₹0.57', output_estimate: '₹109.18', total_estimate: '₹109.74' },
+    ],
+  },
+];
+
+export const PLATFORM_VOICES = PLATFORM_VOICE_SEED;
+
+export const LANGUAGE_OPTIONS = [
+  { code: 'en', label: 'English', region: 'US' },
+  { code: 'multi', label: 'Multilingual', region: 'legacy' },
+  { code: 'es-ES', label: 'Spanish', region: 'Spain' },
+  { code: 'es-419', label: 'Spanish', region: 'Latin America' },
+  { code: 'en-IN', label: 'English', region: 'India' },
+  { code: 'en-GB', label: 'English', region: 'UK' },
+  { code: 'en-AU', label: 'English', region: 'Australia' },
+  { code: 'fr-FR', label: 'French', region: 'France' },
+  { code: 'fr-CA', label: 'French', region: 'Canada' },
+  { code: 'hi', label: 'Hindi', region: 'India' },
+  { code: 'mr', label: 'Marathi', region: 'India' },
+];
+
+export const FUNCTION_OPTIONS = [
+  { key: 'end_call', label: 'End Call', description: 'Let the agent end a completed conversation.' },
+  { key: 'transfer_call', label: 'Call Transfer', description: 'Transfer the caller to a human agent.' },
+  { key: 'agent_transfer', label: 'Agent Transfer', description: 'Move between voice agents.' },
+  { key: 'calendar_check', label: 'Check Calendar Availability', description: 'Check open slots for booking.' },
+  { key: 'calendar_book', label: 'Book on the Calendar', description: 'Book an appointment.' },
+];
+
+export const DEFAULT_AGENT_BUILDER_SETTINGS = {
+  languages: ['en', 'hi', 'mr'],
+  language_mode: 'multiselect',
+  welcome: {
+    speaker: 'ai_first',
+    mode: 'dynamic',
+    pause_seconds: 0,
+    message: '',
+  },
+  functions: [
+    { key: 'end_call', enabled: true },
+    { key: 'transfer_call', enabled: true },
+  ],
+  knowledge_base: {
+    document_ids: [],
+    retrieval_chunks: 5,
+    similarity_threshold: 0.72,
+    instructions: 'Use the Jurinex knowledge base first. If the answer is not present, say that the information is not available in records.',
+  },
+  speech: {
+    background_sound: 'None',
+    response_eagerness: 1,
+    dynamic_eagerness: true,
+    interruption_sensitivity: 0.9,
+    reminder_seconds: 10,
+    reminder_times: 1,
+    pronunciation: [],
+  },
+  transcription: {
+    denoising_mode: 'noise_and_speech',
+    mode: 'speed',
+  },
+  call: {
+    keypad_detection: true,
+    keypad_timeout_seconds: 2.5,
+    termination_key_enabled: false,
+    digit_limit_enabled: false,
+    end_on_silence_minutes: 1,
+    max_duration_minutes: 15.3,
+    ring_duration_seconds: 30,
+  },
+  post_call_extraction: [
+    { key: 'call_summary', label: 'Call Summary', type: 'text', enabled: true },
+    { key: 'call_successful', label: 'Call Successful', type: 'boolean', enabled: true },
+    { key: 'user_sentiment', label: 'User Sentiment', type: 'enum', enabled: true },
+    { key: 'preferred_language', label: 'preferred_language', type: 'string', enabled: true },
+  ],
+  post_call_model: 'gemini-3.1-flash-live-preview',
+  security: {
+    fallback_phrase: 'I am sorry, I do not have information on that in our records.',
+    allow_interruptions: true,
+    pii_redaction: true,
+  },
+};

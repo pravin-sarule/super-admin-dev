@@ -1,12 +1,17 @@
-import React, { useState } from 'react';
-import { Mic, Bot, FileText, CloudUpload, Search, Activity } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Bot, FileText, CloudUpload, Search, Activity, BarChart3, History } from 'lucide-react';
 import VoiceAgentList from '../components/VoiceAgentList';
 import VoiceDocumentUpload from '../components/VoiceDocumentUpload';
 import VoiceDocumentList from '../components/VoiceDocumentList';
 import VoiceKbSearchTester from '../components/VoiceKbSearchTester';
 import VoiceDebugLogs from '../components/VoiceDebugLogs';
+import VoiceAnalytics from '../components/VoiceAnalytics';
+import VoiceCallHistory from '../components/VoiceCallHistory';
+import { listVoiceAgents } from '../api/jurinexVoiceApi';
 
 const TABS = [
+  { key: 'analytics', label: 'Analytics', Icon: BarChart3 },
+  { key: 'history', label: 'Call History', Icon: History },
   { key: 'agents', label: 'Agents', Icon: Bot },
   { key: 'documents', label: 'Documents', Icon: FileText },
   { key: 'upload', label: 'Upload Document', Icon: CloudUpload },
@@ -19,24 +24,16 @@ const VoiceManagementPage = () => {
   const [agents, setAgents] = useState([]);
   const [reloadKey, setReloadKey] = useState(0);
 
-  return (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl text-white p-6 shadow-lg">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-white/20 rounded-xl flex items-center justify-center">
-            <Mic className="w-6 h-6 text-white" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold">Voice Management</h1>
-            <p className="text-sm text-white/80">
-              Manage Jurinex voice agents, upload knowledge documents, and test support answers.
-            </p>
-          </div>
-        </div>
-      </div>
+  useEffect(() => {
+    listVoiceAgents()
+      .then((data) => setAgents(data.agents || []))
+      .catch(() => {});
+  }, []);
 
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm">
-        <nav className="flex flex-wrap gap-1 px-2 pt-2">
+  return (
+    <div className="space-y-4">
+      <div className="bg-white rounded-lg border border-slate-200">
+        <nav className="flex flex-wrap gap-1 px-2 pt-2 overflow-x-auto">
           {TABS.map((t) => {
             const TabIcon = t.Icon;
             return (
@@ -57,7 +54,14 @@ const VoiceManagementPage = () => {
         </nav>
       </div>
 
-      {tab === 'agents' && <VoiceAgentList onRefresh={(list) => setAgents(list)} />}
+      {tab === 'analytics' && <VoiceAnalytics />}
+      {tab === 'history' && <VoiceCallHistory />}
+      {tab === 'agents' && (
+        <VoiceAgentList
+          onRefresh={(list) => setAgents(list)}
+          onNavigateUpload={() => setTab('upload')}
+        />
+      )}
       {tab === 'documents' && <VoiceDocumentList agents={agents} reloadKey={reloadKey} />}
       {tab === 'upload' && (
         <VoiceDocumentUpload

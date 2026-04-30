@@ -22,7 +22,7 @@ and debug events, and exactly **how** chunks are produced and embedded.
 This is the same Cloud SQL database used by the sibling
 `jurinex_call_agent` voice service. The admin module **only writes** to
 its own tables (`voice_agents`, `kb_documents`, `kb_chunks`,
-`kb_search_logs`, `voice_debug_events`); it never modifies the existing
+`kb_search_logs`, `voice_debug_events`, `voice_call_enrichments`); it never modifies the existing
 call-agent tables (`customers`, `calls`, `call_messages`,
 `support_tickets`, `escalations`, `agent_tool_events`,
 `call_debug_events`).
@@ -88,6 +88,57 @@ languages `en/hi/mr`) is inserted on first migration if the table is
 empty.
 
 Soft delete: `DELETE /agents/:id` sets `status='inactive'`.
+
+### 3.1.1 `voice_agent_configurations`
+
+One row per voice agent for model, voice, retrieval, and prompt
+settings. Created by the Jurinex voice migration if it does not exist.
+
+| Column                     | Type          | Notes                                          |
+| -------------------------- | ------------- | ---------------------------------------------- |
+| `agent_id`                 | UUID PK/FK    | FK → `voice_agents(id)` `ON DELETE CASCADE`    |
+| `text_model`               | TEXT          | Default `gemini-1.5-flash`                    |
+| `live_model`               | TEXT          | Default `gemini-3.1-flash-live-preview`       |
+| `voice_name`               | TEXT          | Selected voice, e.g. `Puck`, `Leda`            |
+| `voice_tag`                | TEXT          | UI category, e.g. `Upbeat`, `Calm`             |
+| `temperature`              | NUMERIC(4,2)  | 0 to 2                                         |
+| `top_p`                    | NUMERIC(4,2)  | 0 to 1                                         |
+| `max_tokens`               | INT           | Output token cap                               |
+| `top_k_results`            | INT           | KB retrieval result count                      |
+| `text_chat_system_prompt`  | TEXT          | Text/chat prompt                               |
+| `audio_live_system_prompt` | TEXT          | Live audio prompt                              |
+| `custom_settings`          | JSONB         | Extra forward-compatible settings              |
+| `created_at` / `updated_at`| TIMESTAMPTZ   | Audit timestamps                               |
+
+### 3.1.2 `voice_agent_transfer_configs`
+
+One row per voice agent for the `transfer_call` tool and handoff
+behavior. Created by the Jurinex voice migration if it does not exist.
+
+| Column                  | Type        | Notes                                                       |
+| ----------------------- | ----------- | ----------------------------------------------------------- |
+| `agent_id`              | UUID PK/FK  | FK → `voice_agents(id)` `ON DELETE CASCADE`                 |
+| `name`                  | TEXT        | Usually `transfer_call`                                    |
+| `description`           | TEXT        | Tool description                                            |
+| `routing_mode`          | TEXT        | `static` \| `dynamic`                                       |
+| `static_destination`    | TEXT        | Static phone destination when used                          |
+| `destination_prompt`    | TEXT        | Dynamic routing prompt                                      |
+| `e164_format`           | BOOLEAN     | Whether destinations should normalize to E.164              |
+| `transfer_type`         | TEXT        | `cold` \| `warm` \| `agentic_warm`                          |
+| `on_hold_music`         | TEXT        | e.g. `Ringtone`                                             |
+| `ring_duration_seconds` | INT         | Transfer ringing timeout                                    |
+| `navigate_ivr`          | BOOLEAN     | Whether the agent should navigate IVR                       |
+| `internal_queue`        | BOOLEAN     | Whether to wait for a real agent before debriefing          |
+| `agent_wait_seconds`    | INT         | Internal queue/agent wait timeout                           |
+| `whisper_debrief`       | BOOLEAN     | Private message to transfer agent                           |
+| `whisper_message`       | TEXT        | Optional whisper content                                    |
+| `three_way_ring_tone`   | BOOLEAN     | Play bridged-call tone                                      |
+| `three_way_debrief`     | BOOLEAN     | Public handoff message for both parties                     |
+| `handoff_mode`          | TEXT        | `prompt` \| `static`                                        |
+| `handoff_message`       | TEXT        | Handoff prompt/sentence                                     |
+| `displayed_caller_id`   | TEXT        | `retell_agent` \| `user`                                    |
+| `custom_settings`       | JSONB       | Extra forward-compatible settings                           |
+| `created_at` / `updated_at` | TIMESTAMPTZ | Audit timestamps                                      |
 
 ---
 
@@ -210,6 +261,69 @@ Event types: `upload_started`, `gcs_uploaded`, `gcs_failed`,
 
 Indexes: `voice_debug_events_trace_idx`, `voice_debug_events_type_idx`,
 `voice_debug_events_created_idx (DESC)`.
+
+### 3.6 `voice_call_enrichments`
+
+Optional one-row-per-call overlay used by the admin **Analytics** and
+**Call History** pages. The dashboard already reads existing call-agent
+tables and derives duration, latency, transfer events, outcome, and
+hangup reason where possible. The user-side call service should upsert
+this table when it has exact values.
+
+| Column                  | Type          | Notes                                                               |
+| ----------------------- | ------------- | ------------------------------------------------------------------- |
+| `call_id`               | UUID PK       | FK → `calls(id)` `ON DELETE CASCADE`                                |
+| `agent_id`              | UUID          | Optional FK → `voice_agents(id)`                                    |
+| `agent_name`            | TEXT          | UI fallback if no `agent_id`                                        |
+| `agent_version`         | TEXT          | Version shown in the detail drawer                                  |
+| `channel_type`          | TEXT          | e.g. `phone_call`, `web_call`                                       |
+| `session_outcome`       | TEXT          | `successful` \| `unsuccessful` \| `unknown`                         |
+| `end_reason`            | TEXT          | e.g. `user_hangup`, `agent_hangup`, `silence_timeout`               |
+| `end_to_end_latency_ms` | INT           | Exact call latency metric                                           |
+| `average_latency_ms`    | INT           | Optional average response latency                                   |
+| `llm_token_count`       | INT           | Token count shown in call detail                                    |
+| `cost_usd`              | NUMERIC(12,6) | Exact call/session cost                                             |
+| `preferred_language`    | TEXT          | Custom attribute shown as `preferred_language`                      |
+| `successful`            | BOOLEAN       | Exact boolean override for success charts                           |
+| `picked_up`             | BOOLEAN       | Exact boolean override for pickup rate                              |
+| `transfer_requested`    | BOOLEAN       | Exact boolean override for transfer rate                            |
+| `voicemail`             | BOOLEAN       | Exact boolean override for voicemail rate                           |
+| `recording_url`         | TEXT          | Public/signed playback URL if available                             |
+| `recording_gcs_uri`     | TEXT          | GCS recording URI fallback                                          |
+| `custom_attributes`     | JSONB         | Any custom analysis fields                                          |
+| `analysis`              | JSONB         | Extra analysis, e.g. `{"user_sentiment":"neutral"}`                 |
+
+Recommended user-side write:
+
+```sql
+INSERT INTO voice_call_enrichments (
+  call_id, agent_name, channel_type, session_outcome, end_reason,
+  end_to_end_latency_ms, cost_usd, preferred_language,
+  successful, picked_up, transfer_requested, recording_gcs_uri,
+  custom_attributes, analysis
+)
+VALUES (
+  $1, $2, $3, $4, $5,
+  $6, $7, $8,
+  $9, $10, $11, $12,
+  $13::jsonb, $14::jsonb
+)
+ON CONFLICT (call_id) DO UPDATE SET
+  agent_name = EXCLUDED.agent_name,
+  channel_type = EXCLUDED.channel_type,
+  session_outcome = EXCLUDED.session_outcome,
+  end_reason = EXCLUDED.end_reason,
+  end_to_end_latency_ms = EXCLUDED.end_to_end_latency_ms,
+  cost_usd = EXCLUDED.cost_usd,
+  preferred_language = EXCLUDED.preferred_language,
+  successful = EXCLUDED.successful,
+  picked_up = EXCLUDED.picked_up,
+  transfer_requested = EXCLUDED.transfer_requested,
+  recording_gcs_uri = EXCLUDED.recording_gcs_uri,
+  custom_attributes = EXCLUDED.custom_attributes,
+  analysis = EXCLUDED.analysis,
+  updated_at = now();
+```
 
 ---
 
