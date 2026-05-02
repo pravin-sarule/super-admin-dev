@@ -936,7 +936,17 @@ const attachAgentLiveTestSocket = (server, { pool } = {}) => {
       const builderSettings = payload.builder_settings || {};
       const selectedLanguages = builderSettings.languages || payload.selected_languages || [];
       const languageCode = agentTest.normalizeLanguageCode(payload.language_code, selectedLanguages);
-      const languageLabel = agentTest.LANGUAGE_LABELS[languageCode] || languageCode;
+      // When the agent is in multilingual mode (only 'multi' selected,
+      // or no specific language pinned), the {{language_label}} the
+      // model sees should say "Multilingual" so it auto-detects the
+      // caller's language instead of locking to a single one.
+      const isMultilingualMode =
+        Array.isArray(selectedLanguages) &&
+        selectedLanguages.length > 0 &&
+        selectedLanguages.every((item) => !item || item === 'multi');
+      const languageLabel = isMultilingualMode
+        ? 'Multilingual (auto-detect — reply in the same language the caller speaks: English, Hindi, Marathi, or any other)'
+        : agentTest.LANGUAGE_LABELS[languageCode] || languageCode;
       const liveModel = agentTest.resolveConversationModel(payload.live_model || DEFAULT_LIVE_MODEL);
       const liveModelPath = toLiveModelPath(liveModel);
       const voiceName = payload.voice_name || 'Puck';

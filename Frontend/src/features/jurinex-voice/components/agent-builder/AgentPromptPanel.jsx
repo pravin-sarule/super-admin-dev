@@ -187,37 +187,46 @@ const AgentPromptPanel = ({
           </button>
           {languageOpen && (
             <div className="absolute left-0 top-12 z-20 w-80 rounded-lg border border-slate-200 bg-white p-4 shadow-xl">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-2 flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-950">Speech Language</span>
-                <span className="text-xs font-semibold text-slate-600">Multiselect</span>
               </div>
-              <p className="mb-3 text-xs text-orange-600">
-                "Multilingual" is a legacy setting. Pick specific languages for cleaner updates.
+              <p className="text-xs text-slate-600">
+                This agent runs in <span className="font-semibold text-slate-900">Multilingual</span> mode by default — it auto-detects the caller&apos;s language (English, Hindi, Marathi, etc.) and replies in the same one.
               </p>
-              <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
-                {LANGUAGE_OPTIONS.map((item) => {
-                  const selected = selectedLanguages.includes(item.code);
-                  return (
-                    <button
-                      key={item.code}
-                      type="button"
-                      onClick={() => toggleLanguage(item.code)}
-                      className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-slate-50"
-                    >
-                      <span className="flex items-center gap-2">
-                        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
-                          {item.code.slice(0, 2).toUpperCase()}
+              {/*
+                Language picker temporarily hidden. Re-enable later by
+                restoring the LANGUAGE_OPTIONS list + toggleLanguage()
+                handler from git history if per-language locking is
+                needed again.
+
+                <p className="mb-3 text-xs text-orange-600">
+                  "Multilingual" is a legacy setting. Pick specific languages for cleaner updates.
+                </p>
+                <div className="max-h-80 space-y-1 overflow-y-auto pr-1">
+                  {LANGUAGE_OPTIONS.map((item) => {
+                    const selected = selectedLanguages.includes(item.code);
+                    return (
+                      <button
+                        key={item.code}
+                        type="button"
+                        onClick={() => toggleLanguage(item.code)}
+                        className="flex w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm hover:bg-slate-50"
+                      >
+                        <span className="flex items-center gap-2">
+                          <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold text-slate-600">
+                            {item.code.slice(0, 2).toUpperCase()}
+                          </span>
+                          <span>
+                            <span className="font-medium text-slate-800">{item.label}</span>
+                            <span className="ml-1 text-slate-400">({item.region})</span>
+                          </span>
                         </span>
-                        <span>
-                          <span className="font-medium text-slate-800">{item.label}</span>
-                          <span className="ml-1 text-slate-400">({item.region})</span>
-                        </span>
-                      </span>
-                      {selected && <Check className="h-4 w-4 text-slate-900" />}
-                    </button>
-                  );
-                })}
-              </div>
+                        {selected && <Check className="h-4 w-4 text-slate-900" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              */}
             </div>
           )}
         </div>

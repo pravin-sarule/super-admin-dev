@@ -106,8 +106,11 @@ export const FUNCTION_OPTIONS = [
 ];
 
 export const DEFAULT_AGENT_BUILDER_SETTINGS = {
-  languages: ['en', 'hi', 'mr'],
-  language_mode: 'multiselect',
+  // Default to Multilingual — the agent auto-detects the caller's
+  // language and replies in the same one. The per-language picker is
+  // hidden in AgentPromptPanel.jsx; restoring it is a one-block edit.
+  languages: ['multi'],
+  language_mode: 'multilingual',
   welcome: {
     speaker: 'ai_first',
     mode: 'dynamic',
