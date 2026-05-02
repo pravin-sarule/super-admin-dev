@@ -36,7 +36,15 @@ const AgentPromptPanel = ({
   const [languageOpen, setLanguageOpen] = useState(false);
 
   const voice = getVoiceMeta(voiceName);
-  const modelOptions = useMemo(() => normalizeModelOptions(models), [models]);
+  const allModelOptions = useMemo(() => normalizeModelOptions(models), [models]);
+  // Only Live audio models belong in the top picker. Text-only models
+  // (e.g. gemini-2.5-flash for post-call extraction) live in the
+  // Post-Call Data Extraction card. Allowlist the live category so any
+  // new category we add later can't accidentally show up here.
+  const modelOptions = useMemo(
+    () => allModelOptions.filter((item) => item.category === 'live_audio'),
+    [allModelOptions]
+  );
   const model = getModelMeta(liveModel, modelOptions);
   const selectedLanguages = builderSettings.languages || [];
   const languageLabel = selectedLanguages.length > 1 ? 'Multilingual' : selectedLanguages[0] || 'Language';
