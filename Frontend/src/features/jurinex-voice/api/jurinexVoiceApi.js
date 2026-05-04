@@ -312,6 +312,52 @@ export const getCalendarSlots = (params = {}) => {
   return fetch(`${BASE}/calendar/slots?${q.toString()}`, { headers: headers() }).then(handle);
 };
 
+// ── Outbound call scheduler ────────────────────────────────────────
+
+export const listScheduledCalls = (params = {}) => {
+  const q = new URLSearchParams();
+  ['agent_id', 'status', 'batch_id', 'from', 'to', 'limit', 'offset'].forEach((k) => {
+    if (params[k] != null && params[k] !== '') q.set(k, params[k]);
+  });
+  return fetch(`${BASE}/scheduler/calls?${q.toString()}`, { headers: headers() }).then(handle);
+};
+
+export const createScheduledCall = (payload) =>
+  fetch(`${BASE}/scheduler/calls`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+export const updateScheduledCall = (id, payload) =>
+  fetch(`${BASE}/scheduler/calls/${id}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(payload),
+  }).then(handle);
+
+export const cancelScheduledCall = (id) =>
+  fetch(`${BASE}/scheduler/calls/${id}`, {
+    method: 'DELETE',
+    headers: headers(),
+  }).then(handle);
+
+export const bulkImportScheduledCalls = ({ file, agent_id, timezone, default_scheduled_at }) => {
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('agent_id', agent_id);
+  if (timezone) fd.append('timezone', timezone);
+  if (default_scheduled_at) fd.append('default_scheduled_at', default_scheduled_at);
+  // Don't include the JSON Content-Type header; browser sets multipart boundary.
+  const h = headers();
+  delete h['Content-Type'];
+  return fetch(`${BASE}/scheduler/calls/bulk-import`, {
+    method: 'POST',
+    headers: h,
+    body: fd,
+  }).then(handle);
+};
+
 // ── Call analytics & history ───────────────────────────────────────
 
 const callQuery = (params = {}) => {

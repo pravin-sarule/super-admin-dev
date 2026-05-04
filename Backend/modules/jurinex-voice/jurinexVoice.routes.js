@@ -17,6 +17,7 @@ const platformVoiceCtrl = require('./voices/platformVoice.controller');
 const modelPricingCtrl = require('./models/modelPricing.controller');
 const agentTestCtrl = require('./tests/agentTest.controller');
 const calendarBookingsCtrl = require('./calendar/calendarBookings.controller');
+const callSchedulerCtrl = require('./scheduler/callScheduler.controller');
 
 const upload = Multer({
   storage: Multer.memoryStorage(),
@@ -60,6 +61,18 @@ const buildRouter = (pool) => {
   // ── Calendar Bookings ────────────────────────────────────────────
   router.get('/calendar/bookings', auth, calendarBookingsCtrl.list);
   router.get('/calendar/slots', auth, calendarBookingsCtrl.slots);
+
+  // ── Outbound Call Scheduler ─────────────────────────────────────
+  router.get('/scheduler/calls', auth, callSchedulerCtrl.list);
+  router.post('/scheduler/calls', auth, callSchedulerCtrl.create);
+  router.patch('/scheduler/calls/:id', auth, callSchedulerCtrl.update);
+  router.delete('/scheduler/calls/:id', auth, callSchedulerCtrl.cancel);
+  router.post(
+    '/scheduler/calls/bulk-import',
+    auth,
+    upload.single('file'),
+    callSchedulerCtrl.bulkImport
+  );
 
   // ── Call Analytics & History ────────────────────────────────────
   router.get('/calls/analytics', auth, callCtrl.getAnalytics);

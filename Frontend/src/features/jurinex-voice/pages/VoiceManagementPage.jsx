@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, FileText, CloudUpload, Search, Activity, BarChart3, History, CalendarDays } from 'lucide-react';
+import { Bot, FileText, CloudUpload, Search, Activity, BarChart3, History, CalendarDays, PhoneOutgoing } from 'lucide-react';
 import VoiceAgentList from '../components/VoiceAgentList';
 import VoiceDocumentUpload from '../components/VoiceDocumentUpload';
 import VoiceDocumentList from '../components/VoiceDocumentList';
@@ -8,6 +8,7 @@ import VoiceDebugLogs from '../components/VoiceDebugLogs';
 import VoiceAnalytics from '../components/VoiceAnalytics';
 import VoiceCallHistory from '../components/VoiceCallHistory';
 import VoiceCalendarBookings from '../components/VoiceCalendarBookings';
+import VoiceCallScheduler from '../components/VoiceCallScheduler';
 import { listVoiceAgents } from '../api/jurinexVoiceApi';
 
 const TABS = [
@@ -15,6 +16,7 @@ const TABS = [
   { key: 'history', label: 'Call History', Icon: History },
   { key: 'agents', label: 'Agents', Icon: Bot },
   { key: 'calendar', label: 'Calendar', Icon: CalendarDays },
+  { key: 'scheduler', label: 'Call Scheduler', Icon: PhoneOutgoing },
   { key: 'documents', label: 'Documents', Icon: FileText },
   { key: 'upload', label: 'Upload Document', Icon: CloudUpload },
   { key: 'search', label: 'Test Search', Icon: Search },
@@ -65,6 +67,7 @@ const VoiceManagementPage = () => {
         />
       )}
       {tab === 'calendar' && <VoiceCalendarBookings agents={agents} />}
+      {tab === 'scheduler' && <VoiceCallScheduler agents={agents} />}
       {tab === 'documents' && <VoiceDocumentList agents={agents} reloadKey={reloadKey} />}
       {tab === 'upload' && (
         <VoiceDocumentUpload
