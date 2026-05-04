@@ -20,7 +20,9 @@
       "Bash(node --check controllers/aiDocumentController.js)",
       "Bash(node --check server.js)",
       "Bash(node --check controllers/chatbotConfigController.js)",
-      "Bash(node --check routes/chatbotConfigRoutes.js)"
+      "Bash(node --check routes/chatbotConfigRoutes.js)",
+      "Bash(node -c modules/jurinex-voice/calendar/calendarBookings.controller.js)",
+      "Bash(node -c modules/jurinex-voice/jurinexVoice.routes.js)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ADMIN\\jurinex-dev\\Backend\\ChatModel\\services"

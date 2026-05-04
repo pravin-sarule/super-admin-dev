@@ -16,6 +16,7 @@ const callCtrl = require('./calls/voiceCall.controller');
 const platformVoiceCtrl = require('./voices/platformVoice.controller');
 const modelPricingCtrl = require('./models/modelPricing.controller');
 const agentTestCtrl = require('./tests/agentTest.controller');
+const calendarBookingsCtrl = require('./calendar/calendarBookings.controller');
 
 const upload = Multer({
   storage: Multer.memoryStorage(),
@@ -55,6 +56,10 @@ const buildRouter = (pool) => {
 
   router.post('/kb/search', auth, kbCtrl.search);
   router.get('/kb/search-logs', auth, kbCtrl.listSearchLogs);
+
+  // ── Calendar Bookings ────────────────────────────────────────────
+  router.get('/calendar/bookings', auth, calendarBookingsCtrl.list);
+  router.get('/calendar/slots', auth, calendarBookingsCtrl.slots);
 
   // ── Call Analytics & History ────────────────────────────────────
   router.get('/calls/analytics', auth, callCtrl.getAnalytics);

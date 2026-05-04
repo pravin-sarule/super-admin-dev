@@ -292,6 +292,26 @@ export const recordVoiceDebugEvent = (payload) =>
     body: JSON.stringify(payload),
   }).then(handle);
 
+// ── Calendar bookings ──────────────────────────────────────────────
+
+export const listCalendarBookings = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.agent_id) q.set('agent_id', params.agent_id);
+  if (params.from) q.set('from', params.from);
+  if (params.to) q.set('to', params.to);
+  if (params.limit) q.set('limit', params.limit);
+  if (params.offset) q.set('offset', params.offset);
+  return fetch(`${BASE}/calendar/bookings?${q.toString()}`, { headers: headers() }).then(handle);
+};
+
+export const getCalendarSlots = (params = {}) => {
+  const q = new URLSearchParams();
+  if (params.agent_id) q.set('agent_id', params.agent_id);
+  if (params.from) q.set('from', params.from);
+  if (params.to) q.set('to', params.to);
+  return fetch(`${BASE}/calendar/slots?${q.toString()}`, { headers: headers() }).then(handle);
+};
+
 // ── Call analytics & history ───────────────────────────────────────
 
 const callQuery = (params = {}) => {

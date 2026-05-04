@@ -1,6 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { RefreshCw, Bot, CheckCircle, AlertCircle, Plus } from 'lucide-react';
-import { listVoiceAgents, createVoiceAgent } from '../api/jurinexVoiceApi';
+import { RefreshCw, Bot, CheckCircle, AlertCircle, Plus, Pencil, Trash2, X, AlertTriangle } from 'lucide-react';
+import {
+  listVoiceAgents,
+  createVoiceAgent,
+  updateVoiceAgent,
+  deleteVoiceAgent,
+} from '../api/jurinexVoiceApi';
 import VoiceAgentConfiguration from './VoiceAgentConfiguration';
 import { logVoiceBuilderFlow } from '../utils/voiceDataflowLogger';
 
@@ -27,6 +32,12 @@ const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
   const [draft, setDraft] = useState({ name: '', display_name: '', description: '' });
   const [creating, setCreating] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState(null);
+  const [editingAgent, setEditingAgent] = useState(null);
+  const [editDraft, setEditDraft] = useState({ name: '', display_name: '', description: '' });
+  const [editing, setEditing] = useState(false);
+  const [deletingAgent, setDeletingAgent] = useState(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -77,6 +88,61 @@ const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
         : current
     );
     onRefresh?.(next);
+  };
+
+  const openEdit = (agent) => {
+    setEditingAgent(agent);
+    setEditDraft({
+      name: agent.name || '',
+      display_name: agent.display_name || '',
+      description: agent.description || '',
+    });
+  };
+
+  const handleEditSubmit = async (e) => {
+    e.preventDefault();
+    if (!editingAgent) return;
+    setEditing(true);
+    try {
+      await updateVoiceAgent(editingAgent.id, {
+        name: editDraft.name.trim(),
+        display_name: editDraft.display_name.trim() || null,
+        description: editDraft.description.trim() || null,
+      });
+      setEditingAgent(null);
+      await load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setEditing(false);
+    }
+  };
+
+  const openDelete = (agent) => {
+    setDeletingAgent(agent);
+    setDeleteConfirmText('');
+  };
+
+  const closeDelete = () => {
+    if (deleting) return;
+    setDeletingAgent(null);
+    setDeleteConfirmText('');
+  };
+
+  const handleDeleteSubmit = async () => {
+    if (!deletingAgent) return;
+    if (deleteConfirmText.trim() !== deletingAgent.name) return;
+    setDeleting(true);
+    try {
+      await deleteVoiceAgent(deletingAgent.id);
+      setDeletingAgent(null);
+      setDeleteConfirmText('');
+      await load();
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSelectAgent = (agent) => {
@@ -180,12 +246,13 @@ const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
               <th className="px-4 py-3 font-medium">Languages</th>
               <th className="px-4 py-3 font-medium">Documents</th>
               <th className="px-4 py-3 font-medium">Updated</th>
+              <th className="px-4 py-3 font-medium text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {agents.length === 0 && !loading && (
               <tr>
-                <td colSpan={6} className="px-6 py-8 text-center text-slate-400">
+                <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
                   No voice agents yet.
                 </td>
               </tr>
@@ -209,11 +276,181 @@ const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
                 <td className="px-4 py-3 text-slate-500 text-xs">
                   {a.updated_at ? new Date(a.updated_at).toLocaleString() : '—'}
                 </td>
+                <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                  <div className="inline-flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => openEdit(a)}
+                      className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-blue-700"
+                      title="Edit agent name"
+                      aria-label={`Edit ${a.display_name || a.name}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openDelete(a)}
+                      className="rounded-md p-1.5 text-slate-500 hover:bg-red-50 hover:text-red-600"
+                      title="Delete agent"
+                      aria-label={`Delete ${a.display_name || a.name}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* ── Edit modal ───────────────────────────────────── */}
+      {editingAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <form
+            onSubmit={handleEditSubmit}
+            className="w-full max-w-md rounded-xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-5 w-5 text-blue-600" />
+                <h3 className="text-base font-semibold text-slate-900">Edit agent</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => !editing && setEditingAgent(null)}
+                className="rounded-md p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4">
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold text-slate-700">
+                  Internal name (slug — used in code & URLs)
+                </span>
+                <input
+                  value={editDraft.name}
+                  onChange={(e) => setEditDraft({ ...editDraft, name: e.target.value })}
+                  required
+                  pattern="[a-z0-9_-]+"
+                  title="Lowercase letters, numbers, underscores, dashes only."
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold text-slate-700">
+                  Display name (shown to admins)
+                </span>
+                <input
+                  value={editDraft.display_name}
+                  onChange={(e) => setEditDraft({ ...editDraft, display_name: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold text-slate-700">Description</span>
+                <textarea
+                  rows={3}
+                  value={editDraft.description}
+                  onChange={(e) => setEditDraft({ ...editDraft, description: e.target.value })}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setEditingAgent(null)}
+                disabled={editing}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={editing || !editDraft.name.trim()}
+                className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                {editing ? 'Saving…' : 'Save changes'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* ── Delete confirmation modal (type-to-confirm) ──── */}
+      {deletingAgent && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4">
+          <div className="w-full max-w-md rounded-xl bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-red-100 bg-red-50 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-600" />
+                <h3 className="text-base font-semibold text-red-700">Delete agent</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeDelete}
+                disabled={deleting}
+                className="rounded-md p-1 text-red-600 hover:bg-red-100 disabled:opacity-50"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-3 px-5 py-4 text-sm">
+              <p className="text-slate-700">
+                You are about to delete the agent
+                {' '}<strong className="text-slate-900">
+                  {deletingAgent.display_name || deletingAgent.name}
+                </strong>
+                . This will:
+              </p>
+              <ul className="ml-4 list-disc space-y-1 text-slate-600">
+                <li>Stop the agent from picking up any new calls.</li>
+                <li>Hide it from the agent list immediately.</li>
+                <li>Existing call history, bookings, and audit rows are preserved for compliance.</li>
+              </ul>
+              <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <strong>This cannot be undone from the UI.</strong> An admin would need to flip the
+                agent back to <code>status='active'</code> directly in SQL to recover.
+              </div>
+              <label className="block text-sm">
+                <span className="block text-xs font-semibold text-slate-700">
+                  To confirm, type the agent&apos;s internal name{' '}
+                  <code className="font-mono text-slate-900">{deletingAgent.name}</code> below:
+                </span>
+                <input
+                  autoFocus
+                  value={deleteConfirmText}
+                  onChange={(e) => setDeleteConfirmText(e.target.value)}
+                  placeholder={deletingAgent.name}
+                  className="mt-1 w-full rounded-lg border border-slate-200 px-3 py-2 font-mono text-sm focus:border-red-500 focus:outline-none focus:ring-1 focus:ring-red-500"
+                />
+              </label>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={closeDelete}
+                disabled={deleting}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteSubmit}
+                disabled={deleting || deleteConfirmText.trim() !== deletingAgent.name}
+                className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {deleting ? 'Deleting…' : 'Delete agent'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
