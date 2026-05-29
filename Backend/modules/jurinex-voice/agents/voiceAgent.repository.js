@@ -110,6 +110,23 @@ const softDelete = async (id) => {
   return rows[0] || null;
 };
 
+// Hard delete the agent row. FK constraints already do the right
+// cleanup: voice_agent_configurations + voice_agent_transfer_configs
+// ON DELETE CASCADE; kb_documents / kb_search_logs /
+// voice_call_enrichments ON DELETE SET NULL. Audit tables without an
+// FK (voice_tool_executions, voice_calendar_bookings,
+// voice_post_call_extractions, voice_call_schedules,
+// voice_debug_events) keep their rows; their agent_id becomes a
+// historical reference to a no-longer-present agent — intentional, so
+// admins lose the operational entity but keep call history.
+const hardDelete = async (id) => {
+  const { rows } = await pool.query(
+    `DELETE FROM voice_agents WHERE id = $1 RETURNING id, name, display_name, status`,
+    [id]
+  );
+  return rows[0] || null;
+};
+
 const documentCounts = async () => {
   const { rows } = await pool.query(`
     SELECT COALESCE(agent_id::text, 'global') AS key, COUNT(*)::int AS count
@@ -128,5 +145,6 @@ module.exports = {
   create,
   update,
   softDelete,
+  hardDelete,
   documentCounts,
 };

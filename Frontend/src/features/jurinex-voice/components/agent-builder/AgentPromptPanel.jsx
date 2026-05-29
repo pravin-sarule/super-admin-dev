@@ -268,22 +268,29 @@ const AgentPromptPanel = ({
             <option value="ai_first">AI speaks first</option>
             <option value="user_first">User speaks first</option>
           </select>
-          <select
-            value={builderSettings.welcome?.mode || 'dynamic'}
-            onChange={(event) => updateBuilder({ welcome: { mode: event.target.value } })}
-            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
-          >
-            <option value="dynamic">Dynamic message</option>
-            <option value="static">Static message</option>
-          </select>
-          {builderSettings.welcome?.mode === 'static' && (
-            <input
-              value={builderSettings.welcome?.message || ''}
-              onChange={(event) => updateBuilder({ welcome: { message: event.target.value } })}
-              placeholder="Hello, thank you for contacting Jurinex support."
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            />
-          )}
+          {/*
+            Welcome-message mode picker — temporarily hidden.
+            The agent currently builds the welcome line dynamically
+            from the persona prompt; once we need explicit
+            dynamic/static control again, restore this block.
+
+            <select
+              value={builderSettings.welcome?.mode || 'dynamic'}
+              onChange={(event) => updateBuilder({ welcome: { mode: event.target.value } })}
+              className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm"
+            >
+              <option value="dynamic">Dynamic message</option>
+              <option value="static">Static message</option>
+            </select>
+            {builderSettings.welcome?.mode === 'static' && (
+              <input
+                value={builderSettings.welcome?.message || ''}
+                onChange={(event) => updateBuilder({ welcome: { message: event.target.value } })}
+                placeholder="Hello, thank you for contacting Jurinex support."
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              />
+            )}
+          */}
         </div>
       </div>
     </section>

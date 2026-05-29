@@ -32,13 +32,16 @@ const persistBooking = async ({
   attendeeName,
   attendeeEmail,
   attendeePhone,
+  meetingLink,
+  eventHtmlLink,
 }) => {
   await pool.query(
     `INSERT INTO voice_calendar_bookings
        (session_id, agent_id, tool_execution_id, google_event_id, google_calendar_id,
         summary, description, start_time, end_time,
-        attendee_name, attendee_email, attendee_phone, status)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'confirmed')`,
+        attendee_name, attendee_email, attendee_phone, status,
+        meeting_link, event_html_link)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'confirmed',$13,$14)`,
     [
       sessionId || null,
       agentId || null,
@@ -52,6 +55,8 @@ const persistBooking = async ({
       attendeeName || null,
       attendeeEmail || null,
       attendeePhone || null,
+      meetingLink || null,
+      eventHtmlLink || null,
     ]
   );
 };
@@ -185,6 +190,16 @@ const run = async (args = {}, context = {}) => {
     };
   }
 
+  // Google returns the Meet link as either `event.hangoutLink` or the
+  // first videoEntryPoint URI on `event.conferenceData.entryPoints`.
+  // Prefer hangoutLink — it's the canonical "meet.google.com/abc" form
+  // every Workspace user recognises.
+  const meetingLink =
+    event?.hangoutLink ||
+    (Array.isArray(event?.conferenceData?.entryPoints)
+      ? event.conferenceData.entryPoints.find((ep) => ep?.entryPointType === 'video')?.uri || null
+      : null);
+
   await persistBooking({
     sessionId: context.sessionId,
     agentId: context.agentId,
@@ -198,6 +213,8 @@ const run = async (args = {}, context = {}) => {
     attendeeName,
     attendeeEmail,
     attendeePhone,
+    meetingLink,
+    eventHtmlLink: event?.htmlLink || null,
   }).catch((err) => {
     console.warn('[VOICE_TOOL][calendar_book] booking persist failed (event still created on Google)', {
       sessionId: context.sessionId,
@@ -227,6 +244,7 @@ const run = async (args = {}, context = {}) => {
         summary,
         description,
         htmlLink: event?.htmlLink,
+        meetingLink,
         timeZone,
         googleEventId: event?.id,
       })
@@ -239,6 +257,7 @@ const run = async (args = {}, context = {}) => {
     success: true,
     event_id: event?.id,
     html_link: event?.htmlLink,
+    meeting_link: meetingLink,
     start_iso: startIso,
     end_iso: endIso,
     summary,

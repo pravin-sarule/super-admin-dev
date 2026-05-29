@@ -63,7 +63,10 @@ const AgentBuilderPage = ({ agent, onBack, onSaved, onNavigateUpload }) => {
 
       const [configData, documentData, pricingData] = await Promise.all([
         getVoiceAgentConfiguration(agent.id),
-        listVoiceDocuments({ agent_id: agent.id, limit: 20 }),
+        // Fetch up to 200 docs — agent-specific + global (the backend
+        // default for include_global is true). Picker modal needs the
+        // full pool, not a 20-row slice.
+        listVoiceDocuments({ agent_id: agent.id, limit: 200 }),
         listVoiceModelPricing().catch((pricingErr) => ({
           success: false,
           models: LIVE_MODELS,

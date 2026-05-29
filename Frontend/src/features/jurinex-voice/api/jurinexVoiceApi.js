@@ -242,6 +242,9 @@ export const listVoiceDocuments = (params = {}) => {
   if (params.source_type) q.set('source_type', params.source_type);
   if (params.limit) q.set('limit', params.limit);
   if (params.offset) q.set('offset', params.offset);
+  // Default is true on the backend; pass through only when an admin
+  // explicitly wants strict ownership filtering.
+  if (params.include_global === false) q.set('include_global', 'false');
   return fetch(`${BASE}/kb/documents?${q.toString()}`, { headers: headers() }).then(handle);
 };
 
@@ -342,6 +345,23 @@ export const cancelScheduledCall = (id) =>
     headers: headers(),
   }).then(handle);
 
+export const retryScheduledCall = (id, retryAfterMinutes = 0) =>
+  fetch(`${BASE}/scheduler/calls/${id}/retry`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ retry_after_minutes: retryAfterMinutes }),
+  }).then(handle);
+
+export const resetStuckScheduledCalls = ({
+  stuck_threshold_minutes = 10,
+  target = 'pending',
+} = {}) =>
+  fetch(`${BASE}/scheduler/calls/reset-stuck`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ stuck_threshold_minutes, target }),
+  }).then(handle);
+
 export const bulkImportScheduledCalls = ({ file, agent_id, timezone, default_scheduled_at }) => {
   const fd = new FormData();
   fd.append('file', file);
@@ -390,3 +410,6 @@ export const listVoiceCallHistory = (params = {}) =>
 
 export const getVoiceCall = (callId) =>
   fetch(`${BASE}/calls/${callId}`, { headers: headers() }).then(handle);
+
+export const getVoiceCallRecordingUrl = (callId) =>
+  fetch(`${BASE}/calls/${callId}/recording-url`, { headers: headers() }).then(handle);

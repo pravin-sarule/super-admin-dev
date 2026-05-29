@@ -92,6 +92,7 @@ const buildEmailBody = ({
   summary,
   description,
   htmlLink,
+  meetingLink,
   timeZone,
 }) => {
   const start = formatHumanTime(startIso, timeZone);
@@ -109,6 +110,7 @@ const buildEmailBody = ({
     <tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Email</td><td style="padding: 4px 0;">${attendeeEmail || '-'}</td></tr>
     ${attendeePhone ? `<tr><td style="padding: 4px 12px 4px 0; color: #6b7280;">Phone</td><td style="padding: 4px 0;">${attendeePhone}</td></tr>` : ''}
   </table>
+  ${meetingLink ? `<p style="margin: 16px 0;"><a href="${meetingLink}" style="display: inline-block; background: #1a73e8; color: #ffffff; text-decoration: none; padding: 10px 18px; border-radius: 6px; font-weight: 600;">Join Google Meet</a> <span style="color: #6b7280; font-size: 12px; margin-left: 8px;">${meetingLink}</span></p>` : ''}
   ${description ? `<p style="color: #4b5563;"><strong>Notes:</strong><br/>${String(description).replace(/\n/g, '<br/>')}</p>` : ''}
   ${htmlLink ? `<p><a href="${htmlLink}" style="color: #2563eb;">Open the meeting in Google Calendar</a></p>` : ''}
   <p>The .ics attachment will add this directly to your calendar app.</p>
@@ -119,6 +121,7 @@ const buildEmailBody = ({
     `${greeting}\n\nYour booking has been confirmed.\n\n` +
     `Title: ${summary}\nStarts: ${start}\nEnds: ${end}\n` +
     `Email: ${attendeeEmail || '-'}${phoneLine}\n` +
+    (meetingLink ? `\nJoin Google Meet: ${meetingLink}\n` : '') +
     (description ? `\nNotes:\n${description}\n` : '') +
     (htmlLink ? `\nOpen in Google Calendar: ${htmlLink}\n` : '') +
     '\n— Jurinex voice support\n';
@@ -159,6 +162,7 @@ const sendBookingConfirmation = async ({
   summary,
   description,
   htmlLink,
+  meetingLink,
   timeZone,
   googleEventId,
   organizerEmailOverride,
@@ -211,6 +215,7 @@ const sendBookingConfirmation = async ({
     summary,
     description,
     htmlLink,
+    meetingLink,
     timeZone,
   });
 

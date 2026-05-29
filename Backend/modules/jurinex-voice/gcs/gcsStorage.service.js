@@ -125,6 +125,12 @@ const downloadFileFromGcs = async (bucketName, objectName) => {
   return contents; // Buffer
 };
 
+const fileExists = async (bucketName, objectName) => {
+  const bucket = bucketName ? getStorageClient().bucket(bucketName) : getBucket();
+  const [exists] = await bucket.file(objectName).exists();
+  return exists;
+};
+
 const deleteFileFromGcs = async (bucketName, objectName) => {
   const bucket = bucketName ? getStorageClient().bucket(bucketName) : getBucket();
   await bucket.file(objectName).delete({ ignoreNotFound: true });
@@ -153,6 +159,7 @@ module.exports = {
   getSignedReadUrl,
   uploadFileToGcs,
   downloadFileFromGcs,
+  fileExists,
   deleteFileFromGcs,
   safeFilename,
   detectContentTypeFromName,

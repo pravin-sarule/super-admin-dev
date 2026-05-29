@@ -67,6 +67,8 @@ const buildRouter = (pool) => {
   router.post('/scheduler/calls', auth, callSchedulerCtrl.create);
   router.patch('/scheduler/calls/:id', auth, callSchedulerCtrl.update);
   router.delete('/scheduler/calls/:id', auth, callSchedulerCtrl.cancel);
+  router.post('/scheduler/calls/:id/retry', auth, callSchedulerCtrl.retry);
+  router.post('/scheduler/calls/reset-stuck', auth, callSchedulerCtrl.resetStuck);
   router.post(
     '/scheduler/calls/bulk-import',
     auth,
@@ -77,6 +79,7 @@ const buildRouter = (pool) => {
   // ── Call Analytics & History ────────────────────────────────────
   router.get('/calls/analytics', auth, callCtrl.getAnalytics);
   router.get('/calls/history', auth, callCtrl.listCalls);
+  router.get('/calls/:callId/recording-url', auth, callCtrl.getCallRecordingUrl);
   router.get('/calls/:callId', auth, callCtrl.getCall);
 
   // ── Debug ────────────────────────────────────────────────────────

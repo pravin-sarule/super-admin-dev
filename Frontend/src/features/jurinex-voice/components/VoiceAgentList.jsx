@@ -408,13 +408,23 @@ const VoiceAgentList = ({ onRefresh, onNavigateUpload }) => {
                 . This will:
               </p>
               <ul className="ml-4 list-disc space-y-1 text-slate-600">
-                <li>Stop the agent from picking up any new calls.</li>
-                <li>Hide it from the agent list immediately.</li>
-                <li>Existing call history, bookings, and audit rows are preserved for compliance.</li>
+                <li>Permanently remove the agent row from the database.</li>
+                <li>
+                  Cascade-delete its configuration and transfer settings
+                  (<code>voice_agent_configurations</code>,
+                  <code>voice_agent_transfer_configs</code>).
+                </li>
+                <li>
+                  Keep historical call records, bookings, KB documents,
+                  and audit rows — their <code>agent_id</code> becomes
+                  a dangling reference but the rows are not deleted.
+                </li>
               </ul>
-              <div className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <strong>This cannot be undone from the UI.</strong> An admin would need to flip the
-                agent back to <code>status='active'</code> directly in SQL to recover.
+              <div className="rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-800">
+                <strong>This cannot be undone.</strong> The agent row
+                is hard-deleted. Recreating an identical agent later
+                will get a different <code>id</code> — anything in your
+                stack that references the old id will need updating.
               </div>
               <label className="block text-sm">
                 <span className="block text-xs font-semibold text-slate-700">

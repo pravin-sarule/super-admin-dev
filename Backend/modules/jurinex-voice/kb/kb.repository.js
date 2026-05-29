@@ -141,12 +141,20 @@ const listDocuments = async ({
   source_type,
   limit = 50,
   offset = 0,
+  // When true (default), an agent_id filter ALSO includes global docs
+  // (agent_id IS NULL). This matches the runtime search semantics
+  // (`OR d.agent_id IS NULL`). Set false for "strict ownership" views.
+  include_global = true,
 } = {}) => {
   const params = [];
   const where = [];
   if (agent_id) {
     params.push(agent_id);
-    where.push(`agent_id = $${params.length}`);
+    where.push(
+      include_global
+        ? `(agent_id = $${params.length}::uuid OR agent_id IS NULL)`
+        : `agent_id = $${params.length}::uuid`
+    );
   }
   if (status) {
     params.push(status);

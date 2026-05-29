@@ -24,7 +24,7 @@ import {
   todayInput,
 } from './voiceCallUtils';
 
-const pageSizes = [25, 50, 100, 200];
+const pageSizes = [11, 25, 50, 100, 200];
 
 const DotValue = ({ value, tone = 'blue' }) => {
   const color =
@@ -183,21 +183,6 @@ const FilterBar = ({
               className="bg-transparent outline-none text-sm w-44"
             />
           </label>
-          <button
-            onClick={() =>
-              setFilters({
-                start_date: monthStartInput(),
-                end_date: todayInput(),
-                direction: '',
-                search: '',
-                page: 1,
-                pageSize: 50,
-              })
-            }
-            className="px-3 py-2 text-sm text-slate-500 hover:text-slate-800"
-          >
-            Reset
-          </button>
         </div>
 
         <div className="relative">
@@ -236,7 +221,7 @@ const VoiceCallHistory = () => {
     direction: '',
     search: '',
     page: 1,
-    pageSize: 50,
+    pageSize: 11,
   });
   const [calls, setCalls] = useState([]);
   const [total, setTotal] = useState(0);

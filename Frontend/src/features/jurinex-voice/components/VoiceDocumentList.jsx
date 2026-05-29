@@ -9,6 +9,8 @@ import {
   AlertCircle,
   Clock,
   X,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import {
   listVoiceDocuments,
@@ -42,6 +44,22 @@ const VoiceDocumentList = ({ agents = [], reloadKey }) => {
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const pageCount = Math.max(1, Math.ceil(docs.length / pageSize));
+  const safePage = Math.min(page, pageCount);
+  const pagedDocs = useMemo(
+    () => docs.slice((safePage - 1) * pageSize, safePage * pageSize),
+    [docs, safePage, pageSize]
+  );
+  const rangeStart = docs.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(safePage * pageSize, docs.length);
+
+  useEffect(() => {
+    setPage(1);
+  }, [agentFilter, statusFilter, pageSize, docs.length, reloadKey]);
+
   const agentMap = useMemo(() => {
     const m = {};
     for (const a of agents) m[a.id] = a;
@@ -55,7 +73,7 @@ const VoiceDocumentList = ({ agents = [], reloadKey }) => {
       const data = await listVoiceDocuments({
         agent_id: agentFilter || undefined,
         status: statusFilter || undefined,
-        limit: 100,
+        limit: 200,
       });
       setDocs(data.documents || []);
     } catch (err) {
@@ -108,9 +126,29 @@ const VoiceDocumentList = ({ agents = [], reloadKey }) => {
         <div className="flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-600" />
           <h3 className="text-lg font-semibold text-slate-900">Documents</h3>
-          {loading && <span className="text-xs text-slate-400 ml-2">loading…</span>}
+          <span className="text-xs text-slate-500 ml-2">
+            {loading
+              ? 'loading…'
+              : docs.length === 0
+              ? '0 shown'
+              : `Showing ${rangeStart}–${rangeEnd} of ${docs.length}`}
+          </span>
         </div>
         <div className="flex items-center gap-2">
+          <label className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 mr-2">
+            Page size
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              {[10, 25, 50, 100].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </label>
           <select
             value={agentFilter}
             onChange={(e) => setAgentFilter(e.target.value)}
@@ -163,7 +201,7 @@ const VoiceDocumentList = ({ agents = [], reloadKey }) => {
                 <td colSpan={7} className="px-6 py-8 text-center text-slate-400">No documents yet.</td>
               </tr>
             )}
-            {docs.map((d) => (
+            {pagedDocs.map((d) => (
               <tr key={d.id} className="hover:bg-slate-50">
                 <td className="px-6 py-3">
                   <div className="font-medium text-slate-900">{d.title}</div>
@@ -194,6 +232,72 @@ const VoiceDocumentList = ({ agents = [], reloadKey }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination footer */}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-3 text-xs">
+          <span className="text-slate-500">
+            Page <strong className="text-slate-700">{safePage}</strong> of {pageCount}
+          </span>
+          <div className="inline-flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage(1)}
+              disabled={safePage === 1}
+              className="rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              First
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage === 1}
+              className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              Prev
+            </button>
+            {(() => {
+              const start = Math.max(1, safePage - 2);
+              const end = Math.min(pageCount, start + 4);
+              const realStart = Math.max(1, end - 4);
+              const nums = [];
+              for (let i = realStart; i <= end; i += 1) nums.push(i);
+              return nums.map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setPage(n)}
+                  className={`min-w-[28px] rounded-md border px-2 py-1 font-semibold ${
+                    n === safePage
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  {n}
+                </button>
+              ));
+            })()}
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={safePage === pageCount}
+              className="inline-flex items-center gap-0.5 rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage(pageCount)}
+              disabled={safePage === pageCount}
+              className="rounded-md border border-slate-200 px-2 py-1 font-semibold text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Last
+            </button>
+          </div>
+        </div>
+      )}
 
       {detail && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">

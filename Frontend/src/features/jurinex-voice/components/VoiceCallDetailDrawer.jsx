@@ -9,8 +9,14 @@ import {
   Headphones,
   Languages,
   ListChecks,
+  Loader2,
+  Maximize2,
+  MessageSquare,
+  Minus,
   PhoneOff,
+  Repeat2,
   Smile,
+  Sparkles,
   X,
 } from 'lucide-react';
 import {
@@ -22,6 +28,7 @@ import {
   shortCallId,
   titleize,
 } from './voiceCallUtils';
+import { getVoiceCallRecordingUrl } from '../api/jurinexVoiceApi';
 
 const tabs = ['Transcription', 'Data', 'Detail Logs', 'Packet Capture'];
 
@@ -75,6 +82,11 @@ const JsonBlock = ({ value }) => (
 const VoiceCallDetailDrawer = ({ open, loading, detail, onClose }) => {
   const [showPii, setShowPii] = useState(false);
   const [activeTab, setActiveTab] = useState('Transcription');
+  const [recordingBusy, setRecordingBusy] = useState(false);
+  const [recordingError, setRecordingError] = useState(null);
+  const [recordingMissingDetails, setRecordingMissingDetails] = useState(null);
+  const [summaryModalOpen, setSummaryModalOpen] = useState(false);
+  const [summaryCopied, setSummaryCopied] = useState(false);
   const call = detail?.call;
   const transcript = useMemo(() => groupMessages(detail?.messages || []), [detail]);
 
@@ -82,6 +94,48 @@ const VoiceCallDetailDrawer = ({ open, loading, detail, onClose }) => {
 
   const recordingUri = call?.recording_uri;
   const canPlayRecording = recordingUri && /^https?:\/\//i.test(recordingUri);
+
+  // The DB usually stores recordings as gs://bucket/path which the
+  // browser can't fetch directly. We POST to the admin API which
+  // mints a short-lived v4 signed URL, then trigger the browser
+  // download via a hidden <a download>. Direct https URLs (from
+  // raw_metadata) get used as-is.
+  const handleDownloadRecording = async () => {
+    if (!call?.id || recordingBusy) return;
+    setRecordingBusy(true);
+    setRecordingError(null);
+    setRecordingMissingDetails(null);
+    try {
+      const result = await getVoiceCallRecordingUrl(call.id);
+      if (!result?.url) {
+        throw new Error('Server did not return a recording URL.');
+      }
+      const a = document.createElement('a');
+      a.href = result.url;
+      if (result.filename) a.download = result.filename;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    } catch (err) {
+      // The backend returns a structured 404 when the object isn't in
+      // GCS — show the looked-up path so the admin can hand it to the
+      // runtime team instead of a generic "failed" message.
+      if (err?.data?.error?.code === 'RECORDING_OBJECT_MISSING') {
+        setRecordingMissingDetails({
+          bucket: err.data.bucket,
+          object: err.data.object,
+          gcsUri: err.data.gcs_uri,
+        });
+        setRecordingError(err.data.error.message);
+      } else {
+        setRecordingError(err.message || 'Failed to fetch recording URL.');
+      }
+    } finally {
+      setRecordingBusy(false);
+    }
+  };
   const outcomeTone = call?.session_outcome === 'successful' ? 'green' : call?.session_outcome === 'unsuccessful' ? 'red' : 'blue';
 
   return (
@@ -148,19 +202,59 @@ const VoiceCallDetailDrawer = ({ open, loading, detail, onClose }) => {
                     <audio src={recordingUri} controls className="h-10 flex-1" />
                   ) : (
                     <div className="h-10 flex-1 rounded-full bg-slate-100 text-xs text-slate-500 flex items-center px-4">
-                      Recording stored in GCS
+                      {recordingUri ? 'Recording stored in GCS' : 'No recording on file'}
                     </div>
                   )}
                   {recordingUri && (
-                    <a
-                      href={recordingUri}
-                      className="w-10 h-10 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50"
-                      aria-label="Open recording"
+                    <button
+                      type="button"
+                      onClick={handleDownloadRecording}
+                      disabled={recordingBusy}
+                      className="w-10 h-10 rounded-lg border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                      aria-label="Download recording"
+                      title={
+                        canPlayRecording
+                          ? 'Download recording'
+                          : 'Download recording (signed URL, valid for 15 minutes)'
+                      }
                     >
-                      <Download className="w-4 h-4" />
-                    </a>
+                      {recordingBusy ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                    </button>
                   )}
                 </div>
+                {recordingError && (
+                  <div className="mt-2 rounded-lg border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+                    <div>{recordingError}</div>
+                    {recordingMissingDetails && (
+                      <div className="mt-1.5 space-y-0.5 font-mono text-[11px] text-red-800">
+                        <div>
+                          <span className="text-red-500">bucket: </span>
+                          {recordingMissingDetails.bucket}
+                        </div>
+                        <div className="break-all">
+                          <span className="text-red-500">object: </span>
+                          {recordingMissingDetails.object}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigator.clipboard?.writeText(
+                              recordingMissingDetails.gcsUri || ''
+                            )
+                          }
+                          className="mt-1 inline-flex items-center gap-1 rounded border border-red-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          <Copy className="h-3 w-3" />
+                          Copy gs:// URI
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -182,14 +276,65 @@ const VoiceCallDetailDrawer = ({ open, loading, detail, onClose }) => {
                 <StatRow Icon={PhoneOff} label="Disconnection Reason" value={titleize(call.end_reason)} />
                 <StatRow Icon={Gauge} label="End to End Latency" value={formatLatency(call.end_to_end_latency_ms)} />
                 <StatRow Icon={Languages} label="preferred_language" value={call.preferred_language || '—'} />
+                <StatRow
+                  Icon={Repeat2}
+                  label="Turns"
+                  value={
+                    call.turn_count > 0
+                      ? `${call.turn_count} turn${call.turn_count === 1 ? '' : 's'}`
+                      : '—'
+                  }
+                />
               </div>
             </section>
 
             <section className="px-4 py-4 border-b border-slate-200">
-              <h3 className="text-sm font-semibold text-slate-950 mb-2">Summary</h3>
-              <p className="text-sm leading-6 text-slate-700 whitespace-pre-wrap">
-                {call.summary || '—'}
-              </p>
+              <div className="mb-2 flex items-center justify-between">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold text-slate-950">
+                  Summary
+                  {call.has_llm_summary ? (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700"
+                      title={
+                        call.extraction_model
+                          ? `Generated by ${call.extraction_model}`
+                          : 'Generated by the post-call extractor'
+                      }
+                    >
+                      <Sparkles className="h-3 w-3" /> LLM
+                    </span>
+                  ) : call.summary ? (
+                    <span
+                      className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                      title="Legacy heuristic from upstream (Customer reported / Agent closed with / Total turns). Enable post-call extraction to get a proper LLM summary."
+                    >
+                      legacy
+                    </span>
+                  ) : null}
+                </h3>
+                {call.summary && (
+                  <button
+                    type="button"
+                    onClick={() => setSummaryModalOpen(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-50"
+                    title="Expand summary"
+                  >
+                    <Maximize2 className="h-3 w-3" />
+                    Expand
+                  </button>
+                )}
+              </div>
+              {call.summary ? (
+                <p
+                  className="line-clamp-5 cursor-pointer text-sm leading-6 text-slate-700 whitespace-pre-wrap hover:text-slate-900"
+                  onClick={() => setSummaryModalOpen(true)}
+                  title="Click to expand"
+                >
+                  {call.summary}
+                </p>
+              ) : (
+                <p className="text-sm text-slate-400">—</p>
+              )}
             </section>
 
             <nav className="sticky top-0 bg-white border-b border-slate-200 px-4 flex gap-6">
@@ -277,6 +422,129 @@ const VoiceCallDetailDrawer = ({ open, loading, detail, onClose }) => {
           </div>
         )}
       </aside>
+
+      {summaryModalOpen && call && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 px-4"
+          onClick={() => setSummaryModalOpen(false)}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4 text-slate-500" />
+                <h3 className="text-sm font-semibold text-slate-900">
+                  Call Summary — {formatDateTime(call.started_at).replace(' IST', '')} (
+                  {formatDuration(call.duration_seconds)})
+                </h3>
+                {call.has_llm_summary ? (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700"
+                    title={
+                      call.extraction_model
+                        ? `Generated by ${call.extraction_model}`
+                        : 'Generated by the post-call extractor'
+                    }
+                  >
+                    <Sparkles className="h-3 w-3" /> LLM
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+                    legacy
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSummaryModalOpen(false)}
+                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                  aria-label="Minimize"
+                  title="Minimize back to drawer"
+                >
+                  <Minus className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryModalOpen(false)}
+                  className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
+                  aria-label="Close"
+                  title="Close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto px-5 py-4">
+              <p className="text-sm leading-7 text-slate-800 whitespace-pre-wrap">
+                {call.summary}
+              </p>
+              <div className="mt-4 grid grid-cols-3 gap-3 text-xs">
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-slate-500">Sentiment</div>
+                  <div className="font-semibold text-slate-800">
+                    {titleize(call.user_sentiment) || '—'}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-slate-500">Outcome</div>
+                  <div className="font-semibold text-slate-800">
+                    {titleize(call.session_outcome) || '—'}
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 px-3 py-2">
+                  <div className="text-slate-500">Turns</div>
+                  <div className="font-semibold text-slate-800">
+                    {call.turn_count > 0 ? call.turn_count : '—'}
+                  </div>
+                </div>
+              </div>
+              {!call.has_llm_summary && call.summary && (
+                <div className="mt-3 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+                  This is the legacy heuristic summary from the upstream call agent. Enable post-call
+                  extraction on the agent so future calls get a proper LLM-generated summary.
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-slate-200 px-5 py-3">
+              <span className="text-[11px] text-slate-400">
+                {call.extraction_model
+                  ? `Model: ${call.extraction_model}`
+                  : 'Click outside to close'}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(call.summary || '');
+                      setSummaryCopied(true);
+                      setTimeout(() => setSummaryCopied(false), 1500);
+                    } catch {
+                      /* clipboard blocked */
+                    }
+                  }}
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <Copy className="h-3.5 w-3.5" />
+                  {summaryCopied ? 'Copied' : 'Copy summary'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSummaryModalOpen(false)}
+                  className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-slate-800"
+                >
+                  Done
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

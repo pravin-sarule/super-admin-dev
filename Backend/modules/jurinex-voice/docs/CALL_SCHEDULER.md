@@ -468,31 +468,102 @@ stores the resulting UTC instant. So a CSV with `2026-05-10
 
 ## 9. Retry / failure policy
 
-Recommended:
+**Mandatory contract** (the admin UI shows status badges and counts
+based on this; deviating will make the dashboard look broken):
 
 ```
-attempts < max_attempts AND status='no_answer'
-    → wait min(15 minutes * 2^(attempts-1), 60 minutes) → status='queued'
-attempts >= max_attempts
-    → status='no_answer' (terminal)
-hard error (bad number, model error, Twilio reject)
-    → status='failed' (terminal, no retry)
+A) Caller didn't pick up / busy / Twilio reported no_answer
+   ├── attempts < max_attempts  →  re-queue 30 minutes from now
+   │                              (set status='pending', bump scheduled_at)
+   └── attempts >= max_attempts →  status='no_answer' (TERMINAL)
+
+B) Hard error: invalid phone, model misconfigured, Twilio account
+   reject, billing block, etc.
+   →  status='failed' (TERMINAL — no retry)
+
+C) Caller picked up → conversation happened → caller hung up
+   →  status='completed', call_id=<calls.id>  (TERMINAL)
+
+D) Admin clicked Cancel before runtime claimed it
+   →  status='cancelled'  (TERMINAL)
 ```
 
-Implementation hint: instead of a separate retry timer, just bump
-`scheduled_at` forward by the backoff and set `status='pending'`. The
-existing poller picks it up at the right time and you don't need a
-second job system.
+**Concrete numbers the admin app expects:**
+- Default `max_attempts` is **3** (set per row at insert; admin can override).
+- Retry delay between attempts is **30 minutes flat** (not exponential — admin chose deterministic).
+- Total worst-case for a no-answer flow: original attempt → +30 min → +60 min → mark `no_answer`. The admin sees 3 dial attempts spread over ~1 hour, then a terminal "no answer" pill in the dashboard.
+
+**Implementation pattern** — bump `scheduled_at` instead of running a
+separate retry timer. The existing poller picks it up at the right
+time and you don't need a second job system:
+
+```sql
+-- After Twilio reports no_answer / busy / voicemail:
+UPDATE voice_call_schedules
+   SET status       = 'pending',
+       scheduled_at = now() + interval '30 minutes',
+       last_error   = $2,                                      -- "twilio: no_answer (25s timeout)"
+       updated_at   = now()
+ WHERE id = $1
+   AND attempts < max_attempts
+RETURNING id;
+
+-- If the UPDATE returned 0 rows, attempts have exhausted — mark terminal:
+UPDATE voice_call_schedules
+   SET status      = 'no_answer',
+       last_error  = $2,
+       updated_at  = now()
+ WHERE id = $1
+   AND status = 'in_progress';
+```
+
+> ⚠️ Critical: do **NOT** reset `attempts` on retry. The runtime
+> already incremented it on the previous dial — leave it alone here
+> and just gate the re-queue on `attempts < max_attempts`. Otherwise
+> you'll loop forever on a number that keeps rejecting.
+
+### Manual retry hook (admin override)
+
+The admin UI exposes a **🔁 Retry** button for rows in `failed`,
+`no_answer`, or `cancelled` (when `attempts < max_attempts`). That
+button calls the admin endpoint:
+
+```
+POST /admin/jurinex-voice/scheduler/calls/:id/retry
+body: { "retry_after_minutes": 30 }
+```
+
+Server-side it does:
 
 ```sql
 UPDATE voice_call_schedules
    SET status       = 'pending',
-       scheduled_at = now() + (interval '15 minutes' * power(2, attempts - 1)),
-       last_error   = $2,
+       scheduled_at = now() + (retry_after_minutes || ' minutes')::interval,
+       last_error   = COALESCE(last_error, '') || ' [admin retry @ ' || now() || ']',
        updated_at   = now()
  WHERE id = $1
+   AND status IN ('failed','no_answer','cancelled')
    AND attempts < max_attempts;
 ```
+
+Your runtime doesn't need to do anything special — the row just
+becomes `pending` again, and your existing poller picks it up like
+any other.
+
+### Concurrency
+
+The runtime is sized for **20 concurrent outbound calls**. Default
+batch poll should be:
+
+```sql
+SELECT … FOR UPDATE SKIP LOCKED LIMIT 20;
+```
+
+…or run a loop of 20 single-row claims if you prefer per-call
+transactions. The admin UI shows the in-flight count
+(`queued + in_progress`) so admins know why some "due" rows are
+sitting briefly in `queued` — they're waiting for a worker slot,
+not stuck.
 
 ---
 

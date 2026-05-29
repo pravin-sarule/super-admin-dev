@@ -130,13 +130,6 @@ const AnalyticsFilter = ({ filters, setFilters, loading, onRefresh }) => (
         </select>
       </label>
       <button
-        onClick={() => setFilters({ start_date: monthStartInput(), end_date: todayInput(), direction: '' })}
-        className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-500 hover:text-slate-800"
-      >
-        <RotateCcw className="w-4 h-4" />
-        Reset
-      </button>
-      <button
         onClick={onRefresh}
         className="inline-flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
       >

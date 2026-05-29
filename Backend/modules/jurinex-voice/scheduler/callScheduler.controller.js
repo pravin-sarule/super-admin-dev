@@ -174,6 +174,82 @@ const update = async (req, res) => {
   }
 };
 
+// ── Retry a failed / no_answer row ────────────────────────────────
+// Admin-triggered manual retry. Resets the row to `pending` with
+// `scheduled_at = now() + retry_after_minutes` so the voice-agent
+// runtime picks it up on the next poll. Attempts counter is preserved
+// so we never exceed max_attempts even with manual nudges.
+const retry = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const retryAfterMinutes = Math.max(
+      Number(req.body?.retry_after_minutes) || 0,
+      0
+    );
+    const { rows } = await pool.query(
+      `UPDATE voice_call_schedules
+          SET status       = 'pending',
+              scheduled_at = now() + ($2 || ' minutes')::interval,
+              last_error   = COALESCE(last_error, '') ||
+                             ' [admin retry @ ' || now()::text || ']',
+              updated_at   = now()
+        WHERE id = $1
+          AND status IN ('failed','no_answer','cancelled')
+          AND attempts < max_attempts
+        RETURNING *`,
+      [id, String(retryAfterMinutes)]
+    );
+    if (!rows.length) {
+      return res.status(409).json({
+        success: false,
+        error:
+          'Row cannot be retried — either it does not exist, is already in flight, or has exhausted max_attempts.',
+      });
+    }
+    res.json({ success: true, call: rows[0] });
+  } catch (err) {
+    console.error('[scheduler.retry] failed', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
+// ── Reset stuck rows ──────────────────────────────────────────────
+// `queued` or `in_progress` rows that haven't been updated in
+// `stuck_threshold_minutes` are almost certainly orphans (runtime
+// crashed mid-dial). Reset them so a healthy runtime can re-claim
+// and either complete or properly mark them no_answer/failed.
+//
+//   POST /admin/jurinex-voice/scheduler/calls/reset-stuck
+//   body: { stuck_threshold_minutes?: 10, target?: 'pending'|'failed' }
+const resetStuck = async (req, res) => {
+  try {
+    const minutes = Math.max(Number(req.body?.stuck_threshold_minutes) || 10, 1);
+    const target = req.body?.target === 'failed' ? 'failed' : 'pending';
+    const { rows } = await pool.query(
+      `UPDATE voice_call_schedules
+          SET status      = $2,
+              last_error  = COALESCE(last_error, '') ||
+                            ' [stuck reset @ ' || now()::text ||
+                            ' after ' || $1 || ' min idle]',
+              updated_at  = now()
+        WHERE status IN ('queued','in_progress')
+          AND updated_at < now() - ($1 || ' minutes')::interval
+        RETURNING id, status, recipient_phone, attempts, last_error`,
+      [String(minutes), target]
+    );
+    res.json({
+      success: true,
+      reset_count: rows.length,
+      threshold_minutes: minutes,
+      target_status: target,
+      reset: rows,
+    });
+  } catch (err) {
+    console.error('[scheduler.resetStuck] failed', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // ── Cancel (soft) ─────────────────────────────────────────────────
 const cancel = async (req, res) => {
   try {
@@ -338,4 +414,4 @@ const bulkImport = async (req, res) => {
   }
 };
 
-module.exports = { list, create, update, cancel, bulkImport };
+module.exports = { list, create, update, cancel, retry, resetStuck, bulkImport };

@@ -53,6 +53,8 @@ const list = async (req, res) => {
               b.attendee_email,
               b.attendee_phone,
               b.status,
+              b.meeting_link,
+              b.event_html_link,
               b.created_at
          FROM voice_calendar_bookings b
          LEFT JOIN voice_agents a ON a.id = b.agent_id
@@ -115,7 +117,8 @@ const slots = async (req, res) => {
     // Pull bookings in window for the agent.
     const bookingsResult = await pool.query(
       `SELECT id, summary, start_time, end_time, attendee_name, attendee_email,
-              attendee_phone, google_event_id, status
+              attendee_phone, google_event_id, status,
+              meeting_link, event_html_link
          FROM voice_calendar_bookings
         WHERE agent_id = $1::uuid
           AND start_time BETWEEN $2::timestamptz AND $3::timestamptz

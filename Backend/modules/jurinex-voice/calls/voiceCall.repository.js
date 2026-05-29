@@ -197,6 +197,40 @@ const baseCte = ({ hasEnrichment, where }) => {
        WHERE call_id IN (SELECT id FROM filtered_calls)
        GROUP BY call_id
     ),
+    -- Latest completed post-call extraction per call. The LLM summary
+    -- lives here; calls.summary is a 3-line heuristic written by the
+    -- upstream call agent ("Customer reported: ... / Agent closed with:
+    -- ... / Total turns: N") and is almost always worse.
+    extraction_rollup AS (
+      SELECT DISTINCT ON (call_id)
+             call_id,
+             extracted_data,
+             extracted_data->>'call_summary'        AS llm_summary,
+             extracted_data->>'user_sentiment'      AS llm_user_sentiment,
+             extracted_data->>'preferred_language'  AS llm_preferred_language,
+             extracted_data->>'call_successful'     AS llm_call_successful_text,
+             status                                  AS extraction_status,
+             completed_at                            AS extraction_completed_at,
+             extraction_model
+        FROM voice_post_call_extractions
+       WHERE call_id IN (SELECT id FROM filtered_calls)
+       ORDER BY call_id, completed_at DESC NULLS LAST, created_at DESC
+    ),
+    -- Real turn count: each row in call_messages is one streamed chunk
+    -- from Gemini Live, not one turn. Group consecutive same-speaker
+    -- chunks into a single turn so "Total turns" actually means turns.
+    turn_rollup AS (
+      SELECT call_id, COUNT(*)::int AS turn_count
+        FROM (
+          SELECT call_id,
+                 speaker::text                                                 AS speaker,
+                 LAG(speaker::text) OVER (PARTITION BY call_id ORDER BY timestamp) AS prev_speaker
+            FROM call_messages
+           WHERE call_id IN (SELECT id FROM filtered_calls)
+        ) m
+       WHERE speaker IS DISTINCT FROM prev_speaker
+       GROUP BY call_id
+    ),
     debug_rollup AS (
       SELECT resolved_call_id AS call_id,
              BOOL_OR(event_stage IN ('hangup.twiml', 'hangup.completed')) AS has_agent_hangup,
@@ -253,13 +287,23 @@ const baseCte = ({ hasEnrichment, where }) => {
         COALESCE(tr.has_agent_end, false) AS derived_agent_end,
         tr.tool_language,
         COALESCE(dr.has_agent_hangup, false) AS derived_agent_hangup,
-        COALESCE(dr.has_silence_timeout, false) AS derived_silence_timeout
+        COALESCE(dr.has_silence_timeout, false) AS derived_silence_timeout,
+        er.llm_summary,
+        er.llm_user_sentiment,
+        er.llm_preferred_language,
+        er.llm_call_successful_text,
+        er.extraction_status,
+        er.extraction_model,
+        er.extraction_completed_at,
+        COALESCE(trn.turn_count, 0)::int AS turn_count
       FROM filtered_calls c
       LEFT JOIN customers cust ON cust.id = c.customer_id
       ${enrichment.join}
       LEFT JOIN message_latency ml ON ml.call_id = c.id
       LEFT JOIN tool_rollup tr ON tr.call_id = c.id
       LEFT JOIN debug_rollup dr ON dr.call_id = c.id
+      LEFT JOIN extraction_rollup er ON er.call_id = c.id
+      LEFT JOIN turn_rollup trn ON trn.call_id = c.id
     ),
     normalized_calls AS (
       SELECT
@@ -277,6 +321,7 @@ const baseCte = ({ hasEnrichment, where }) => {
           first_response_latency_ms
         ) AS normalized_latency_ms,
         COALESCE(
+          NULLIF(llm_preferred_language, ''),
           preferred_language,
           NULLIF(language, ''),
           NULLIF(customer_preferred_language, ''),
@@ -329,7 +374,17 @@ const baseCte = ({ hasEnrichment, where }) => {
             ELSE status
           END
         ) AS normalized_end_reason,
-        COALESCE(NULLIF(sentiment, ''), analysis->>'user_sentiment', 'unknown') AS normalized_sentiment
+        COALESCE(
+          NULLIF(llm_user_sentiment, ''),
+          NULLIF(sentiment, ''),
+          analysis->>'user_sentiment',
+          'unknown'
+        ) AS normalized_sentiment,
+        -- Prefer the LLM summary written by the admin's post-call
+        -- extractor. Fall back to the legacy heuristic in calls.summary
+        -- only when no extraction exists (older calls).
+        COALESCE(NULLIF(llm_summary, ''), NULLIF(summary, '')) AS normalized_summary,
+        (llm_summary IS NOT NULL AND llm_summary <> '')         AS has_llm_summary
       FROM call_facts
     )
   `;
@@ -352,7 +407,13 @@ const rowSelect = `
   started_at,
   ended_at,
   duration_seconds,
-  summary,
+  normalized_summary AS summary,
+  summary           AS legacy_summary,
+  has_llm_summary,
+  extraction_status,
+  extraction_model,
+  extraction_completed_at,
+  turn_count,
   sentiment,
   created_ticket_id,
   raw_metadata,

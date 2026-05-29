@@ -231,8 +231,19 @@ const uploadText = async (req, res) => {
 
 const listDocuments = async (req, res) => {
   try {
-    const { agent_id, status, source_type, limit, offset } = req.query;
-    const docs = await repo.listDocuments({ agent_id, status, source_type, limit, offset });
+    const { agent_id, status, source_type, limit, offset, include_global } = req.query;
+    // When agent_id is provided, default to ALSO returning global docs
+    // (matches the runtime search semantics where global docs are
+    // always visible). Set ?include_global=false for strict ownership.
+    const includeGlobal = include_global == null ? true : include_global !== 'false';
+    const docs = await repo.listDocuments({
+      agent_id,
+      status,
+      source_type,
+      limit,
+      offset,
+      include_global: includeGlobal,
+    });
     return res.json({ success: true, documents: docs, count: docs.length });
   } catch (err) {
     voiceLogger.errorWithContext('listDocuments failed', err, { requestId: req.requestId });

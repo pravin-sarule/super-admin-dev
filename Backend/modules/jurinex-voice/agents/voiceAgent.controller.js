@@ -84,9 +84,25 @@ const update = async (req, res) => {
 
 const remove = async (req, res) => {
   try {
-    const agent = await repo.softDelete(req.params.agentId);
+    // Hard delete by default — the UI confirmation modal already
+    // forces the admin to type the agent's internal name, so we treat
+    // this as an intentional destructive action.
+    //
+    // FK constraints handle dependents automatically:
+    //   voice_agent_configurations / _transfer_configs  CASCADE
+    //   kb_documents / kb_search_logs / voice_call_enrichments  SET NULL
+    // Audit rows in voice_tool_executions, voice_calendar_bookings,
+    // voice_post_call_extractions, voice_call_schedules,
+    // voice_debug_events keep their data but their agent_id becomes a
+    // dangling reference (intentional — preserves history).
+    //
+    // Pass ?soft=true to fall back to status='inactive' if needed.
+    const useSoftDelete = req.query.soft === 'true';
+    const agent = useSoftDelete
+      ? await repo.softDelete(req.params.agentId)
+      : await repo.hardDelete(req.params.agentId);
     if (!agent) return res.status(404).json({ success: false, error: { message: 'Agent not found' } });
-    return res.json({ success: true, agent });
+    return res.json({ success: true, agent, deleted: !useSoftDelete });
   } catch (err) {
     voiceLogger.errorWithContext('deleteAgent failed', err, { requestId: req.requestId });
     return res.status(500).json({ success: false, error: { message: err.message } });

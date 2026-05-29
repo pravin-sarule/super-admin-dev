@@ -129,13 +129,29 @@ const createEvent = async ({
     start: { dateTime: startIso, timeZone },
     end: { dateTime: endIso, timeZone },
   };
+  // Request a Google Meet link unless explicitly disabled. The
+  // `createRequest` form works for service accounts without DWD as
+  // long as the calendar lives on a Workspace tenant with Meet enabled
+  // — the resulting `hangoutLink` is what we surface in the admin UI.
+  // Opt out with JURINEX_VOICE_CALENDAR_DISABLE_MEET=true for tenants
+  // without Meet, otherwise event creation will 400.
+  const wantsMeet = process.env.JURINEX_VOICE_CALENDAR_DISABLE_MEET !== 'true';
+  if (wantsMeet) {
+    body.conferenceData = {
+      createRequest: {
+        requestId: `jurinex-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        conferenceSolutionKey: { type: 'hangoutsMeet' },
+      },
+    };
+  }
   // Allow opt-in to real attendees only when DWD is wired (env override).
   if (process.env.JURINEX_VOICE_CALENDAR_ALLOW_ATTENDEES === 'true' && attendees.length) {
     body.attendees = attendees
       .filter((a) => a?.email)
       .map((a) => ({ email: a.email, displayName: a.name || undefined }));
   }
-  const url = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}`;
+  const conferenceParam = wantsMeet ? '&conferenceDataVersion=1' : '';
+  const url = `${BASE}/calendars/${encodeURIComponent(calendarId)}/events?sendUpdates=${encodeURIComponent(sendUpdates)}${conferenceParam}`;
   const { data } = await axios.post(url, body, { headers, timeout: 20_000 });
   return data;
 };
