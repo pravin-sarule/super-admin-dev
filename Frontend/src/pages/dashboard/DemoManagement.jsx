@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Calendar, Clock, Mail, CheckCircle, XCircle, AlertCircle, RefreshCw,
   Plus, Trash2, Send, ChevronLeft, ChevronRight, Search, FileUp,
-  Eye, Users, Layers, CalendarCheck, BarChart3, Zap, X, ChevronDown,
+  Eye, Users, Layers, CalendarCheck, BarChart3, Zap, X, ChevronDown, Phone,
 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
@@ -276,9 +276,9 @@ const DemoManagement = () => {
   // ── CSV download ───────────────────────────────────────────────────────────
   const downloadCSV = () => {
     const rows = [
-      ['#', 'Name', 'Email', 'Company', 'Scheduled At (IST)', 'Status', 'Notes', 'Created At'],
+      ['#', 'Name', 'Email', 'Mobile', 'Company', 'Scheduled At (IST)', 'Status', 'Notes', 'Created At'],
       ...bookings.map((b, i) => [
-        i + 1, b.name, b.email, b.company || '',
+        i + 1, b.name, b.email, b.phone || '', b.company || '',
         fmtDateTime(b.scheduled_at), b.status, `"${(b.notes || '').replace(/"/g, '""')}"`,
         fmtDateTime(b.created_at),
       ]),
@@ -393,7 +393,7 @@ const DemoManagement = () => {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
-                  placeholder="Search name, email, company…"
+                  placeholder="Search name, email, mobile, company…"
                   value={bookingSearch}
                   onChange={e => setBookingSearch(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && fetchBookings(1)}
@@ -440,7 +440,7 @@ const DemoManagement = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50">
                     <tr>
-                      {['#', 'Name & Email', 'Company', 'Scheduled At (IST)', 'Status', 'Update Status', 'Actions'].map(h => (
+                      {['#', 'Contact', 'Company', 'Scheduled At (IST)', 'Status', 'Update Status', 'Actions'].map(h => (
                         <th key={h} className="px-5 py-3.5 text-left text-sm font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">
                           {h}
                         </th>
@@ -457,6 +457,12 @@ const DemoManagement = () => {
                           <td className="px-5 py-3.5">
                             <p className="font-semibold text-gray-900">{b.name}</p>
                             <p className="text-sm text-gray-500">{b.email}</p>
+                            {b.phone && (
+                              <p className="text-sm text-gray-600 flex items-center gap-1 mt-0.5">
+                                <Phone className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                                {b.phone}
+                              </p>
+                            )}
                           </td>
                           <td className="px-5 py-3.5 text-sm text-gray-600">
                             {b.company || <span className="text-gray-300 italic">—</span>}
@@ -534,6 +540,10 @@ const DemoManagement = () => {
                                 <div>
                                   <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Booking ID</p>
                                   <p className="font-mono text-gray-700">#{b.id}</p>
+                                </div>
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Mobile</p>
+                                  <p className="text-gray-700">{b.phone || '—'}</p>
                                 </div>
                                 <div>
                                   <p className="text-xs font-semibold text-gray-400 uppercase mb-1">Slot ID</p>
@@ -807,6 +817,12 @@ const DemoManagement = () => {
                               <div>
                                 <p className="font-medium text-gray-800">{s.booked_by_name}</p>
                                 <p className="text-xs text-gray-500">{s.booked_by_email}</p>
+                                {s.booked_by_phone && (
+                                  <p className="text-xs text-gray-600 flex items-center gap-1 mt-0.5">
+                                    <Phone className="w-3 h-3 text-gray-400" />
+                                    {s.booked_by_phone}
+                                  </p>
+                                )}
                               </div>
                             ) : (
                               <span className="text-gray-300 italic text-sm">—</span>

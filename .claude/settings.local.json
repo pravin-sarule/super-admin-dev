@@ -24,7 +24,8 @@
       "Bash(node -c modules/jurinex-voice/calendar/calendarBookings.controller.js)",
       "Bash(node -c modules/jurinex-voice/jurinexVoice.routes.js)",
       "Bash(node -c modules/jurinex-voice/scheduler/callScheduler.controller.js)",
-      "Bash(node modules/jurinex-voice/db/migrate.js)"
+      "Bash(node modules/jurinex-voice/db/migrate.js)",
+      "Bash(node Backend/migrations/run_payment_db_migrations.js)"
     ],
     "additionalDirectories": [
       "c:\\Users\\ADMIN\\jurinex-dev\\Backend\\ChatModel\\services"

@@ -224,6 +224,7 @@ async function initDemoTables() {
         name         VARCHAR(100) NOT NULL,
         email        VARCHAR(150) NOT NULL,
         company      VARCHAR(150),
+        phone        VARCHAR(30),
         slot_id      INT REFERENCES demo_slots(id) ON DELETE SET NULL,
         scheduled_at TIMESTAMP NOT NULL,
         status       VARCHAR(20) DEFAULT 'pending',
@@ -231,6 +232,7 @@ async function initDemoTables() {
         created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE demo_bookings ADD COLUMN IF NOT EXISTS phone VARCHAR(30);
     `);
     console.log('✅ Demo tables ready (demo_slots, demo_bookings)');
   } catch (err) {
@@ -278,7 +280,7 @@ function makeControllers() {
       }
       if (search) {
         params.push(`%${search}%`);
-        conditions.push(`(b.name ILIKE $${params.length} OR b.email ILIKE $${params.length} OR b.company ILIKE $${params.length})`);
+        conditions.push(`(b.name ILIKE $${params.length} OR b.email ILIKE $${params.length} OR b.company ILIKE $${params.length} OR b.phone ILIKE $${params.length})`);
       }
       const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
 
@@ -286,7 +288,7 @@ function makeControllers() {
       params.push(parseInt(limit), offset);
 
       const { rows } = await aiDocumentPool.query(
-        `SELECT b.id, b.name, b.email, b.company, b.slot_id,
+        `SELECT b.id, b.name, b.email, b.phone, b.company, b.slot_id,
                 b.scheduled_at, b.status, b.notes, b.created_at, b.updated_at,
                 s.start_time, s.end_time
          FROM demo_bookings b
@@ -416,7 +418,8 @@ function makeControllers() {
 
       const { rows } = await aiDocumentPool.query(
         `SELECT s.id, s.start_time, s.end_time, s.is_booked, s.created_at,
-                b.id AS booking_id, b.name AS booked_by_name, b.email AS booked_by_email
+                b.id AS booking_id, b.name AS booked_by_name, b.email AS booked_by_email,
+                b.phone AS booked_by_phone
          FROM demo_slots s
          LEFT JOIN demo_bookings b ON b.slot_id = s.id
          ${where}

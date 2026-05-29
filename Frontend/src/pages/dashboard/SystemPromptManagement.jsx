@@ -1,5 +1,8 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, Edit, Save, FileText, Trash2, PlusCircle, X, ChevronLeft, ChevronRight, Filter, Calendar, Copy } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import {
+  Eye, Edit, Save, FileText, Trash2, PlusCircle, X,
+  ChevronLeft, ChevronRight, Filter, Calendar, Copy, Tag, User, CreditCard
+} from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
@@ -7,338 +10,298 @@ import { API_BASE_URL } from '../../config';
 
 const MySwal = withReactContent(Swal);
 
-// System Prompts API URL
 const SYSTEM_PROMPTS_API_URL = `${API_BASE_URL}/system-prompts`;
+const PROMPT_ROLES_API_URL = `${API_BASE_URL}/prompt-roles`;
+
+const formatTokenLimit = (n) => {
+  if (n == null || n === '') return null;
+  const num = Number(n);
+  return Number.isNaN(num) ? null : num.toLocaleString();
+};
 
 const PROMPT_TYPE_OPTIONS = [
   { value: 'general', label: 'General (multiple prompts allowed)' },
   { value: 'chat_model', label: 'Chat model service' },
   { value: 'summarization', label: 'Summarization service' },
+  { value: 'charter', label: 'Charter' },
+  { value: 'banking', label: 'Banking' },
+  { value: 'finance', label: 'Finance' },
 ];
 
-const serviceLabel = (promptType) => {
-  const t = promptType || 'general';
-  if (t === 'chat_model') return 'Chat model';
-  if (t === 'summarization') return 'Summarization';
-  return 'General';
+const serviceLabel = (t) => {
+  const map = {
+    chat_model: 'Chat Model',
+    summarization: 'Summarization',
+    charter: 'Charter',
+    banking: 'Banking',
+    finance: 'Finance',
+  };
+  return map[t] || 'General';
 };
 
-const serviceBadgeClass = (promptType) => {
-  const t = promptType || 'general';
-  if (t === 'chat_model') return 'bg-sky-100 text-sky-800 border-sky-200';
-  if (t === 'summarization') return 'bg-violet-100 text-violet-800 border-violet-200';
-  return 'bg-slate-100 text-slate-700 border-slate-200';
+const serviceBadgeClass = (t) => {
+  const map = {
+    chat_model: 'bg-sky-100 text-sky-800 border-sky-200',
+    summarization: 'bg-violet-100 text-violet-800 border-violet-200',
+    charter: 'bg-amber-100 text-amber-800 border-amber-200',
+    banking: 'bg-green-100 text-green-800 border-green-200',
+    finance: 'bg-rose-100 text-rose-800 border-rose-200',
+  };
+  return map[t] || 'bg-slate-100 text-slate-700 border-slate-200';
 };
+
+const EMPTY_FORM = { system_prompt: '', prompt_type: 'general', assigned_role_ids: [], assigned_user_ids: '' };
 
 const SystemPromptManagement = () => {
   const [prompts, setPrompts] = useState([]);
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selectedPrompt, setSelectedPrompt] = useState(null);
   const [editMode, setEditMode] = useState(false);
   const [editedPrompt, setEditedPrompt] = useState(null);
   const [showPromptTable, setShowPromptTable] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
-  const [newPrompt, setNewPrompt] = useState({
-    system_prompt: '',
-    prompt_type: 'general',
-  });
-
-  // Search and pagination states
+  const [newPrompt, setNewPrompt] = useState(EMPTY_FORM);
   const [searchValue, setSearchValue] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
-
-  // Loading states
   const [createLoading, setCreateLoading] = useState(false);
   const [updateLoading, setUpdateLoading] = useState(false);
   const [deleteLoading, setDeleteLoading] = useState({});
+  const [userTokenLimits, setUserTokenLimits] = useState({});
+  const [userLimitsLoading, setUserLimitsLoading] = useState(false);
 
-  // Get token helper (check both storages like other dashboard pages)
-  const getToken = () => {
-    return localStorage.getItem('token') || sessionStorage.getItem('token');
-  };
+  const getToken = () => localStorage.getItem('token') || sessionStorage.getItem('token');
 
-  // Fetch all system prompts
-  const fetchPrompts = async () => {
-    const token = getToken();
-    if (!token) {
-      setError('No authentication token found');
-      setLoading(false);
-      return;
-    }
+  const authHeaders = () => ({
+    Authorization: `Bearer ${getToken()}`,
+    'Content-Type': 'application/json',
+  });
 
-    setLoading(true);
-    setError(null);
+  const fetchRoles = useCallback(async () => {
     try {
-      const response = await axios.get(SYSTEM_PROMPTS_API_URL, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      const res = await axios.get(PROMPT_ROLES_API_URL, { headers: authHeaders() });
+      if (res.data.success) setRoles(res.data.data);
+    } catch {
+      // non-fatal
+    }
+  }, []);
 
-      if (response.data.success && response.data.data) {
-        const transformedData = response.data.data.map((prompt) => ({
-          id: prompt.id,
-          system_prompt: prompt.system_prompt,
-          prompt_type: prompt.prompt_type || 'general',
-          created_at: new Date(prompt.created_at).toLocaleString(),
-          updated_at: new Date(prompt.updated_at).toLocaleString(),
-        }));
-        setPrompts(transformedData);
+  const fetchPrompts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(SYSTEM_PROMPTS_API_URL, { headers: authHeaders() });
+      if (res.data.success && res.data.data) {
+        setPrompts(
+          res.data.data.map((p) => ({
+            ...p,
+            prompt_type: p.prompt_type || 'general',
+            assigned_role_ids: p.assigned_role_ids || [],
+            assigned_user_ids: p.assigned_user_ids || [],
+            assigned_roles_info: p.assigned_roles_info || [],
+            created_at: new Date(p.created_at).toLocaleString(),
+            updated_at: new Date(p.updated_at).toLocaleString(),
+          }))
+        );
       } else {
         setPrompts([]);
       }
     } catch (err) {
-      console.error('Error fetching system prompts:', err);
-      setError('Failed to fetch system prompts.');
-      if (err.response?.status === 403) {
-        MySwal.fire({
-          icon: 'error',
-          title: 'Access denied',
-          text: err.response?.data?.message || 'You do not have permission to manage system prompts.',
-          confirmButtonColor: '#3085d6',
-        });
-      } else {
-        MySwal.fire({
-          icon: 'error',
-          title: 'Error!',
-          text: err.response?.data?.message || 'Failed to fetch system prompts. Please try again later.',
-          confirmButtonColor: '#3085d6',
-        });
-      }
+      const msg = err.response?.data?.message || 'Failed to fetch system prompts.';
+      MySwal.fire({ icon: 'error', title: 'Error!', text: msg, confirmButtonColor: '#3085d6' });
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchPrompts();
   }, []);
 
-  const handleViewPrompt = (prompt) => {
-    setSelectedPrompt(prompt);
-    setEditMode(false);
-    setShowPromptTable(false);
-  };
+  useEffect(() => {
+    fetchRoles();
+    fetchPrompts();
+  }, [fetchRoles, fetchPrompts]);
 
-  const handleEditPrompt = () => {
-    setEditMode(true);
-    setEditedPrompt({ ...selectedPrompt });
-  };
-
-  const handleCancelEdit = () => {
-    setEditMode(false);
-    setEditedPrompt(null);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editedPrompt.system_prompt || editedPrompt.system_prompt.trim() === '') {
-      MySwal.fire({
-        icon: 'warning',
-        title: 'Validation Error',
-        text: 'System prompt cannot be empty.',
-        confirmButtonColor: '#3085d6',
-      });
+  useEffect(() => {
+    const userIds = selectedPrompt?.assigned_user_ids || [];
+    if (!selectedPrompt || userIds.length === 0) {
+      setUserTokenLimits({});
       return;
     }
+    const primaryRoleId = (selectedPrompt.assigned_role_ids || [])[0] || null;
 
-    setUpdateLoading(true);
-    try {
-      const token = getToken();
-      const response = await axios.put(
-        `${SYSTEM_PROMPTS_API_URL}/${selectedPrompt.id}`,
-        { system_prompt: editedPrompt.system_prompt.trim() },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+    let cancelled = false;
+    (async () => {
+      setUserLimitsLoading(true);
+      const limits = {};
+      await Promise.all(
+        userIds.map(async (uid) => {
+          try {
+            const params = primaryRoleId ? { role_id: primaryRoleId } : {};
+            const res = await axios.get(`${PROMPT_ROLES_API_URL}/user/${uid}/token-limit`, {
+              headers: authHeaders(),
+              params,
+            });
+            if (res.data?.success) limits[uid] = res.data;
+          } catch {
+            limits[uid] = { token_limit: null, message: 'Could not resolve' };
+          }
+        })
       );
-
-      MySwal.fire({
-        icon: 'success',
-        title: 'Success!',
-        text: 'System prompt updated successfully.',
-        confirmButtonColor: '#3085d6',
-        timer: 2000,
-      });
-
-      setEditMode(false);
-      setEditedPrompt(null);
-      fetchPrompts();
-      setSelectedPrompt(null);
-      setShowPromptTable(true);
-    } catch (err) {
-      console.error('Error updating system prompt:', err);
-      if (err.response?.status === 403) {
-        MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
-        return;
+      if (!cancelled) {
+        setUserTokenLimits(limits);
+        setUserLimitsLoading(false);
       }
-      MySwal.fire({
-        icon: 'error',
-        title: 'Error!',
-        text: err.response?.data?.message || 'Failed to update system prompt.',
-        confirmButtonColor: '#3085d6',
-      });
-    } finally {
-      setUpdateLoading(false);
-    }
+    })();
+
+    return () => { cancelled = true; };
+  }, [selectedPrompt?.id, selectedPrompt?.assigned_user_ids, selectedPrompt?.assigned_role_ids]);
+
+  // ---------- helpers ----------
+  const roleNameById = (id) => roles.find((r) => r.id === id)?.name || id;
+
+  const parseUserIds = (val) => {
+    if (Array.isArray(val)) return val.map(Number).filter(Boolean);
+    return String(val || '').split(',').map((s) => parseInt(s.trim(), 10)).filter(Boolean);
   };
 
-  const handleInputChange = (field, value) => {
-    setEditedPrompt(prev => ({ ...prev, [field]: value }));
-  };
+  const userIdsToString = (arr) => (arr || []).join(', ');
 
-  const handleDeletePrompt = async (id) => {
-    const result = await MySwal.fire({
-      title: 'Are you sure?',
-      text: "You won't be able to revert this!",
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#d33',
-      cancelButtonColor: '#3085d6',
-      confirmButtonText: 'Yes, delete it!',
-    });
-
-    if (result.isConfirmed) {
-      setDeleteLoading(prev => ({ ...prev, [id]: true }));
-      try {
-        const token = getToken();
-        await axios.delete(`${SYSTEM_PROMPTS_API_URL}/${id}`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        MySwal.fire({
-          icon: 'success',
-          title: 'Deleted!',
-          text: 'System prompt has been deleted.',
-          confirmButtonColor: '#3085d6',
-          timer: 2000,
-        });
-
-        fetchPrompts();
-        if (selectedPrompt?.id === id) {
-          setSelectedPrompt(null);
-          setShowPromptTable(true);
-        }
-      } catch (err) {
-        console.error('Error deleting system prompt:', err);
-        if (err.response?.status === 403) {
-          MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
-          return;
-        }
-        MySwal.fire({
-          icon: 'error',
-          title: 'Error!',
-          text: err.response?.data?.message || 'Failed to delete system prompt.',
-          confirmButtonColor: '#3085d6',
-        });
-      } finally {
-        setDeleteLoading(prev => ({ ...prev, [id]: false }));
-      }
-    }
-  };
-
+  // ---------- CRUD ----------
   const handleCreatePrompt = async () => {
-    if (!newPrompt.system_prompt || newPrompt.system_prompt.trim() === '') {
-      MySwal.fire({
-        icon: 'warning',
-        title: 'Validation Error',
-        text: 'System prompt is required.',
-        confirmButtonColor: '#3085d6',
-      });
+    if (!newPrompt.system_prompt.trim()) {
+      MySwal.fire({ icon: 'warning', title: 'Validation Error', text: 'System prompt is required.', confirmButtonColor: '#3085d6' });
       return;
     }
-
     setCreateLoading(true);
     try {
-      const token = getToken();
-      const response = await axios.post(
+      const res = await axios.post(
         SYSTEM_PROMPTS_API_URL,
         {
           system_prompt: newPrompt.system_prompt.trim(),
           prompt_type: newPrompt.prompt_type || 'general',
+          assigned_role_ids: newPrompt.assigned_role_ids,
+          assigned_user_ids: parseUserIds(newPrompt.assigned_user_ids),
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        }
+        { headers: authHeaders() }
       );
-
-      MySwal.fire({
-        icon: 'success',
-        title: 'Success!',
-        text: response.data?.message || 'System prompt saved successfully.',
-        confirmButtonColor: '#3085d6',
-        timer: 2500,
-      });
-
-      setNewPrompt({ system_prompt: '', prompt_type: 'general' });
+      MySwal.fire({ icon: 'success', title: 'Success!', text: res.data?.message || 'Prompt saved.', confirmButtonColor: '#3085d6', timer: 2500 });
+      setNewPrompt(EMPTY_FORM);
       setShowCreateForm(false);
       setShowPromptTable(true);
       fetchPrompts();
     } catch (err) {
-      console.error('Error creating system prompt:', err);
-      if (err.response?.status === 403) {
-        MySwal.fire({ icon: 'error', title: 'Access denied', text: err.response?.data?.message || 'You do not have permission.', confirmButtonColor: '#3085d6' });
-        return;
-      }
-      MySwal.fire({
-        icon: 'error',
-        title: 'Error!',
-        text: err.response?.data?.message || 'Failed to create system prompt.',
-        confirmButtonColor: '#3085d6',
-      });
+      MySwal.fire({ icon: 'error', title: 'Error!', text: err.response?.data?.message || 'Failed to create prompt.', confirmButtonColor: '#3085d6' });
     } finally {
       setCreateLoading(false);
     }
   };
 
-  const handleCopyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    MySwal.fire({
-      icon: 'success',
-      title: 'Copied!',
-      text: 'Content copied to clipboard.',
-      confirmButtonColor: '#3085d6',
-      timer: 1500,
-      showConfirmButton: false,
-    });
-  };
-
-  // Search and filter logic
-  const filteredPrompts = useMemo(() => {
-    const q = searchValue.toLowerCase();
-    return prompts.filter((prompt) => {
-      const label = serviceLabel(prompt.prompt_type).toLowerCase();
-      return (
-        prompt.system_prompt.toLowerCase().includes(q) ||
-        (prompt.prompt_type || 'general').toLowerCase().includes(q) ||
-        label.includes(q)
+  const handleSaveEdit = async () => {
+    if (!editedPrompt.system_prompt.trim()) {
+      MySwal.fire({ icon: 'warning', title: 'Validation Error', text: 'System prompt cannot be empty.', confirmButtonColor: '#3085d6' });
+      return;
+    }
+    setUpdateLoading(true);
+    try {
+      await axios.put(
+        `${SYSTEM_PROMPTS_API_URL}/${selectedPrompt.id}`,
+        {
+          system_prompt: editedPrompt.system_prompt.trim(),
+          assigned_role_ids: editedPrompt.assigned_role_ids,
+          assigned_user_ids: parseUserIds(editedPrompt.assigned_user_ids_str || ''),
+        },
+        { headers: authHeaders() }
       );
-    });
-  }, [prompts, searchValue]);
-
-  // Pagination logic
-  const totalPages = Math.ceil(filteredPrompts.length / itemsPerPage);
-  const paginatedPrompts = useMemo(() => {
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    return filteredPrompts.slice(startIndex, startIndex + itemsPerPage);
-  }, [filteredPrompts, currentPage]);
-
-  const handlePageChange = (newPage) => {
-    if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage);
+      MySwal.fire({ icon: 'success', title: 'Success!', text: 'Prompt updated.', confirmButtonColor: '#3085d6', timer: 2000 });
+      setEditMode(false);
+      setEditedPrompt(null);
+      setSelectedPrompt(null);
+      setShowPromptTable(true);
+      fetchPrompts();
+    } catch (err) {
+      MySwal.fire({ icon: 'error', title: 'Error!', text: err.response?.data?.message || 'Failed to update.', confirmButtonColor: '#3085d6' });
+    } finally {
+      setUpdateLoading(false);
     }
   };
+
+  const handleDeletePrompt = async (id) => {
+    const result = await MySwal.fire({
+      title: 'Are you sure?', text: "You won't be able to revert this!", icon: 'warning',
+      showCancelButton: true, confirmButtonColor: '#d33', cancelButtonColor: '#3085d6',
+      confirmButtonText: 'Yes, delete it!',
+    });
+    if (!result.isConfirmed) return;
+    setDeleteLoading((p) => ({ ...p, [id]: true }));
+    try {
+      await axios.delete(`${SYSTEM_PROMPTS_API_URL}/${id}`, { headers: authHeaders() });
+      MySwal.fire({ icon: 'success', title: 'Deleted!', text: 'Prompt deleted.', confirmButtonColor: '#3085d6', timer: 2000 });
+      fetchPrompts();
+      if (selectedPrompt?.id === id) { setSelectedPrompt(null); setShowPromptTable(true); }
+    } catch (err) {
+      MySwal.fire({ icon: 'error', title: 'Error!', text: err.response?.data?.message || 'Failed to delete.', confirmButtonColor: '#3085d6' });
+    } finally {
+      setDeleteLoading((p) => ({ ...p, [id]: false }));
+    }
+  };
+
+  // ---------- role multi-select toggle ----------
+  const toggleRole = (id, stateKey, setter) => {
+    setter((prev) => {
+      const current = prev[stateKey] || [];
+      const next = current.includes(id) ? current.filter((r) => r !== id) : [...current, id];
+      return { ...prev, [stateKey]: next };
+    });
+  };
+
+  // ---------- filtered / paginated ----------
+  const filteredPrompts = useMemo(() => {
+    const q = searchValue.toLowerCase();
+    return prompts.filter((p) =>
+      p.system_prompt.toLowerCase().includes(q) ||
+      (p.prompt_type || '').toLowerCase().includes(q) ||
+      serviceLabel(p.prompt_type).toLowerCase().includes(q)
+    );
+  }, [prompts, searchValue]);
+
+  const totalPages = Math.ceil(filteredPrompts.length / itemsPerPage);
+  const paginatedPrompts = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    return filteredPrompts.slice(start, start + itemsPerPage);
+  }, [filteredPrompts, currentPage]);
+
+  // ---------- sub-components ----------
+  const RoleCheckboxes = ({ selectedIds, onChange }) => (
+    <div className="flex flex-wrap gap-3 mt-1">
+      {roles.map((r) => (
+        <label
+          key={r.id}
+          className="flex items-start gap-2 cursor-pointer text-sm border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-50"
+        >
+          <input
+            type="checkbox"
+            checked={selectedIds.includes(r.id)}
+            onChange={() => onChange(r.id)}
+            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mt-0.5"
+          />
+          <span>
+            <span className="capitalize font-medium block">{r.name}</span>
+            {r.plan_info ? (
+              <span className="text-xs text-emerald-700 flex items-center gap-1 mt-0.5">
+                <CreditCard className="w-3 h-3" />
+                {r.plan_info.name} · {formatTokenLimit(r.plan_info.token_limit)} tokens
+              </span>
+            ) : (
+              <span className="text-xs text-gray-400 mt-0.5 block">No plan attached</span>
+            )}
+          </span>
+        </label>
+      ))}
+      {roles.length === 0 && (
+        <p className="text-xs text-gray-400">
+          No prompt roles yet. Create prompt roles (with optional plans) under Role Management → Prompt Roles.
+        </p>
+      )}
+    </div>
+  );
 
   if (loading && prompts.length === 0) {
     return (
@@ -356,48 +319,33 @@ const SystemPromptManagement = () => {
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-800 flex items-center">
-                <FileText className="mr-3 text-gray-800" size={32} />
-                System Prompt Management
-              </h1>
-              <p className="text-gray-600 mt-2">Manage system prompts for AI interactions</p>
-            </div>
-          </div>
+          <h1 className="text-3xl font-bold text-gray-800 flex items-center">
+            <FileText className="mr-3 text-gray-800" size={32} />
+            System Prompt Management
+          </h1>
+          <p className="text-gray-600 mt-2">Manage system prompts with role & user assignments</p>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action bar */}
         {showPromptTable && !showCreateForm && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
             <div className="flex flex-wrap gap-4 items-center justify-between">
-              <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    setShowCreateForm(true);
-                    setShowPromptTable(false);
-                  }}
-                  className="inline-flex items-center px-4 py-2.5 border border-transparent text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md hover:shadow-lg"
-                >
-                  <PlusCircle className="w-5 h-5 mr-2" />
-                  Create New System Prompt
-                </button>
-              </div>
-
-              <div className="flex-1 max-w-md">
-                <div className="relative">
-                  <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-                  <input
-                    type="text"
-                    placeholder="Search prompts..."
-                    value={searchValue}
-                    onChange={(e) => {
-                      setSearchValue(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  />
-                </div>
+              <button
+                onClick={() => { setShowCreateForm(true); setShowPromptTable(false); }}
+                className="inline-flex items-center px-4 py-2.5 border border-transparent text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition-all shadow-md"
+              >
+                <PlusCircle className="w-5 h-5 mr-2" />
+                Create New Prompt
+              </button>
+              <div className="flex-1 max-w-md relative">
+                <Filter className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input
+                  type="text"
+                  placeholder="Search prompts..."
+                  value={searchValue}
+                  onChange={(e) => { setSearchValue(e.target.value); setCurrentPage(1); }}
+                  className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
               </div>
             </div>
           </div>
@@ -408,41 +356,66 @@ const SystemPromptManagement = () => {
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
             <div className="flex items-center justify-between mb-6">
               <h2 className="text-2xl font-bold text-gray-800">Create New System Prompt</h2>
-              <button
-                onClick={() => {
-                  setShowCreateForm(false);
-                  setShowPromptTable(true);
-                  setNewPrompt({ system_prompt: '', prompt_type: 'general' });
-                }}
-                className="text-gray-400 hover:text-gray-600 transition-colors"
-              >
+              <button onClick={() => { setShowCreateForm(false); setShowPromptTable(true); setNewPrompt(EMPTY_FORM); }} className="text-gray-400 hover:text-gray-600">
                 <X size={24} />
               </button>
             </div>
 
             <div className="space-y-6">
+              {/* Prompt Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Service <span className="text-red-500">*</span>
+                  Domain / Service <span className="text-red-500">*</span>
                 </label>
                 <select
                   value={newPrompt.prompt_type}
-                  onChange={(e) =>
-                    setNewPrompt({ ...newPrompt, prompt_type: e.target.value })
-                  }
-                  className="w-full max-w-xl px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm bg-white"
+                  onChange={(e) => setNewPrompt({ ...newPrompt, prompt_type: e.target.value })}
+                  className="w-full max-w-xl px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm bg-white"
                 >
                   {PROMPT_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>
-                <p className="text-xs text-gray-500 mt-2">
-                  <strong>Chat model</strong> and <strong>Summarization</strong> each store a single active prompt;
-                  saving again replaces the existing one. <strong>General</strong> prompts can be added many times.
+                <p className="text-xs text-gray-500 mt-1">
+                  <strong>Chat model</strong> and <strong>Summarization</strong> store a single active prompt.
+                  Charter, Banking, Finance and General allow multiple.
                 </p>
               </div>
+
+              {/* Assign Roles */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Tag className="w-4 h-4" /> Assign Roles
+                </label>
+                <RoleCheckboxes
+                  selectedIds={newPrompt.assigned_role_ids}
+                  onChange={(id) =>
+                    setNewPrompt((prev) => ({
+                      ...prev,
+                      assigned_role_ids: prev.assigned_role_ids.includes(id)
+                        ? prev.assigned_role_ids.filter((r) => r !== id)
+                        : [...prev.assigned_role_ids, id],
+                    }))
+                  }
+                />
+              </div>
+
+              {/* Assign Solo Users */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <User className="w-4 h-4" /> Assign Solo Users (User IDs, comma-separated)
+                </label>
+                <input
+                  type="text"
+                  value={newPrompt.assigned_user_ids}
+                  onChange={(e) => setNewPrompt({ ...newPrompt, assigned_user_ids: e.target.value })}
+                  placeholder="e.g. 101, 204, 305"
+                  className="w-full max-w-xl px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <p className="text-xs text-gray-500 mt-1">Enter specific user IDs to grant individual access to this prompt.</p>
+              </div>
+
+              {/* Prompt Text */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   System Prompt <span className="text-red-500">*</span>
@@ -452,7 +425,7 @@ const SystemPromptManagement = () => {
                   onChange={(e) => setNewPrompt({ ...newPrompt, system_prompt: e.target.value })}
                   rows={12}
                   placeholder="Enter your system prompt here..."
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent font-mono text-sm"
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 font-mono text-sm"
                 />
               </div>
             </div>
@@ -461,22 +434,13 @@ const SystemPromptManagement = () => {
               <button
                 onClick={handleCreatePrompt}
                 disabled={createLoading}
-                className="flex-1 inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex-1 inline-flex items-center justify-center px-6 py-3 border border-transparent text-base font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-md"
               >
-                {createLoading ? 'Creating...' : (
-                  <>
-                    <Save className="w-5 h-5 mr-2" />
-                    Create System Prompt
-                  </>
-                )}
+                {createLoading ? 'Creating...' : <><Save className="w-5 h-5 mr-2" />Create System Prompt</>}
               </button>
               <button
-                onClick={() => {
-                  setShowCreateForm(false);
-                  setShowPromptTable(true);
-                  setNewPrompt({ system_prompt: '', prompt_type: 'general' });
-                }}
-                className="px-6 py-3 border border-gray-300 text-base font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-all"
+                onClick={() => { setShowCreateForm(false); setShowPromptTable(true); setNewPrompt(EMPTY_FORM); }}
+                className="px-6 py-3 border border-gray-300 text-base font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-all"
               >
                 Cancel
               </button>
@@ -489,109 +453,75 @@ const SystemPromptManagement = () => {
           <div className="bg-white rounded-xl shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50 border-b border-gray-200">
+                <thead className="bg-gray-50">
                   <tr>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      <div className="flex items-center">
-                        <FileText className="w-4 h-4 mr-2" />
-                        ID
-                      </div>
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Service
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      System Prompt (Preview)
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Created At
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Updated At
-                    </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Actions
-                    </th>
+                    {['ID', 'Domain', 'Assigned Roles', 'Solo Users', 'Prompt (Preview)', 'Created', 'Actions'].map((h) => (
+                      <th key={h} className="px-4 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">{h}</th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
-                    <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center">
-                        <div className="flex flex-col items-center justify-center">
-                          <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
-                          <p className="text-gray-600 font-medium">Loading system prompts...</p>
+                    <tr><td colSpan={7} className="px-6 py-12 text-center">
+                      <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-blue-600 mx-auto mb-3"></div>
+                      <p className="text-gray-500">Loading...</p>
+                    </td></tr>
+                  ) : paginatedPrompts.length === 0 ? (
+                    <tr><td colSpan={7} className="px-6 py-12 text-center">
+                      <FileText className="w-14 h-14 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500 text-lg">No prompts found</p>
+                    </td></tr>
+                  ) : paginatedPrompts.map((prompt) => (
+                    <tr key={prompt.id} className="hover:bg-gray-50 transition-colors">
+                      <td className="px-4 py-4 text-sm font-semibold text-gray-900">#{prompt.id}</td>
+                      <td className="px-4 py-4">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(prompt.prompt_type)}`}>
+                          {serviceLabel(prompt.prompt_type)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-wrap gap-1">
+                          {(prompt.assigned_roles_info || []).length > 0
+                            ? prompt.assigned_roles_info.map((r) => (
+                              <span key={r.id} className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs capitalize" title={r.plan_name ? `${r.plan_name}: ${formatTokenLimit(r.token_limit)} tokens` : undefined}>
+                                {r.name}
+                                {r.token_limit != null && (
+                                  <span className="ml-1 text-emerald-700 font-normal">({formatTokenLimit(r.token_limit)})</span>
+                                )}
+                              </span>
+                            ))
+                            : <span className="text-xs text-gray-400">—</span>
+                          }
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-600">
+                        {(prompt.assigned_user_ids || []).length > 0
+                          ? <span className="flex items-center gap-1"><User className="w-3 h-3" />{prompt.assigned_user_ids.length}</span>
+                          : <span className="text-gray-400">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-4 max-w-xs">
+                        <div className="text-sm text-gray-900 truncate">
+                          {prompt.system_prompt.length > 80 ? `${prompt.system_prompt.substring(0, 80)}...` : prompt.system_prompt}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-600 whitespace-nowrap">
+                        <div className="flex items-center"><Calendar className="w-3 h-3 mr-1 text-gray-400" />{prompt.created_at}</div>
+                      </td>
+                      <td className="px-4 py-4 text-right">
+                        <div className="flex items-center justify-end gap-2">
+                          <button onClick={() => { setSelectedPrompt(prompt); setEditMode(false); setShowPromptTable(false); }}
+                            className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors">
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleDeletePrompt(prompt.id)} disabled={deleteLoading[prompt.id]}
+                            className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50">
+                            {deleteLoading[prompt.id] ? <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div> : <Trash2 className="w-4 h-4" />}
+                          </button>
                         </div>
                       </td>
                     </tr>
-                  ) : paginatedPrompts.length === 0 ? (
-                    <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center">
-                        <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                        <p className="text-gray-500 font-medium text-lg">No system prompts found</p>
-                        <p className="text-gray-400 text-sm mt-2">
-                          {searchValue ? 'Try adjusting your search criteria' : 'Create your first system prompt to get started'}
-                        </p>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedPrompts.map((prompt) => (
-                      <tr key={prompt.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm font-semibold text-gray-900">#{prompt.id}</div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(prompt.prompt_type)}`}
-                          >
-                            {serviceLabel(prompt.prompt_type)}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="text-sm text-gray-900 max-w-md">
-                            {prompt.system_prompt.length > 100
-                              ? `${prompt.system_prompt.substring(0, 100)}...`
-                              : prompt.system_prompt}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          <div className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                            {prompt.created_at}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                          <div className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-2 text-gray-400" />
-                            {prompt.updated_at}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                          <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => handleViewPrompt(prompt)}
-                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 text-xs font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
-                              title="View Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeletePrompt(prompt.id)}
-                              disabled={deleteLoading[prompt.id]}
-                              className="inline-flex items-center px-3 py-1.5 border border-transparent text-xs font-semibold rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                              title="Delete"
-                            >
-                              {deleteLoading[prompt.id] ? (
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                              ) : (
-                                <Trash2 className="w-4 h-4" />
-                              )}
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -599,32 +529,20 @@ const SystemPromptManagement = () => {
             {/* Pagination */}
             {!loading && filteredPrompts.length > 0 && (
               <div className="bg-gray-50 px-6 py-4 flex items-center justify-between border-t border-gray-200">
-                <div className="text-sm text-gray-700">
-                  Showing <span className="font-semibold">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
-                  <span className="font-semibold">
-                    {Math.min(currentPage * itemsPerPage, filteredPrompts.length)}
-                  </span>{' '}
-                  of <span className="font-semibold">{filteredPrompts.length}</span> prompts
-                </div>
+                <p className="text-sm text-gray-700">
+                  Showing <strong>{(currentPage - 1) * itemsPerPage + 1}</strong>–<strong>{Math.min(currentPage * itemsPerPage, filteredPrompts.length)}</strong> of <strong>{filteredPrompts.length}</strong>
+                </p>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => handlePageChange(currentPage - 1)}
-                    disabled={currentPage === 1}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4 mr-1" />
-                    Previous
+                  <button onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))} disabled={currentPage === 1}
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                    <ChevronLeft className="w-4 h-4 mr-1" />Previous
                   </button>
                   <span className="inline-flex items-center px-4 py-2 text-sm font-semibold text-gray-700">
                     Page {currentPage} of {totalPages}
                   </span>
-                  <button
-                    onClick={() => handlePageChange(currentPage + 1)}
-                    disabled={currentPage === totalPages}
-                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                  >
-                    Next
-                    <ChevronRight className="w-4 h-4 ml-1" />
+                  <button onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))} disabled={currentPage === totalPages}
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50">
+                    Next<ChevronRight className="w-4 h-4 ml-1" />
                   </button>
                 </div>
               </div>
@@ -632,59 +550,35 @@ const SystemPromptManagement = () => {
           </div>
         )}
 
-        {/* Prompt Detail View */}
+        {/* Detail / Edit View */}
         {selectedPrompt && (
           <div className="bg-white rounded-xl shadow-lg p-6">
             <div className="flex items-center justify-between mb-6">
-              <button
-                onClick={() => {
-                  setSelectedPrompt(null);
-                  setShowPromptTable(true);
-                  setEditMode(false);
-                  setEditedPrompt(null);
-                }}
-                className="inline-flex items-center text-blue-600 hover:text-blue-800 font-semibold transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5 mr-1" />
-                Back to List
+              <button onClick={() => { setSelectedPrompt(null); setShowPromptTable(true); setEditMode(false); setEditedPrompt(null); }}
+                className="inline-flex items-center text-blue-600 hover:text-blue-800 font-semibold">
+                <ChevronLeft className="w-5 h-5 mr-1" />Back to List
               </button>
               <div className="flex gap-3">
                 {editMode ? (
                   <>
-                    <button
-                      onClick={handleSaveEdit}
-                      disabled={updateLoading}
-                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {updateLoading ? 'Saving...' : (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          Save Changes
-                        </>
-                      )}
+                    <button onClick={handleSaveEdit} disabled={updateLoading}
+                      className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
+                      {updateLoading ? 'Saving...' : <><Save className="w-4 h-4 mr-2" />Save Changes</>}
                     </button>
-                    <button
-                      onClick={handleCancelEdit}
-                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                    >
+                    <button onClick={() => { setEditMode(false); setEditedPrompt(null); }}
+                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50">
                       Cancel
                     </button>
                   </>
                 ) : (
                   <>
-                    <button
-                      onClick={handleEditPrompt}
-                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors"
-                    >
-                      <Edit className="w-4 h-4 mr-2" />
-                      Edit
+                    <button onClick={() => { setEditMode(true); setEditedPrompt({ ...selectedPrompt, assigned_user_ids_str: userIdsToString(selectedPrompt.assigned_user_ids) }); }}
+                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50">
+                      <Edit className="w-4 h-4 mr-2" />Edit
                     </button>
-                    <button
-                      onClick={() => handleCopyToClipboard(selectedPrompt.system_prompt)}
-                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 transition-colors"
-                    >
-                      <Copy className="w-4 h-4 mr-2" />
-                      Copy Content
+                    <button onClick={() => navigator.clipboard.writeText(selectedPrompt.system_prompt).then(() => MySwal.fire({ icon: 'success', title: 'Copied!', timer: 1500, showConfirmButton: false }))}
+                      className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50">
+                      <Copy className="w-4 h-4 mr-2" />Copy
                     </button>
                   </>
                 )}
@@ -692,45 +586,119 @@ const SystemPromptManagement = () => {
             </div>
 
             <div className="space-y-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">ID</label>
-                <p className="text-sm font-semibold text-gray-900">#{selectedPrompt.id}</p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Service</label>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(selectedPrompt.prompt_type)}`}
-                >
-                  {serviceLabel(selectedPrompt.prompt_type)}
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Created At</label>
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-2 text-gray-600" />
-                  <span className="text-sm text-gray-900">{selectedPrompt.created_at}</span>
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">ID</label>
+                  <p className="text-sm font-semibold text-gray-900">#{selectedPrompt.id}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Domain / Service</label>
+                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${serviceBadgeClass(selectedPrompt.prompt_type)}`}>
+                    {serviceLabel(selectedPrompt.prompt_type)}
+                  </span>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Created At</label>
+                  <p className="text-sm text-gray-900 flex items-center"><Calendar className="w-4 h-4 mr-1 text-gray-400" />{selectedPrompt.created_at}</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Updated At</label>
+                  <p className="text-sm text-gray-900 flex items-center"><Calendar className="w-4 h-4 mr-1 text-gray-400" />{selectedPrompt.updated_at}</p>
                 </div>
               </div>
 
+              {/* Assigned Roles */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Updated At</label>
-                <div className="flex items-center">
-                  <Calendar className="w-4 h-4 mr-2 text-gray-600" />
-                  <span className="text-sm text-gray-900">{selectedPrompt.updated_at}</span>
-                </div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Tag className="w-4 h-4" /> Assigned Roles
+                </label>
+                {editMode ? (
+                  <RoleCheckboxes
+                    selectedIds={editedPrompt.assigned_role_ids || []}
+                    onChange={(id) =>
+                      setEditedPrompt((prev) => ({
+                        ...prev,
+                        assigned_role_ids: (prev.assigned_role_ids || []).includes(id)
+                          ? prev.assigned_role_ids.filter((r) => r !== id)
+                          : [...(prev.assigned_role_ids || []), id],
+                      }))
+                    }
+                  />
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedPrompt.assigned_roles_info || []).length > 0
+                      ? selectedPrompt.assigned_roles_info.map((r) => (
+                        <span key={r.id} className="inline-flex flex-col px-3 py-1.5 bg-blue-50 border border-blue-100 text-blue-900 rounded-lg text-sm capitalize">
+                          <span className="font-semibold">{r.name}</span>
+                          {r.plan_name ? (
+                            <span className="text-xs text-emerald-700 font-normal normal-case">
+                              {r.plan_name} · {formatTokenLimit(r.token_limit)} tokens
+                            </span>
+                          ) : (
+                            <span className="text-xs text-gray-500 font-normal normal-case">No plan on role</span>
+                          )}
+                        </span>
+                      ))
+                      : <span className="text-sm text-gray-400">No roles assigned</span>
+                    }
+                  </div>
+                )}
               </div>
 
+              {/* Solo User IDs */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <User className="w-4 h-4" /> Solo User IDs
+                </label>
+                {editMode ? (
+                  <input
+                    type="text"
+                    value={editedPrompt.assigned_user_ids_str || ''}
+                    onChange={(e) => setEditedPrompt((prev) => ({ ...prev, assigned_user_ids_str: e.target.value }))}
+                    placeholder="e.g. 101, 204, 305"
+                    className="w-full max-w-xl px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                ) : (
+                  <div className="space-y-2">
+                    {(selectedPrompt.assigned_user_ids || []).length > 0 ? (
+                      <ul className="space-y-2">
+                        {selectedPrompt.assigned_user_ids.map((uid) => {
+                          const info = userTokenLimits[uid];
+                          return (
+                            <li key={uid} className="flex flex-wrap items-center gap-2 text-sm border border-gray-100 rounded-lg px-3 py-2 bg-gray-50">
+                              <User className="w-4 h-4 text-gray-400" />
+                              <span className="font-medium">User #{uid}</span>
+                              {userLimitsLoading && !info ? (
+                                <span className="text-xs text-gray-400">Resolving token limit…</span>
+                              ) : info?.token_limit != null ? (
+                                <span className="text-xs text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded">
+                                  {formatTokenLimit(info.token_limit)} tokens
+                                  {info.plan?.name ? ` (${info.plan.name})` : ''}
+                                  {info.source === 'user_subscription' ? ' · from subscription' : ' · from role plan'}
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-400">{info?.message || 'No plan / limit resolved'}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : (
+                      <span className="text-gray-400">No solo users assigned</span>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Prompt Text */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">System Prompt</label>
                 {editMode ? (
                   <textarea
                     value={editedPrompt.system_prompt}
-                    onChange={(e) => handleInputChange('system_prompt', e.target.value)}
+                    onChange={(e) => setEditedPrompt((prev) => ({ ...prev, system_prompt: e.target.value }))}
                     rows={15}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
-                    placeholder="Enter system prompt..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 font-mono text-sm"
                   />
                 ) : (
                   <div className="bg-gray-50 rounded-lg p-4 font-mono text-sm text-gray-800 whitespace-pre-wrap border">
@@ -747,4 +715,3 @@ const SystemPromptManagement = () => {
 };
 
 export default SystemPromptManagement;
-

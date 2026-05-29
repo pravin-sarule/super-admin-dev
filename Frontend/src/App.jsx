@@ -24,6 +24,7 @@ import AddCaseType from './pages/dashboard/content/AddCaseType';
 import AddCourt from './pages/dashboard/content/AddCourt';
 import AddJudge from './pages/dashboard/content/AddJudge';
 import VoiceManagementPage from './features/jurinex-voice/pages/VoiceManagementPage';
+import RoleManagement from './pages/dashboard/RoleManagement';
 import './App.css';
 import './index.css';
 
@@ -89,6 +90,7 @@ function App() {
             <Route path="judgement-search" element={<JudgementSearch />} />
             <Route path="citation-management" element={<CitationManagement />} />
             <Route path="voice-management" element={<VoiceManagementPage />} />
+            <Route path="roles" element={<RoleManagement />} />
             <Route path="support" element={<SupportHelp />} />
             <Route path="support/admin/:managerId" element={<SupportHelp />} />
             <Route path="support/:queryId" element={<SupportHelp />} />

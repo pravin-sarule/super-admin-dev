@@ -90,16 +90,20 @@ const express = require('express');
 
 module.exports = (paymentPool) => {
   const router = express.Router();
-  const planController = require('../controllers/planController');
 
-  // TODO: Add middleware like `authenticateAdmin` if needed
+  // Reload controller so code changes apply without restarting `npm start`
+  const loadPlanController = () => {
+    const controllerPath = require.resolve('../controllers/planController');
+    delete require.cache[controllerPath];
+    return require(controllerPath);
+  };
 
   // Mounted at /api/admin/plans — use / and /:id so paths are /api/admin/plans and /api/admin/plans/:id
-  router.post('/', (req, res) => planController.createPlan(req, res, paymentPool));
-  router.get('/', (req, res) => planController.getAllPlans(req, res, paymentPool));
-  router.get('/:id', (req, res) => planController.getPlanById(req, res, paymentPool));
-  router.put('/:id', (req, res) => planController.updatePlan(req, res, paymentPool));
-  router.delete('/:id', (req, res) => planController.deletePlan(req, res, paymentPool));
+  router.post('/', (req, res) => loadPlanController().createPlan(req, res, paymentPool));
+  router.get('/', (req, res) => loadPlanController().getAllPlans(req, res, paymentPool));
+  router.get('/:id', (req, res) => loadPlanController().getPlanById(req, res, paymentPool));
+  router.put('/:id', (req, res) => loadPlanController().updatePlan(req, res, paymentPool));
+  router.delete('/:id', (req, res) => loadPlanController().deletePlan(req, res, paymentPool));
 
   return router;
 };

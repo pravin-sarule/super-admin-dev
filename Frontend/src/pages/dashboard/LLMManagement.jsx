@@ -4,9 +4,9 @@ import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import {
   Bot, Database, Filter, RefreshCw, Save, MessageSquare, BookOpen,
-  Cpu, Thermometer, Zap, Clock, FileText, Upload, Users, BarChart2, Search,
-  Hash, Layers, Plus, Edit2, X, Check,
-  Activity, Shield,
+  Cpu, Thermometer, Zap, BarChart2, Search,
+  Hash, Layers, Plus, Edit2, X, Check, Trash2,
+  Activity,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../config';
 
@@ -142,6 +142,10 @@ const LLMManagement = () => {
   const [isAddingNewEntry, setIsAddingNewEntry] = useState(false);
   const [newEntryForm, setNewEntryForm] = useState({ provider: '', model_name: '', max_output_tokens: '', model_id: '' });
   const [addingEntryLoading, setAddingEntryLoading] = useState(false);
+  const [newLlmModelName, setNewLlmModelName] = useState('');
+  const [addingLlmLoading, setAddingLlmLoading] = useState(false);
+  const [llmModelDeletingId, setLlmModelDeletingId] = useState(null);
+  const [maxTokenDeletingId, setMaxTokenDeletingId] = useState(null);
 
   const [chatConfig, setChatConfig] = useState(DEFAULT_CHAT_CONFIG);
   const [chatConfigOriginal, setChatConfigOriginal] = useState(DEFAULT_CHAT_CONFIG);
@@ -288,11 +292,6 @@ const LLMManagement = () => {
         model_temperature: parseFloat(sumConfig.model_temperature),
         max_output_tokens: parseInt(sumConfig.max_output_tokens, 10),
         streaming_delay: parseInt(sumConfig.streaming_delay, 10),
-        max_upload_files: parseInt(sumConfig.max_upload_files, 10),
-        max_file_size_mb: parseInt(sumConfig.max_file_size_mb, 10),
-        max_document_size_mb: parseInt(sumConfig.max_document_size_mb, 10),
-        max_document_pages: parseInt(sumConfig.max_document_pages, 10),
-        max_context_documents: parseInt(sumConfig.max_context_documents, 10),
         embedding_provider: String(sumConfig.embedding_provider || '').trim(),
         embedding_model: String(sumConfig.embedding_model || '').trim(),
         embedding_dimension: parseInt(sumConfig.embedding_dimension, 10),
@@ -302,12 +301,6 @@ const LLMManagement = () => {
         semantic_weight: parseFloat(sumConfig.semantic_weight),
         keyword_weight: parseFloat(sumConfig.keyword_weight),
         text_search_language: String(sumConfig.text_search_language || 'english').trim(),
-        total_tokens_per_day: parseInt(sumConfig.total_tokens_per_day, 10),
-        messages_per_hour: parseInt(sumConfig.messages_per_hour, 10),
-        quota_chats_per_minute: parseInt(sumConfig.quota_chats_per_minute, 10),
-        chats_per_day: parseInt(sumConfig.chats_per_day, 10),
-        max_file_upload_per_day: parseInt(sumConfig.max_file_upload_per_day, 10),
-        max_conversation_history: parseInt(sumConfig.max_conversation_history, 10),
       };
       const response = await axios.put(SUMMARIZATION_CONFIG_API_URL, payload, { headers: getAuthHeaders() });
       const updated = response.data?.data || sumConfig;
@@ -413,6 +406,76 @@ const LLMManagement = () => {
     }
   };
 
+  const handleAddLlmModel = async () => {
+    if (!newLlmModelName.trim()) {
+      MySwal.fire({ icon: 'warning', title: 'Name required', text: 'Enter an LLM model name.', confirmButtonColor: '#f97316' });
+      return;
+    }
+    setAddingLlmLoading(true);
+    try {
+      await axios.post(LLM_API_URL, { name: newLlmModelName.trim() }, { headers: getAuthHeaders() });
+      setNewLlmModelName('');
+      await fetchLlmModels();
+      MySwal.fire({ icon: 'success', title: 'LLM added', timer: 2000, showConfirmButton: false });
+    } catch (error) {
+      MySwal.fire({ icon: 'error', title: 'Could not add LLM', text: error.response?.data?.message || 'Please try again.', confirmButtonColor: '#dc2626' });
+    } finally {
+      setAddingLlmLoading(false);
+    }
+  };
+
+  const handleDeleteLlmModel = async (model) => {
+    const result = await MySwal.fire({
+      title: `Delete "${model.name}"?`,
+      text: 'This permanently removes the LLM model. Prompts using it must be updated first.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      confirmButtonText: 'Delete',
+    });
+    if (!result.isConfirmed) return;
+
+    setLlmModelDeletingId(model.id);
+    try {
+      await axios.delete(`${LLM_API_URL}/${model.id}`, { headers: getAuthHeaders() });
+      setLlmModels((prev) => prev.filter((m) => m.id !== model.id));
+      await fetchLlmMaxTokens();
+      MySwal.fire({ icon: 'success', title: 'Deleted', timer: 2000, showConfirmButton: false });
+    } catch (error) {
+      MySwal.fire({
+        icon: 'error',
+        title: 'Cannot delete',
+        text: error.response?.data?.message || 'Unable to delete this LLM model.',
+        confirmButtonColor: '#dc2626',
+      });
+    } finally {
+      setLlmModelDeletingId(null);
+    }
+  };
+
+  const handleDeleteMaxTokenEntry = async (entry) => {
+    const result = await MySwal.fire({
+      title: 'Delete this entry?',
+      text: `${entry.provider} / ${entry.model_name} will be removed.`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      confirmButtonText: 'Delete',
+    });
+    if (!result.isConfirmed) return;
+
+    setMaxTokenDeletingId(entry.id);
+    try {
+      await axios.delete(`${LLM_MAX_TOKENS_API_URL}/${entry.id}`, { headers: getAuthHeaders() });
+      setLlmMaxTokens((prev) => prev.filter((e) => e.id !== entry.id));
+      MySwal.fire({ icon: 'success', title: 'Entry deleted', timer: 2000, showConfirmButton: false });
+    } catch (error) {
+      MySwal.fire({ icon: 'error', title: 'Delete failed', text: error.response?.data?.message || 'Please try again.', confirmButtonColor: '#dc2626' });
+    } finally {
+      setMaxTokenDeletingId(null);
+    }
+  };
+
   /* ─────────────────────── Loading screen ─────────────────────── */
   if (loading) {
     return (
@@ -436,6 +499,7 @@ const LLMManagement = () => {
 
   /* ──────────────────────── Tab config ──────────────────────── */
   const tabs = [
+    { id: 'llm-models',        label: 'LLM Models',          icon: Bot           },
     { id: 'max-tokens',        label: 'LLM Max Tokens',     icon: Database      },
     { id: 'chat-model',        label: 'Chat Model',          icon: MessageSquare },
     { id: 'summarization-chat',label: 'Summarization Chat',  icon: BookOpen      },
@@ -493,6 +557,87 @@ const LLMManagement = () => {
 
       {/* ── Page Body ── */}
       <div className="w-full px-4 md:px-6 lg:px-8 py-6 md:py-8">
+
+        {/* ════════════════ TAB: LLM Models ════════════════ */}
+        {activeTab === 'llm-models' && (
+          <div className="space-y-6">
+            <div>
+              <h2 className="text-lg font-bold text-slate-800">Registered LLM Models</h2>
+              <p className="text-sm text-slate-400 mt-0.5">Add or remove LLM models available for prompts and token limits.</p>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="flex-1 min-w-[200px]">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">New model name</label>
+                  <input
+                    type="text"
+                    value={newLlmModelName}
+                    onChange={(e) => setNewLlmModelName(e.target.value)}
+                    placeholder="e.g. gemini-2.5-flash"
+                    className={inputCls}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAddLlmModel()}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddLlmModel}
+                  disabled={addingLlmLoading}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+                >
+                  <Plus size={14} />
+                  {addingLlmLoading ? 'Adding…' : 'Add LLM'}
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <table className="min-w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    {['Model name', 'Status', 'Added', 'Actions'].map((h) => (
+                      <th key={h} className={`px-5 py-3.5 text-xs font-bold text-slate-500 uppercase tracking-wider ${h === 'Actions' ? 'text-right' : 'text-left'}`}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {llmModels.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-12 text-center text-sm text-slate-500">No LLM models yet. Add one above.</td>
+                    </tr>
+                  ) : (
+                    llmModels.map((model) => (
+                      <tr key={model.id} className="hover:bg-slate-50/80">
+                        <td className="px-5 py-3.5 text-sm font-semibold text-slate-800">{model.name}</td>
+                        <td className="px-5 py-3.5">
+                          <span className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${model.is_active !== false ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}`}>
+                            {model.is_active !== false ? 'Active' : 'Inactive'}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3.5 text-xs text-slate-400">
+                          {model.created_at ? new Date(model.created_at).toLocaleDateString() : '—'}
+                        </td>
+                        <td className="px-5 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteLlmModel(model)}
+                            disabled={llmModelDeletingId === model.id}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+                          >
+                            <Trash2 size={12} />
+                            {llmModelDeletingId === model.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* ════════════════ TAB: LLM Max Tokens ════════════════ */}
         {activeTab === 'max-tokens' && (
@@ -632,9 +777,20 @@ const LLMManagement = () => {
                                   </button>
                                 </div>
                               ) : (
-                                <button type="button" onClick={() => beginEditingEntry(entry)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors">
-                                  <Edit2 size={12} /> Edit
-                                </button>
+                                <div className="flex justify-end gap-2">
+                                  <button type="button" onClick={() => beginEditingEntry(entry)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 transition-colors">
+                                    <Edit2 size={12} /> Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteMaxTokenEntry(entry)}
+                                    disabled={maxTokenDeletingId === entry.id}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+                                  >
+                                    <Trash2 size={12} />
+                                    {maxTokenDeletingId === entry.id ? 'Deleting…' : 'Delete'}
+                                  </button>
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -659,8 +815,11 @@ const LLMManagement = () => {
         {activeTab === 'chat-model' && (
           <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-bold text-slate-800">Dashboard Chat Configuration</h2>
-              <p className="text-sm text-slate-400 mt-0.5">Global LLM parameters applied to all user chat sessions.</p>
+              <h2 className="text-lg font-bold text-slate-800">Chat Model Configuration</h2>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Global model settings (provider, temperature, output tokens). Rate &amp; quota limits are managed per-plan in{' '}
+                <span className="text-blue-600 font-medium">Subscription Management</span>.
+              </p>
             </div>
 
             {chatConfigLoading ? (
@@ -672,9 +831,7 @@ const LLMManagement = () => {
               </div>
             ) : (
               <div className="space-y-5">
-
-                {/* Section: Model & Generation */}
-                <SectionCard icon={Cpu} title="Model & Generation" description="Core LLM model selection and output parameters">
+                <SectionCard icon={Cpu} title="Model & Generation" description="LLM provider, model, generation parameters">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     <FormField label="LLM Model" icon={Bot} hint="The model used for all chat sessions.">
                       <select value={chatConfig.llm_model} onChange={(e) => handleChatConfigChange('llm_model', e.target.value)} className={selectCls}>
@@ -690,49 +847,12 @@ const LLMManagement = () => {
                     <FormField label="Max Output Tokens" icon={Hash} hint="Maximum tokens the LLM can generate per response.">
                       <input type="number" min="1" value={chatConfig.max_output_tokens} onChange={(e) => handleChatConfigChange('max_output_tokens', e.target.value)} className={inputCls} />
                     </FormField>
-                    <FormField label="Total Tokens Per Day" icon={Activity} hint="Max total tokens allowed per day across all users.">
-                      <input type="number" min="1" value={chatConfig.total_tokens_per_day} onChange={(e) => handleChatConfigChange('total_tokens_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
                     <FormField label="Streaming Delay (ms)" icon={Zap} hint="Delay between streaming chunks.">
                       <input type="number" min="0" value={chatConfig.streaming_delay} onChange={(e) => handleChatConfigChange('streaming_delay', e.target.value)} className={inputCls} />
                     </FormField>
                   </div>
                 </SectionCard>
 
-                {/* Section: Rate & Quota Limits */}
-                <SectionCard icon={Shield} title="Rate & Quota Limits" description="Per-user messaging and chat frequency controls">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <FormField label="Messages Per Hour" icon={Clock} hint="Hourly message quota per user.">
-                      <input type="number" min="1" value={chatConfig.messages_per_hour} onChange={(e) => handleChatConfigChange('messages_per_hour', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Quota Chats Per Minute" icon={BarChart2} hint="Maximum chat starts per minute per user.">
-                      <input type="number" min="1" value={chatConfig.quota_chats_per_minute} onChange={(e) => handleChatConfigChange('quota_chats_per_minute', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Chats Per Day" icon={Users} hint="Maximum number of chats a user can initiate per day.">
-                      <input type="number" min="1" value={chatConfig.chats_per_day} onChange={(e) => handleChatConfigChange('chats_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
-                  </div>
-                </SectionCard>
-
-                {/* Section: Document & Upload Limits */}
-                <SectionCard icon={Upload} title="Documents & Upload Limits" description="File upload constraints and document processing limits">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
-                    <FormField label="Max Document Pages" icon={FileText} hint="Max pages per uploaded document.">
-                      <input type="number" min="1" value={chatConfig.max_document_pages} onChange={(e) => handleChatConfigChange('max_document_pages', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Document Size (MB)" icon={FileText} hint="Max file size for uploaded documents.">
-                      <input type="number" min="1" value={chatConfig.max_document_size_mb} onChange={(e) => handleChatConfigChange('max_document_size_mb', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Upload Files" icon={Upload} hint="Max files per upload action.">
-                      <input type="number" min="1" value={chatConfig.max_upload_files} onChange={(e) => handleChatConfigChange('max_upload_files', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Uploads Per Day" icon={Upload} hint="Maximum files a user can upload per day.">
-                      <input type="number" min="1" value={chatConfig.max_file_upload_per_day} onChange={(e) => handleChatConfigChange('max_file_upload_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
-                  </div>
-                </SectionCard>
-
-                {/* Action Bar */}
                 <div className="flex justify-end gap-3 pt-2">
                   <button type="button" onClick={handleCancelChatConfig} disabled={chatConfigSaving} className="px-6 py-2.5 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50 transition-colors disabled:opacity-50">
                     Discard Changes
@@ -751,7 +871,10 @@ const LLMManagement = () => {
           <div className="space-y-6">
             <div>
               <h2 className="text-lg font-bold text-slate-800">Summarization Chat Configuration</h2>
-              <p className="text-sm text-slate-400 mt-0.5">Configure LLM, embeddings, retrieval pipeline, and quotas for the summarization chat.</p>
+              <p className="text-sm text-slate-400 mt-0.5">
+                Model settings, embeddings and retrieval pipeline. Rate &amp; quota limits are managed per-plan in{' '}
+                <span className="text-blue-600 font-medium">Subscription Management</span>.
+              </p>
             </div>
 
             {sumConfigLoading ? (
@@ -764,31 +887,25 @@ const LLMManagement = () => {
             ) : (
               <div className="space-y-5">
 
-                <SectionCard icon={Hash} title="LLM & Generation" description="Maximum tokens per summarization LLM response.">
+                {/* Section: LLM & Generation */}
+                <SectionCard icon={Cpu} title="LLM & Generation" description="LLM provider, model, generation parameters for summarization">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <FormField label="Max Output Tokens" icon={Hash} hint="Maximum tokens per LLM response.">
+                    <FormField label="LLM Model" icon={Bot} hint="The model used for summarization sessions.">
+                      <select value={sumConfig.llm_model ?? ''} onChange={(e) => handleSumConfigChange('llm_model', e.target.value)} className={selectCls}>
+                        {llmModels.map((model) => (<option key={model.id} value={model.name}>{model.name}</option>))}
+                      </select>
+                    </FormField>
+                    <FormField label="LLM Provider" icon={Layers} hint="Provider identifier (e.g. google, openai).">
+                      <input type="text" value={sumConfig.llm_provider ?? ''} onChange={(e) => handleSumConfigChange('llm_provider', e.target.value)} className={inputCls} placeholder="e.g. google" />
+                    </FormField>
+                    <FormField label="Model Temperature" icon={Thermometer} hint="Higher = more creative responses.">
+                      <input type="number" min="0" max="2" step="0.1" value={sumConfig.model_temperature ?? ''} onChange={(e) => handleSumConfigChange('model_temperature', e.target.value)} className={inputCls} />
+                    </FormField>
+                    <FormField label="Max Output Tokens" icon={Hash} hint="Maximum tokens the LLM can generate per response.">
                       <input type="number" min="1" value={sumConfig.max_output_tokens} onChange={(e) => handleSumConfigChange('max_output_tokens', e.target.value)} className={inputCls} />
                     </FormField>
-                  </div>
-                </SectionCard>
-
-                {/* Section: Documents & Uploads */}
-                <SectionCard icon={Upload} title="Documents & Uploads" description="File size, page limits, and context document constraints">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <FormField label="Max Upload Files" icon={Upload} hint="Max files per upload action.">
-                      <input type="number" min="1" value={sumConfig.max_upload_files} onChange={(e) => handleSumConfigChange('max_upload_files', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max File Size (MB)" icon={FileText} hint="Maximum size of each uploaded file.">
-                      <input type="number" min="1" value={sumConfig.max_file_size_mb} onChange={(e) => handleSumConfigChange('max_file_size_mb', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Document Size (MB)" icon={FileText} hint="Max total document size after processing.">
-                      <input type="number" min="1" value={sumConfig.max_document_size_mb} onChange={(e) => handleSumConfigChange('max_document_size_mb', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Document Pages" icon={FileText} hint="Max pages per uploaded document.">
-                      <input type="number" min="1" value={sumConfig.max_document_pages} onChange={(e) => handleSumConfigChange('max_document_pages', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Context Documents" icon={Layers} hint="Max documents loaded as context per query.">
-                      <input type="number" min="1" value={sumConfig.max_context_documents} onChange={(e) => handleSumConfigChange('max_context_documents', e.target.value)} className={inputCls} />
+                    <FormField label="Streaming Delay (ms)" icon={Zap} hint="Delay between streaming chunks.">
+                      <input type="number" min="0" value={sumConfig.streaming_delay ?? ''} onChange={(e) => handleSumConfigChange('streaming_delay', e.target.value)} className={inputCls} />
                     </FormField>
                   </div>
                 </SectionCard>
@@ -839,30 +956,6 @@ const LLMManagement = () => {
                         <input type="text" value={sumConfig.text_search_language ?? ''} onChange={(e) => handleSumConfigChange('text_search_language', e.target.value)} className={inputCls} placeholder="english" />
                       </FormField>
                     </div>
-                  </div>
-                </SectionCard>
-
-                {/* Section: Quotas & History */}
-                <SectionCard icon={Shield} title="Quotas & History" description="Per-user usage limits and conversation history settings">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                    <FormField label="Total Tokens Per Day" icon={Activity} hint="Daily token budget across all users.">
-                      <input type="number" min="1" value={sumConfig.total_tokens_per_day} onChange={(e) => handleSumConfigChange('total_tokens_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Messages Per Hour" icon={Clock} hint="Hourly message quota per user.">
-                      <input type="number" min="1" value={sumConfig.messages_per_hour} onChange={(e) => handleSumConfigChange('messages_per_hour', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Quota Chats Per Minute" icon={BarChart2} hint="Max chat starts per minute per user.">
-                      <input type="number" min="1" value={sumConfig.quota_chats_per_minute} onChange={(e) => handleSumConfigChange('quota_chats_per_minute', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Chats Per Day" icon={Users} hint="Max chats a user can initiate daily.">
-                      <input type="number" min="1" value={sumConfig.chats_per_day} onChange={(e) => handleSumConfigChange('chats_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max File Uploads Per Day" icon={Upload} hint="Daily upload limit per user.">
-                      <input type="number" min="1" value={sumConfig.max_file_upload_per_day} onChange={(e) => handleSumConfigChange('max_file_upload_per_day', e.target.value)} className={inputCls} />
-                    </FormField>
-                    <FormField label="Max Conversation History" icon={MessageSquare} hint="Max messages retained in context history.">
-                      <input type="number" min="1" value={sumConfig.max_conversation_history} onChange={(e) => handleSumConfigChange('max_conversation_history', e.target.value)} className={inputCls} />
-                    </FormField>
                   </div>
                 </SectionCard>
 
