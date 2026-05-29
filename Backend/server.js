@@ -36,6 +36,8 @@ const citationPool = require('./config/citationDB');
 const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
+const promptRoleRoutes = require('./routes/promptRoleRoutes');
+const appRolesRoutes = require('./routes/appRolesRoutes');
 const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
 const tokenUsageRoutes = require('./routes/tokenUsageRoutes');
@@ -90,6 +92,12 @@ app.use('/api/admins', adminRoutes(pool));
 
 console.log('📌 /api/system-prompts → Using docDB (docPool) for data, Main DB (pool) for auth');
 app.use('/api/system-prompts', systemPromptRoutes(pool));
+
+console.log('📌 /api/prompt-roles → Using docDB (docPool) for data, Main DB (pool) for auth');
+app.use('/api/prompt-roles', promptRoleRoutes(pool));
+
+console.log('📌 /api/app-roles → Using Main DB (pool) — Jurinex application roles');
+app.use('/api/app-roles', appRolesRoutes(pool));
 
 console.log('📌 /api/agent-prompts → Using draftDB for data, Main DB (pool) for auth');
 app.use('/api/agent-prompts', agentPromptRoutes(pool)); // pool for auth, controller uses draftDB
@@ -967,6 +975,9 @@ const startServer = async () => {
     // Run DB initialization after port is open (avoids Cloud Run startup probe timeout)
     await sequelize.sync({ alter: true });
     console.log('✅ Sequelize Database synced!');
+
+    // Ensure secret_manager.role_id column exists (safe to run multiple times)
+    await docPool.query(`ALTER TABLE secret_manager ADD COLUMN IF NOT EXISTS role_id UUID DEFAULT NULL`).catch(() => {});
 
     // Initialize system_prompts, agent_prompts, llm_models, and llm_model_parameters tables
     await initializeSystemPromptsTable();

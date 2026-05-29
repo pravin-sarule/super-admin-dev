@@ -735,6 +735,7 @@
 
 
 const docDB = require('../config/docDB');
+const paymentPool = require('../config/payment_DB');
 const { SecretManagerServiceClient } = require('@google-cloud/secret-manager');
 const { bucket, bucketName } = require('../config/gcs');
 const { extractTextFromPDF } = require('../services/documentAIService');
@@ -1094,6 +1095,138 @@ const saveExtractedText = async (templateFileId, fileType, extractionResult) => 
   }
 };
 
+let planColumnReady = false;
+const ensurePlanColumn = async () => {
+  if (planColumnReady) return;
+  await docDB.query(`
+    ALTER TABLE secret_manager ADD COLUMN IF NOT EXISTS plan_id INTEGER DEFAULT NULL
+  `);
+  planColumnReady = true;
+};
+
+async function fetchPlanById(planId) {
+  if (!planId) return null;
+  try {
+    const { rows } = await paymentPool.query(
+      `SELECT id, name, token_limit, price, currency, "interval", type, description
+       FROM subscription_plans WHERE id = $1`,
+      [planId]
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+async function enrichRowsWithPlanInfo(rows) {
+  const planIds = [...new Set(rows.map((r) => r.plan_id).filter(Boolean))];
+  if (planIds.length === 0) {
+    return rows.map((r) => ({ ...r, plan_info: null, daily_token_limit: null }));
+  }
+  try {
+    const { rows: plans } = await paymentPool.query(
+      `SELECT id, name, token_limit, price, currency, "interval", type
+       FROM subscription_plans WHERE id = ANY($1)`,
+      [planIds]
+    );
+    const planMap = Object.fromEntries(plans.map((p) => [p.id, p]));
+    return rows.map((r) => {
+      const plan = r.plan_id ? planMap[r.plan_id] : null;
+      return {
+        ...r,
+        plan_info: plan,
+        daily_token_limit: plan?.token_limit ?? null,
+      };
+    });
+  } catch {
+    return rows.map((r) => ({ ...r, plan_info: null, daily_token_limit: null }));
+  }
+}
+
+/**
+ * @desc List subscription plans for Prompt Management dropdown (payment service)
+ * @route GET /api/secrets/plans
+ */
+const getPlansForPromptManagement = async (req, res) => {
+  try {
+    const { rows } = await paymentPool.query(
+      `SELECT id, name, description, token_limit, price, currency, "interval", type
+       FROM subscription_plans
+       ORDER BY name ASC`
+    );
+    res.status(200).json({
+      success: true,
+      count: rows.length,
+      data: rows.map((p) => ({
+        ...p,
+        daily_token_limit: p.token_limit,
+      })),
+    });
+  } catch (err) {
+    console.error('Error fetching plans for prompts:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch subscription plans' });
+  }
+};
+
+/**
+ * @desc Daily token limit for a prompt from its assigned subscription plan
+ * @route GET /api/secrets/:id/daily-token-limit
+ */
+const getPromptDailyTokenLimit = async (req, res) => {
+  const { id } = req.params;
+  try {
+    await ensurePlanColumn();
+    const result = await docDB.query(
+      'SELECT id, name, plan_id FROM secret_manager WHERE id = $1',
+      [id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Prompt not found' });
+    }
+    const prompt = result.rows[0];
+    if (!prompt.plan_id) {
+      return res.status(200).json({
+        success: true,
+        prompt_id: prompt.id,
+        prompt_name: prompt.name,
+        plan_id: null,
+        daily_token_limit: null,
+        plan: null,
+        message: 'No subscription plan assigned to this prompt',
+      });
+    }
+    const plan = await fetchPlanById(prompt.plan_id);
+    if (!plan) {
+      return res.status(200).json({
+        success: true,
+        prompt_id: prompt.id,
+        prompt_name: prompt.name,
+        plan_id: prompt.plan_id,
+        daily_token_limit: null,
+        plan: null,
+        message: 'Assigned plan not found in payment service',
+      });
+    }
+    res.status(200).json({
+      success: true,
+      prompt_id: prompt.id,
+      prompt_name: prompt.name,
+      plan_id: plan.id,
+      daily_token_limit: plan.token_limit,
+      plan: {
+        id: plan.id,
+        name: plan.name,
+        token_limit: plan.token_limit,
+        interval: plan.interval,
+        type: plan.type,
+      },
+    });
+  } catch (err) {
+    console.error('Error fetching prompt daily token limit:', err.message);
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 // ---------------------
 // Get all secrets
 // ---------------------
@@ -1101,14 +1234,16 @@ const getAllSecrets = async (req, res) => {
   const includeValues = req.query.fetch === 'true';
 
   try {
+    await ensurePlanColumn();
     const result = await docDB.query(`
-      SELECT s.*, l.name AS llm_name, c.method_name AS chunking_method_name
+      SELECT s.*, l.name AS llm_name, c.method_name AS chunking_method_name,
+             s.role_id, s.plan_id
       FROM secret_manager s
       LEFT JOIN llm_models l ON s.llm_id = l.id
       LEFT JOIN chunking_methods c ON s.chunking_method_id = c.id
       ORDER BY s.created_at DESC
     `);
-    const rows = result.rows;
+    let rows = await enrichRowsWithPlanInfo(result.rows);
 
     if (!includeValues) return res.status(200).json(rows);
 
@@ -1146,6 +1281,8 @@ const createSecret = async (req, res) => {
       llm_id,
       chunking_method_id,
       temperature,
+      role_id,
+      plan_id,
       created_by = 1,
       template_type = 'system',
       status = 'active',
@@ -1158,6 +1295,12 @@ const createSecret = async (req, res) => {
     // Validate required fields
     if (!name || !secret_value) {
       return res.status(400).json({ error: 'name and secret_value (prompt) are required' });
+    }
+
+    await ensurePlanColumn();
+    const parsedPlanId = plan_id ? parseInt(plan_id, 10) : null;
+    if (parsedPlanId && !(await fetchPlanById(parsedPlanId))) {
+      return res.status(400).json({ error: 'Invalid plan_id — plan not found in subscription management' });
     }
 
     // Extract files from req.files (multer) — optional; if used, both must be provided
@@ -1260,20 +1403,22 @@ const createSecret = async (req, res) => {
         usage_count, success_rate, avg_processing_time,
         created_by, updated_by, created_at, updated_at,
         activated_at, last_used_at, template_metadata,
-        secret_manager_id, version, llm_id, chunking_method_id, temperature
+        secret_manager_id, version, llm_id, chunking_method_id, temperature, role_id, plan_id
       ) VALUES (
         gen_random_uuid(), $1, $2, $3, $4,
         $5, $6, $7,
         $8, $8, now(), now(),
         now(), NULL, $9::jsonb,
-        $10, $11, $12, $13, $14
+        $10, $11, $12, $13, $14, $15, $16
       ) RETURNING id;
     `, [
       name, description, template_type, status,
       usage_count, success_rate, avg_processing_time,
       created_by, JSON.stringify(template_metadata),
       finalSecretManagerId, versionId, llm_id || null, chunking_method_id || null,
-      temperature !== undefined && temperature !== null ? parseFloat(temperature) : null
+      temperature !== undefined && temperature !== null ? parseFloat(temperature) : null,
+      role_id || null,
+      parsedPlanId
     ]);
 
     const secretManagerId = secretResult.rows[0].id;
@@ -1548,6 +1693,8 @@ const fetchSecretValueById = async (req, res) => {
       }
     }
 
+    const plan = secret.plan_id ? await fetchPlanById(secret.plan_id) : null;
+
     res.status(200).json({
       id: secret.id,
       name: secret.name,
@@ -1560,6 +1707,10 @@ const fetchSecretValueById = async (req, res) => {
       chunking_method_id,
       chunkingMethodName: secret.chunking_method_name,
       temperature: secret.temperature,
+      role_id: secret.role_id,
+      plan_id: secret.plan_id,
+      plan_info: plan,
+      daily_token_limit: plan?.token_limit ?? null,
       templates,
     });
   } catch (err) {
@@ -1634,12 +1785,22 @@ const updateSecret = async (req, res) => {
     template_metadata,
     secret_value,
     llm_id,
-    chunking_method_id, // ✅ include chunking_method_id from request body
-    temperature, // ✅ include temperature from request body
+    chunking_method_id,
+    temperature,
+    role_id,
+    plan_id,
     updated_by = 1
   } = req.body;
 
   try {
+    await ensurePlanColumn();
+    const parsedPlanId = plan_id !== undefined && plan_id !== null && plan_id !== ''
+      ? parseInt(plan_id, 10)
+      : null;
+    if (parsedPlanId && !(await fetchPlanById(parsedPlanId))) {
+      return res.status(400).json({ error: 'Invalid plan_id — plan not found in subscription management' });
+    }
+
     const result = await docDB.query('SELECT * FROM secret_manager WHERE id = $1', [id]);
     if (result.rows.length === 0)
       return res.status(404).json({ error: 'Secret not found' });
@@ -1656,24 +1817,18 @@ const updateSecret = async (req, res) => {
       versionId = versionResponse.name.split('/').pop();
     }
 
-    const updateQuery = `
-      UPDATE secret_manager
-      SET
-        name = COALESCE($1, name),
-        description = COALESCE($2, description),
-        status = COALESCE($3, status),
-        template_metadata = COALESCE($4::jsonb, template_metadata),
-        version = $5,
-        llm_id = COALESCE($6, llm_id),
-        chunking_method_id = COALESCE($7, chunking_method_id),
-        temperature = COALESCE($8, temperature),
-        updated_by = $9,
-        updated_at = now()
-      WHERE id = $10
-      RETURNING *;
-    `;
-
-    const updated = await docDB.query(updateQuery, [
+    const setClauses = [
+      'name = COALESCE($1, name)',
+      'description = COALESCE($2, description)',
+      'status = COALESCE($3, status)',
+      'template_metadata = COALESCE($4::jsonb, template_metadata)',
+      'version = $5',
+      'llm_id = COALESCE($6, llm_id)',
+      'chunking_method_id = COALESCE($7, chunking_method_id)',
+      'temperature = COALESCE($8, temperature)',
+      'role_id = $9',
+    ];
+    const updateValues = [
       name,
       description,
       status,
@@ -1682,13 +1837,30 @@ const updateSecret = async (req, res) => {
       llm_id || null,
       chunking_method_id || null,
       temperature !== undefined && temperature !== null ? parseFloat(temperature) : null,
-      updated_by,
-      id
-    ]);
+      role_id || null,
+    ];
+    let paramIdx = 10;
+    if (plan_id !== undefined) {
+      setClauses.push(`plan_id = $${paramIdx++}`);
+      updateValues.push(parsedPlanId);
+    }
+    setClauses.push(`updated_by = $${paramIdx++}`, 'updated_at = now()');
+    updateValues.push(updated_by, id);
+
+    const updateQuery = `
+      UPDATE secret_manager
+      SET ${setClauses.join(', ')}
+      WHERE id = $${paramIdx}
+      RETURNING *;
+    `;
+
+    const updated = await docDB.query(updateQuery, updateValues);
+
+    const [enriched] = await enrichRowsWithPlanInfo([updated.rows[0]]);
 
     res.status(200).json({
       message: 'Secret updated successfully',
-      updatedRecord: updated.rows[0]
+      updatedRecord: enriched
     });
   } catch (err) {
     console.error('Error updating secret:', err.message);
@@ -1727,9 +1899,11 @@ const deleteSecret = async (req, res) => {
 // ---------------------
 module.exports = {
   getAllSecrets,
+  getPlansForPromptManagement,
+  getPromptDailyTokenLimit,
   createSecret,
   fetchSecretValueById,
   updateSecret,
-  deleteSecret
+  deleteSecret,
 };
 

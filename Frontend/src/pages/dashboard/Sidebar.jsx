@@ -23,6 +23,7 @@ import {
   Search,
   CalendarCheck,
   Mic,
+  KeyRound,
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
@@ -99,6 +100,12 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'System Prompt Management',
       path: '/dashboard/system-prompts',
       icon: MessageSquare,
+      roles: ['super-admin']
+    },
+    {
+      name: 'Role Management',
+      path: '/dashboard/roles',
+      icon: KeyRound,
       roles: ['super-admin']
     },
     {

@@ -526,74 +526,157 @@
 // };
 const db = require('../config/payment_DB');
 
+/** Map UI labels to payment DB `plan_interval` enum values. */
+function normalizePlanInterval(interval) {
+    if (!interval) return 'month';
+    const v = String(interval).toLowerCase();
+    if (v === 'monthly' || v === 'month') return 'month';
+    if (v === 'yearly' || v === 'year') return 'year';
+    if (v === 'quarterly' || v === 'quarter') return 'quarter';
+    return interval;
+}
+
+/** Helper: read an int field from body or fall back to existing row value. */
+function intField(body, existing, key, fallback = null) {
+    const raw = body[key] != null ? body[key] : existing?.[key];
+    if (raw == null) return fallback;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : fallback;
+}
+
+/** Build a full plan row from request body + optional existing DB row. */
+function planRowFromBody(body, existing = null) {
+    const name = (body.name != null ? String(body.name) : existing?.name || '').trim();
+
+    // Per-service daily token limits
+    const chat_token_limit          = intField(body, existing, 'chat_token_limit');
+    const summarization_token_limit = intField(body, existing, 'summarization_token_limit');
+
+    // token_limit: backward-compat derived value
+    const tokenLimitRaw = body.token_limit != null ? body.token_limit : existing?.token_limit;
+    let token_limit;
+    if (tokenLimitRaw != null) {
+        token_limit = parseInt(tokenLimitRaw, 10);
+    } else {
+        const c = Number.isFinite(chat_token_limit) ? chat_token_limit : 0;
+        const s = Number.isFinite(summarization_token_limit) ? summarization_token_limit : 0;
+        token_limit = (c > 0 || s > 0) ? Math.max(c, s) : 0;
+    }
+
+    const limits = body.limits != null
+        ? (typeof body.limits === 'object' ? body.limits : JSON.parse(body.limits || '{}'))
+        : (existing?.limits || { summaries: 0, drafts: 0 });
+
+    return {
+        name,
+        token_limit,
+        // Chat Model per-plan limits
+        chat_token_limit,
+        chat_messages_per_hour:       intField(body, existing, 'chat_messages_per_hour'),
+        chat_chats_per_day:           intField(body, existing, 'chat_chats_per_day'),
+        chat_quota_per_minute:        intField(body, existing, 'chat_quota_per_minute'),
+        chat_max_document_pages:      intField(body, existing, 'chat_max_document_pages'),
+        chat_max_document_size_mb:    intField(body, existing, 'chat_max_document_size_mb'),
+        chat_max_file_upload_per_day: intField(body, existing, 'chat_max_file_upload_per_day'),
+        chat_max_upload_files:        intField(body, existing, 'chat_max_upload_files'),
+        // Summarization per-plan limits
+        summarization_token_limit,
+        sum_messages_per_hour:        intField(body, existing, 'sum_messages_per_hour'),
+        sum_chats_per_day:            intField(body, existing, 'sum_chats_per_day'),
+        sum_quota_per_minute:         intField(body, existing, 'sum_quota_per_minute'),
+        sum_max_document_pages:       intField(body, existing, 'sum_max_document_pages'),
+        sum_max_document_size_mb:     intField(body, existing, 'sum_max_document_size_mb'),
+        sum_max_file_upload_per_day:  intField(body, existing, 'sum_max_file_upload_per_day'),
+        sum_max_upload_files:         intField(body, existing, 'sum_max_upload_files'),
+        sum_max_context_documents:    intField(body, existing, 'sum_max_context_documents'),
+        sum_max_conversation_history: intField(body, existing, 'sum_max_conversation_history'),
+        // Legacy / background columns
+        description: (body.description != null ? String(body.description) : existing?.description || name || 'Plan').trim(),
+        price: body.price != null ? parseFloat(body.price) : (existing?.price != null ? Number(existing.price) : 0),
+        currency: body.currency || existing?.currency || 'INR',
+        interval: normalizePlanInterval(body.interval || existing?.interval),
+        type: body.type || existing?.type || 'individual',
+        features: body.features != null ? body.features : (existing?.features ?? {}),
+        document_limit: body.document_limit != null ? parseInt(body.document_limit, 10) : (existing?.document_limit ?? 0),
+        ai_analysis_limit: body.ai_analysis_limit != null ? parseInt(body.ai_analysis_limit, 10) : (existing?.ai_analysis_limit ?? 0),
+        template_access: body.template_access || existing?.template_access || 'basic',
+        carry_over_limit: body.carry_over_limit != null ? parseInt(body.carry_over_limit, 10) : (existing?.carry_over_limit ?? 0),
+        limits,
+        storage_limit_gb: body.storage_limit_gb != null ? parseInt(body.storage_limit_gb, 10) : (existing?.storage_limit_gb ?? 0),
+        drafting_type: body.drafting_type || existing?.drafting_type || 'basic',
+    };
+}
+
 /**
- * @desc    Create a new one-time subscription plan (no Razorpay plan_id)
+ * @desc    Create plan — only name and token_limit (per day) required from admin UI
  * @route   POST /api/admin/plans
  */
 exports.createPlan = async (req, res, paymentPool) => {
-    const {
-        name,
-        description,
-        price,
-        currency = 'INR',
-        interval, // 'monthly', 'half-yearly', 'yearly'
-        type,     // 'individual', 'business'
-        features,
-        document_limit,
-        ai_analysis_limit,
-        template_access, // 'basic' | 'premium'
-        token_limit,
-        carry_over_limit,
-        limits, // Optional JSON: { summaries: 50, drafts: 10 }
-        storage_limit_gb,
-        drafting_type,
-        razorpay_plan_id
-    } = req.body;
+    const row = planRowFromBody(req.body);
 
-    if (!name || !description || !interval || !type || price == null ||
-        token_limit == null || carry_over_limit == null || document_limit == null ||
-        ai_analysis_limit == null || !template_access || storage_limit_gb == null || !drafting_type) {
-        return res.status(400).json({
-            success: false,
-            message: 'Missing required fields'
-        });
+    if (!row.name) {
+        return res.status(400).json({ success: false, message: 'Plan name is required' });
+    }
+    if (row.chat_token_limit == null || Number.isNaN(row.chat_token_limit) || row.chat_token_limit < 0) {
+        return res.status(400).json({ success: false, message: 'Chat token limit (per day) is required and must be a non-negative number' });
+    }
+    if (row.summarization_token_limit == null || Number.isNaN(row.summarization_token_limit) || row.summarization_token_limit < 0) {
+        return res.status(400).json({ success: false, message: 'Summarization token limit (per day) is required and must be a non-negative number' });
     }
 
     const query = `
         INSERT INTO subscription_plans (
             name, description, price, currency, "interval", type,
             features, document_limit, ai_analysis_limit, template_access,
-            token_limit, carry_over_limit, limits, storage_limit_gb, drafting_type, razorpay_plan_id
+            token_limit, carry_over_limit, limits, storage_limit_gb, drafting_type,
+            chat_token_limit, chat_messages_per_hour, chat_chats_per_day, chat_quota_per_minute,
+            chat_max_document_pages, chat_max_document_size_mb, chat_max_file_upload_per_day, chat_max_upload_files,
+            summarization_token_limit, sum_messages_per_hour, sum_chats_per_day, sum_quota_per_minute,
+            sum_max_document_pages, sum_max_document_size_mb, sum_max_file_upload_per_day, sum_max_upload_files,
+            sum_max_context_documents, sum_max_conversation_history
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        VALUES (
+            $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+            $16,$17,$18,$19,$20,$21,$22,$23,
+            $24,$25,$26,$27,$28,$29,$30,$31,$32,$33
+        )
         RETURNING *;
     `;
 
     const values = [
-        name,
-        description,
-        price,
-        currency,
-        interval,
-        type,
-        features,
-        document_limit,
-        ai_analysis_limit,
-        template_access,
-        token_limit,
-        carry_over_limit,
-        JSON.stringify(limits),
-        storage_limit_gb,
-        drafting_type,
-        razorpay_plan_id
+        row.name, row.description, row.price, row.currency, row.interval, row.type,
+        typeof row.features === 'object' ? JSON.stringify(row.features) : (row.features || '{}'),
+        row.document_limit, row.ai_analysis_limit, row.template_access,
+        row.token_limit, row.carry_over_limit, JSON.stringify(row.limits), row.storage_limit_gb, row.drafting_type,
+        // chat
+        row.chat_token_limit, row.chat_messages_per_hour, row.chat_chats_per_day, row.chat_quota_per_minute,
+        row.chat_max_document_pages, row.chat_max_document_size_mb, row.chat_max_file_upload_per_day, row.chat_max_upload_files,
+        // summarization
+        row.summarization_token_limit, row.sum_messages_per_hour, row.sum_chats_per_day, row.sum_quota_per_minute,
+        row.sum_max_document_pages, row.sum_max_document_size_mb, row.sum_max_file_upload_per_day, row.sum_max_upload_files,
+        row.sum_max_context_documents, row.sum_max_conversation_history,
     ];
 
     try {
+        const existingByName = await paymentPool.query(
+            'SELECT id, name FROM subscription_plans WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) LIMIT 1',
+            [row.name]
+        );
+        if (existingByName.rows.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: `A plan named "${row.name}" already exists. Use a different name or edit the existing plan.`,
+            });
+        }
+
         const { rows } = await paymentPool.query(query, values);
         return res.status(201).json({ success: true, data: rows[0] });
     } catch (error) {
         if (error.code === '23505') {
-            return res.status(409).json({ success: false, message: 'Plan with this name already exists.' });
+            return res.status(409).json({
+                success: false,
+                message: `A plan named "${row.name}" already exists. Use a different name or edit the existing plan.`,
+            });
         }
         return res.status(400).json({ success: false, message: error.message });
     }
@@ -624,7 +707,7 @@ exports.getAllPlans = async (req, res, paymentPool) => {
         query += ' WHERE ' + conditions.join(' AND ');
     }
 
-    query += ' ORDER BY price ASC';
+    query += ' ORDER BY name ASC';
 
     try {
         const { rows } = await paymentPool.query(query, values);
@@ -656,75 +739,72 @@ exports.getPlanById = async (req, res, paymentPool) => {
  */
 exports.updatePlan = async (req, res, paymentPool) => {
     const { id } = req.params;
-    const {
-        name,
-        description,
-        price,
-        currency = 'INR',
-        interval,
-        type,
-        features,
-        document_limit,
-        ai_analysis_limit,
-        template_access,
-        token_limit,
-        carry_over_limit,
-        limits,
-        storage_limit_gb,
-        drafting_type,
-        razorpay_plan_id
-    } = req.body;
-
-    const query = `
-        UPDATE subscription_plans SET
-        name = $1,
-        description = $2,
-        price = $3,
-        currency = $4,
-        "interval" = $5,
-        type = $6,
-        features = $7,
-        document_limit = $8,
-        ai_analysis_limit = $9,
-        template_access = $10,
-        token_limit = $11,
-        carry_over_limit = $12,
-        limits = $13,
-        storage_limit_gb = $14,
-        drafting_type = $15,
-        razorpay_plan_id = $16,
-        updated_at = NOW()
-        WHERE id = $17
-        RETURNING *;
-    `;
-
-    const values = [
-        name,
-        description,
-        price,
-        currency,
-        interval,
-        type,
-        features,
-        document_limit,
-        ai_analysis_limit,
-        template_access,
-        token_limit,
-        carry_over_limit,
-        JSON.stringify(limits),
-        storage_limit_gb,
-        drafting_type,
-        razorpay_plan_id,
-        id
-    ];
 
     try {
-        const { rows } = await paymentPool.query(query, values);
-        if (rows.length === 0) {
+        const existing = await paymentPool.query('SELECT * FROM subscription_plans WHERE id = $1', [id]);
+        if (existing.rows.length === 0) {
             return res.status(404).json({ success: false, message: 'Plan not found' });
         }
+
+        const row = planRowFromBody(req.body, existing.rows[0]);
+
+        if (!row.name) {
+            return res.status(400).json({ success: false, message: 'Plan name is required' });
+        }
+        if (row.chat_token_limit == null || Number.isNaN(row.chat_token_limit) || row.chat_token_limit < 0) {
+            return res.status(400).json({ success: false, message: 'Chat token limit (per day) is required' });
+        }
+        if (row.summarization_token_limit == null || Number.isNaN(row.summarization_token_limit) || row.summarization_token_limit < 0) {
+            return res.status(400).json({ success: false, message: 'Summarization token limit (per day) is required' });
+        }
+
+        const nameConflict = await paymentPool.query(
+            'SELECT id FROM subscription_plans WHERE LOWER(TRIM(name)) = LOWER(TRIM($1)) AND id <> $2 LIMIT 1',
+            [row.name, id]
+        );
+        if (nameConflict.rows.length > 0) {
+            return res.status(409).json({
+                success: false,
+                message: `A plan named "${row.name}" already exists. Use a different name.`,
+            });
+        }
+
+        const { rows } = await paymentPool.query(
+            `UPDATE subscription_plans
+             SET name = $1, token_limit = $2, description = $3,
+                 price = $4, currency = $5, "interval" = $6, type = $7,
+                 chat_token_limit = $8, chat_messages_per_hour = $9, chat_chats_per_day = $10,
+                 chat_quota_per_minute = $11, chat_max_document_pages = $12, chat_max_document_size_mb = $13,
+                 chat_max_file_upload_per_day = $14, chat_max_upload_files = $15,
+                 summarization_token_limit = $16, sum_messages_per_hour = $17, sum_chats_per_day = $18,
+                 sum_quota_per_minute = $19, sum_max_document_pages = $20, sum_max_document_size_mb = $21,
+                 sum_max_file_upload_per_day = $22, sum_max_upload_files = $23,
+                 sum_max_context_documents = $24, sum_max_conversation_history = $25,
+                 updated_at = NOW()
+             WHERE id = $26
+             RETURNING *`,
+            [
+                row.name, row.token_limit, row.description,
+                row.price, row.currency, row.interval, row.type,
+                row.chat_token_limit, row.chat_messages_per_hour, row.chat_chats_per_day,
+                row.chat_quota_per_minute, row.chat_max_document_pages, row.chat_max_document_size_mb,
+                row.chat_max_file_upload_per_day, row.chat_max_upload_files,
+                row.summarization_token_limit, row.sum_messages_per_hour, row.sum_chats_per_day,
+                row.sum_quota_per_minute, row.sum_max_document_pages, row.sum_max_document_size_mb,
+                row.sum_max_file_upload_per_day, row.sum_max_upload_files,
+                row.sum_max_context_documents, row.sum_max_conversation_history,
+                id,
+            ]
+        );
+
         return res.status(200).json({ success: true, data: rows[0] });
     } catch (error) {
+        if (error.code === '23505') {
+            return res.status(409).json({
+                success: false,
+                message: `A plan named "${row.name}" already exists. Use a different name.`,
+            });
+        }
         return res.status(400).json({ success: false, message: error.message });
     }
 };

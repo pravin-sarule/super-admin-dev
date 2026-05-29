@@ -1,1242 +1,684 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  CreditCard, Plus, Edit2, Trash2, X, Check, AlertTriangle,
+  MessageSquare, BookOpen, Search, RefreshCw, ChevronUp, ChevronDown,
+  Clock, Users, BarChart2, FileText, Upload, Hash, Activity, DollarSign,
+} from 'lucide-react';
+import { API_BASE_URL, getAuthHeaders } from '../../config';
 
+/* ─── Toast ─── */
+const Toast = ({ toasts, remove }) => (
+  <div className="fixed bottom-5 right-5 z-[200] flex flex-col gap-2 pointer-events-none">
+    {toasts.map((t) => (
+      <div key={t.id}
+        className={`pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium min-w-[280px] max-w-xs animate-slide-in-right
+          ${t.type === 'success' ? 'bg-white border-emerald-200 text-emerald-800' :
+            t.type === 'error'   ? 'bg-white border-red-200   text-red-800'   :
+            'bg-white border-amber-200 text-amber-800'}`}
+      >
+        <span className="mt-0.5 text-base">{t.type === 'success' ? '✅' : t.type === 'error' ? '❌' : '⚠️'}</span>
+        <p className="flex-1 leading-snug">{t.message}</p>
+        <button onClick={() => remove(t.id)} className="text-slate-400 hover:text-slate-600"><X className="w-3.5 h-3.5" /></button>
+      </div>
+    ))}
+  </div>
+);
 
-import React, { useState, useEffect } from 'react';
-import { Eye, Edit, Save, CreditCard, Filter, ChevronLeft, ChevronRight, Trash2, PlusCircle, X, DollarSign, IndianRupee } from 'lucide-react';
-import { API_BASE_URL } from '../../config';
+function useToast() {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((message, type = 'info') => {
+    const id = Date.now() + Math.random();
+    setToasts((p) => [...p, { id, message, type }]);
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 4000);
+  }, []);
+  const remove = useCallback((id) => setToasts((p) => p.filter((t) => t.id !== id)), []);
+  return { toasts, add, remove };
+}
 
-// Custom Sweet Alert Component
-const SweetAlert = ({ isOpen, onClose, onConfirm, title, text, type = 'info', showCancel = false }) => {
+/* ─── Delete confirm modal ─── */
+const DeleteModal = ({ plan, onClose, onConfirm, loading }) => {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = ''; };
+  }, []);
+  return (
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4"
+      style={{ background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(3px)' }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm p-6 text-center"
+        style={{ animation: 'modalIn 0.2s ease-out' }}>
+        <div className="w-12 h-12 rounded-full bg-red-50 flex items-center justify-center mx-auto mb-3">
+          <AlertTriangle className="w-6 h-6 text-red-500" />
+        </div>
+        <h3 className="text-base font-semibold text-slate-800 mb-1">Delete Plan</h3>
+        <p className="text-sm text-slate-500 mb-5">
+          Delete <span className="font-semibold text-slate-700">"{plan?.name}"</span>? This cannot be undone.
+        </p>
+        <div className="flex gap-3 justify-center">
+          <button onClick={onClose} disabled={loading}
+            className="px-5 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50 transition-colors">
+            Cancel
+          </button>
+          <button onClick={onConfirm} disabled={loading}
+            className="px-5 py-2 rounded-lg bg-red-600 text-white text-sm font-medium hover:bg-red-700 disabled:opacity-50 flex items-center gap-2 transition-colors">
+            {loading ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            {loading ? 'Deleting…' : 'Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ─── Number input field ─── */
+const NumField = ({ label, hint, value, onChange, placeholder }) => (
+  <div>
+    <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">{label}</label>
+    <input
+      type="number" min="0"
+      value={value} onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder ?? '—'}
+      className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all"
+    />
+    {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
+  </div>
+);
+
+/* ─── Section header inside drawer ─── */
+const DrawerSection = ({ icon: Icon, color, title, children }) => (
+  <div className={`rounded-xl border ${color.cardBorder} overflow-hidden`}>
+    <div className={`flex items-center gap-2.5 px-4 py-3 border-b ${color.border} ${color.headerBg}`}>
+      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${color.bg}`}>
+        <Icon className={`w-4 h-4 ${color.icon}`} />
+      </div>
+      <h4 className={`text-sm font-semibold ${color.text}`}>{title}</h4>
+    </div>
+    <div className="grid grid-cols-2 gap-3 p-4 bg-white">{children}</div>
+  </div>
+);
+
+/* ─── Default form values ─── */
+const PLAN_TYPES = [
+  { value: 'individual', label: 'Individual', color: 'bg-blue-50 text-blue-700 border-blue-100' },
+  { value: 'enterprise', label: 'Enterprise', color: 'bg-violet-50 text-violet-700 border-violet-100' },
+  { value: 'team',       label: 'Team',       color: 'bg-amber-50 text-amber-700 border-amber-100' },
+  { value: 'business',   label: 'Business',   color: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+];
+
+const planTypeColor = (type) =>
+  PLAN_TYPES.find((t) => t.value === type)?.color || 'bg-slate-50 text-slate-600 border-slate-200';
+
+const EMPTY_FORM = {
+  name: '',
+  type: 'individual',
+  price: '',
+  currency: 'INR',
+  interval: 'month',
+  // Chat
+  chat_token_limit: '',          chat_messages_per_hour: '50',
+  chat_chats_per_day: '60',      chat_quota_per_minute: '10',
+  chat_max_document_pages: '300', chat_max_document_size_mb: '40',
+  chat_max_file_upload_per_day: '15', chat_max_upload_files: '8',
+  // Summarization
+  summarization_token_limit: '',  sum_messages_per_hour: '60',
+  sum_chats_per_day: '80',        sum_quota_per_minute: '20',
+  sum_max_document_pages: '400',  sum_max_document_size_mb: '40',
+  sum_max_file_upload_per_day: '15', sum_max_upload_files: '10',
+  sum_max_context_documents: '8',    sum_max_conversation_history: '25',
+};
+
+function planToForm(plan) {
+  const f = {};
+  Object.keys(EMPTY_FORM).forEach((k) => {
+    f[k] = plan[k] != null ? String(plan[k]) : '';
+  });
+  if (!f.type)     f.type     = 'individual';
+  if (!f.currency) f.currency = 'INR';
+  if (!f.interval) f.interval = 'month';
+  return f;
+}
+
+/* ─── Plan Drawer ─── */
+const PlanDrawer = ({ isOpen, mode, plan, onClose, onSubmit, saving }) => {
+  const [form, setForm] = useState(EMPTY_FORM);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setForm(mode === 'edit' && plan ? planToForm(plan) : { ...EMPTY_FORM });
+  }, [isOpen, mode, plan]);
+
+  useEffect(() => {
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [isOpen]);
+
+  const set = (k) => (v) => setForm((p) => ({ ...p, [k]: v }));
+  const isEdit = mode === 'edit';
+
   if (!isOpen) return null;
 
-  const getIcon = () => {
-    switch (type) {
-      case 'success': return '✅';
-      case 'error': return '❌';
-      case 'warning': return '⚠️';
-      default: return 'ℹ️';
-    }
-  };
-
-  const getButtonColor = () => {
-    switch (type) {
-      case 'success': return 'bg-green-600 hover:bg-green-700';
-      case 'error': return 'bg-red-600 hover:bg-red-700';
-      case 'warning': return 'bg-yellow-600 hover:bg-yellow-700';
-      default: return 'bg-blue-600 hover:bg-blue-700';
-    }
-  };
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-        <div className="text-center">
-          <div className="text-4xl mb-4">{getIcon()}</div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">{title}</h3>
-          {text && <p className="text-gray-600 mb-6">{text}</p>}
-          <div className="flex justify-center space-x-3">
-            {showCancel && (
-              <button
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-            )}
-            <button
-              onClick={onConfirm}
-              className={`px-4 py-2 text-white rounded-lg ${getButtonColor()}`}
-            >
-              {showCancel ? 'Confirm' : 'OK'}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 z-[100] bg-black/40 backdrop-blur-sm"
+        style={{ animation: 'fadeIn 0.18s ease-out' }}
+        onClick={onClose} />
 
-// API Service
-const apiService = {
-  baseURL: `${API_BASE_URL}/admin/plans`,
-  
-  async fetchPlans() {
-    const response = await fetch(this.baseURL);
-    if (!response.ok) {
-      const errorBody = await response.json();
-      throw { status: response.status, message: errorBody.message || `HTTP error! status: ${response.status}` };
-    }
-    return await response.json();
-  },
-  
-  async createPlan(data) {
-    const response = await fetch(this.baseURL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-      const errorBody = await response.json();
-      throw { status: response.status, message: errorBody.message || `HTTP error! status: ${response.status}` };
-    }
-    return await response.json();
-  },
-  
-  async getPlan(id) {
-    const response = await fetch(`${this.baseURL}/${id}`);
-    if (!response.ok) {
-      const errorBody = await response.json();
-      throw { status: response.status, message: errorBody.message || `HTTP error! status: ${response.status}` };
-    }
-    return await response.json();
-  },
-  
-  async updatePlan(id, data) {
-    const response = await fetch(`${this.baseURL}/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!response.ok) {
-      const errorBody = await response.json();
-      throw { status: response.status, message: errorBody.message || `HTTP error! status: ${response.status}` };
-    }
-    return await response.json();
-  },
-  
-  async deletePlan(id) {
-    const response = await fetch(`${this.baseURL}/${id}`, { method: 'DELETE' });
-    if (!response.ok) {
-      const errorBody = await response.json();
-      throw { status: response.status, message: errorBody.message || `HTTP error! status: ${response.status}` };
-    }
-    return { success: true };
-  }
-};
+      {/* Drawer panel */}
+      <div className="fixed right-0 top-0 h-full z-[110] w-full max-w-2xl bg-white shadow-2xl flex flex-col"
+        style={{ animation: 'slideInRight 0.22s cubic-bezier(0.22,1,0.36,1)' }}>
 
-// Plan Form Component
-const PlanForm = ({ plan, onSave, onCancel, loading }) => {
-  const [formData, setFormData] = useState(plan || {
-    name: '',
-    description: '',
-    price: '',
-    currency: 'INR',
-    interval: 'monthly',
-    type: 'individual',
-    features: '',
-    document_limit: '',
-    ai_analysis_limit: '',
-    template_access: 'basic',
-    token_limit: '',
-    carry_over_limit: '',
-    storage_limit_gb: '', // New field
-    drafting_type: 'basic', // New field with default
-    razorpay_plan_id: '', // New field
-    limits: { summaries: '', drafts: '' }
-  });
-
-  const handleChange = (field, value) => {
-    if (field.startsWith('limits.')) {
-      const limitField = field.split('.')[1];
-      setFormData(prev => ({
-        ...prev,
-        limits: { ...prev.limits, [limitField]: value }
-      }));
-    } else {
-      setFormData(prev => ({ ...prev, [field]: value }));
-    }
-  };
-
-  const handleSubmit = () => {
-    // Basic validation
-    if (!formData.name) {
-      alert('Plan Name is required.');
-      return;
-    }
-    if (isNaN(parseFloat(formData.price)) || parseFloat(formData.price) <= 0) {
-      alert('Price must be a positive number.');
-      return;
-    }
-    if (isNaN(parseInt(formData.document_limit)) || parseInt(formData.document_limit) < 0) {
-      alert('Document Limit must be a non-negative number.');
-      return;
-    }
-    if (isNaN(parseInt(formData.ai_analysis_limit)) || parseInt(formData.ai_analysis_limit) < 0) {
-      alert('AI Analysis Limit must be a non-negative number.');
-      return;
-    }
-    if (isNaN(parseInt(formData.storage_limit_gb)) || parseInt(formData.storage_limit_gb) < 0) {
-      alert('Storage Limit (GB) must be a non-negative number.');
-      return;
-    }
-    if (!formData.razorpay_plan_id) {
-      alert('Razorpay Plan ID is required.');
-      return;
-    }
-
-    const data = {
-      ...formData,
-      price: parseFloat(formData.price),
-      document_limit: parseInt(formData.document_limit),
-      ai_analysis_limit: parseInt(formData.ai_analysis_limit),
-      token_limit: parseInt(formData.token_limit || '0'), // Optional, so default to 0 if empty
-      carry_over_limit: parseInt(formData.carry_over_limit || '0'), // Optional, so default to 0 if empty
-      storage_limit_gb: parseInt(formData.storage_limit_gb),
-      drafting_type: formData.drafting_type,
-      razorpay_plan_id: formData.razorpay_plan_id,
-      limits: {
-        summaries: parseInt(formData.limits.summaries || '0'), // Optional
-        drafts: parseInt(formData.limits.drafts || '0') // Optional
-      }
-    };
-    onSave(data);
-  };
-
-  return (
-    <div className="bg-white p-6">
-      <div className="flex items-center justify-between mb-6 pb-4 border-b">
-        <h2 className="text-2xl font-semibold flex items-center">
-          <PlusCircle className="mr-3" />
-          {plan ? 'Edit Plan' : 'Create New Plan'}
-        </h2>
-        <button onClick={onCancel} className="p-2 hover:bg-gray-100 rounded-lg">
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">Basic Information</h4>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Plan Name *</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={(e) => handleChange('name', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., Basic, Pro, Enterprise"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
-            <textarea
-              value={formData.description}
-              onChange={(e) => handleChange('description', e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Plan description"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Price *</label>
-            <div className="relative">
-              <IndianRupee className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
-              <input
-                type="number"
-                step="0.01"
-                value={formData.price}
-                onChange={(e) => handleChange('price', e.target.value)}
-                className="w-full pl-10 pr-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-50">
+              {isEdit
+                ? <Edit2 className="w-4 h-4 text-blue-600" />
+                : <Plus className="w-4 h-4 text-blue-600" />}
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-800">
+                {isEdit ? `Edit Plan — ${plan?.name}` : 'Add New Plan'}
+              </h3>
+              <p className="text-xs text-slate-400">Configure all service limits for this plan</p>
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Currency</label>
-            <select
-              value={formData.currency}
-              onChange={(e) => handleChange('currency', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="INR">INR</option>
-              <option value="USD">USD</option>
-              <option value="EUR">EUR</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Interval</label>
-            <select
-              value={formData.interval}
-              onChange={(e) => handleChange('interval', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="monthly">Monthly</option>
-              <option value="quarterly">Quarterly</option>
-              <option value="yearly">Yearly</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            <select
-              value={formData.type}
-              onChange={(e) => handleChange('type', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="individual">Individual</option>
-              <option value="business">Business</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Features</label>
-            <textarea
-              value={formData.features}
-              onChange={(e) => handleChange('features', e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="List of features"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Storage Limit (GB) *</label>
-            <input
-              type="number"
-              value={formData.storage_limit_gb}
-              onChange={(e) => handleChange('storage_limit_gb', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., 10, 50, 100"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Drafting Type</label>
-            <select
-              value={formData.drafting_type}
-              onChange={(e) => handleChange('drafting_type', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="basic">Basic</option>
-              <option value="premium">Premium</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Razorpay Plan ID *</label>
-            <input
-              type="text"
-              value={formData.razorpay_plan_id}
-              onChange={(e) => handleChange('razorpay_plan_id', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="e.g., plan_Abcdef123456"
-            />
-          </div>
-        </div>
-
-        {/* Right Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">Limits & Access</h4>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Document Limit *</label>
-            <input
-              type="number"
-              value={formData.document_limit}
-              onChange={(e) => handleChange('document_limit', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Number of documents"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">AI Analysis Limit *</label>
-            <input
-              type="number"
-              value={formData.ai_analysis_limit}
-              onChange={(e) => handleChange('ai_analysis_limit', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Number of AI analyses"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Template Access</label>
-            <select
-              value={formData.template_access}
-              onChange={(e) => handleChange('template_access', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="basic">Basic</option>
-              <option value="premium">Premium</option>
-              <option value="enterprise">Enterprise</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Token Limit *</label>
-            <input
-              type="number"
-              value={formData.token_limit}
-              onChange={(e) => handleChange('token_limit', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Number of tokens"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Carry Over Limit</label>
-            <input
-              type="number"
-              value={formData.carry_over_limit}
-              onChange={(e) => handleChange('carry_over_limit', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Carry over limit"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Summaries Limit</label>
-            <input
-              type="number"
-              value={formData.limits.summaries}
-              onChange={(e) => handleChange('limits.summaries', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Number of summaries"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Drafts Limit</label>
-            <input
-              type="number"
-              value={formData.limits.drafts}
-              onChange={(e) => handleChange('limits.drafts', e.target.value)}
-              className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-              placeholder="Number of drafts"
-            />
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-6 pt-6 border-t flex justify-end space-x-3">
-        <button
-          onClick={onCancel}
-          className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-        >
-          {loading ? 'Saving...' : (
-            <>
-              <Save className="w-4 h-4 mr-2" />
-              Save Plan
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// Plan Details Component
-const PlanDetails = ({ plan, onEdit, onBack, onSave, editMode, loading }) => {
-  const [editData, setEditData] = useState(plan);
-
-  useEffect(() => {
-    if (plan) {
-      setEditData({
-        ...plan,
-        storage_limit_gb: plan.storage_limit_gb || '',
-        drafting_type: plan.drafting_type || 'basic',
-        razorpay_plan_id: plan.razorpay_plan_id || '',
-        limits: plan.limits || { summaries: '', drafts: '' }
-      });
-    }
-  }, [plan]);
-
-  const handleChange = (field, value) => {
-    if (field.startsWith('limits.')) {
-      const limitField = field.split('.')[1];
-      setEditData(prev => ({
-        ...prev,
-        limits: { ...prev.limits, [limitField]: value }
-      }));
-    } else {
-      setEditData(prev => ({ ...prev, [field]: value }));
-    }
-  };
-
-  const handleSave = () => {
-    if (!editData || !editData.id) {
-      alert('Plan ID is missing. Please refresh and try again.');
-      return;
-    }
-
-    // Basic validation for edit mode
-    if (!editData.name) {
-      alert('Plan Name is required.');
-      return;
-    }
-    if (isNaN(parseFloat(editData.price)) || parseFloat(editData.price) <= 0) {
-      alert('Price must be a positive number.');
-      return;
-    }
-    if (isNaN(parseInt(editData.document_limit)) || parseInt(editData.document_limit) < 0) {
-      alert('Document Limit must be a non-negative number.');
-      return;
-    }
-    if (isNaN(parseInt(editData.ai_analysis_limit)) || parseInt(editData.ai_analysis_limit) < 0) {
-      alert('AI Analysis Limit must be a non-negative number.');
-      return;
-    }
-    if (isNaN(parseInt(editData.storage_limit_gb)) || parseInt(editData.storage_limit_gb) < 0) {
-      alert('Storage Limit (GB) must be a non-negative number.');
-      return;
-    }
-    if (!editData.razorpay_plan_id) {
-      alert('Razorpay Plan ID is required.');
-      return;
-    }
-
-    const data = {
-      ...editData,
-      price: parseFloat(editData.price) || 0,
-      document_limit: parseInt(editData.document_limit || '0'),
-      ai_analysis_limit: parseInt(editData.ai_analysis_limit || '0'),
-      token_limit: parseInt(editData.token_limit || '0'),
-      carry_over_limit: parseInt(editData.carry_over_limit || '0'),
-      storage_limit_gb: parseInt(editData.storage_limit_gb || '0'), // New field
-      drafting_type: editData.drafting_type, // New field
-      razorpay_plan_id: editData.razorpay_plan_id, // New field
-      limits: {
-        summaries: parseInt(editData.limits?.summaries || '0'),
-        drafts: parseInt(editData.limits?.drafts || '0')
-      }
-    };
-    onSave(data);
-  };
-
-  if (!plan) return null;
-
-  return (
-    <div className="bg-white">
-      <div className="flex items-center justify-between mb-6 pb-4 border-b">
-        <h2 className="text-2xl font-semibold flex items-center">
-          <CreditCard className="mr-3" />
-          Plan Details
-        </h2>
-        <div className="flex space-x-2">
-          <button onClick={onBack} className="px-4 py-2 border rounded-lg hover:bg-gray-50">
-            Back to List
+          <button onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+            <X className="w-5 h-5" />
           </button>
-          {editMode ? (
-            <>
-              <button
-                onClick={handleSave}
-                disabled={loading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center"
-              >
-                {loading ? 'Saving...' : <><Save className="w-4 h-4 mr-1" />Save</>}
-              </button>
-              <button onClick={() => onEdit(false)} className="px-4 py-2 border rounded-lg">
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button onClick={() => onEdit(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center">
-              <Edit className="w-4 h-4 mr-1" />Edit
-            </button>
-          )}
         </div>
-      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Left Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">Basic Information</h4>
-          
+        {/* Scrollable content */}
+        <form id="plan-form" onSubmit={(e) => { e.preventDefault(); onSubmit(form); }}
+          className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+
+          {/* Plan name */}
           <div>
-            <label className="block text-sm font-medium mb-1">Plan ID</label>
-            <span className="text-sm">#{plan.id}</span>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+              Plan Name <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text" value={form.name} onChange={(e) => set('name')(e.target.value)}
+              placeholder="e.g. Basic, Pro, Enterprise" required
+              className="w-full px-3.5 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all"
+            />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium mb-1">Name</label>
-            {editMode ? (
-              <input
-                type="text"
-                value={editData.name}
-                onChange={(e) => handleChange('name', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                plan.name === 'Basic' ? 'bg-blue-50 text-blue-600' :
-                plan.name === 'Pro' ? 'bg-green-50 text-green-600' :
-                plan.name === 'Enterprise' ? 'bg-purple-50 text-purple-600' :
-                'bg-gray-50 text-gray-600'
-              }`}>
-                {plan.name}
-              </span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
-            {editMode ? (
-              <textarea
-                value={editData.description || ''}
-                onChange={(e) => handleChange('description', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <p className="text-sm">{plan.description || 'No description'}</p>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Price</label>
-            {editMode ? (
-              <div className="relative">
-                <IndianRupee className="absolute left-3 top-2.5 h-4 w-4 text-gray-400" />
+          {/* Pricing */}
+          <div className="rounded-xl border border-slate-200 overflow-hidden">
+            <div className="flex items-center gap-2.5 px-4 py-3 border-b border-slate-100 bg-slate-50">
+              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-violet-50">
+                <DollarSign className="w-4 h-4 text-violet-600" />
+              </div>
+              <h4 className="text-sm font-semibold text-slate-700">Pricing</h4>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-4 bg-white">
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Plan Type</label>
+                <select value={form.type} onChange={(e) => set('type')(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all appearance-none">
+                  {PLAN_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                  Price <span className="text-red-500">*</span>
+                </label>
                 <input
-                  type="number"
-                  step="0.01"
-                  value={editData.price}
-                  onChange={(e) => handleChange('price', e.target.value)}
-                  className="w-full pl-10 pr-3 py-2 border rounded-lg"
+                  type="number" min="0" step="0.01"
+                  value={form.price} onChange={(e) => set('price')(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all"
                 />
               </div>
-            ) : (
-              <div className="flex items-center">
-                <IndianRupee className="w-4 h-4 mr-1" />
-                {typeof plan.price === 'number' ? plan.price.toFixed(2) : parseFloat(plan.price)?.toFixed(2)}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Currency</label>
+                <select value={form.currency} onChange={(e) => set('currency')(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all appearance-none">
+                  <option value="INR">INR ₹</option>
+                  <option value="USD">USD $</option>
+                  <option value="EUR">EUR €</option>
+                  <option value="GBP">GBP £</option>
+                </select>
               </div>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Currency</label>
-            {editMode ? (
-              <select
-                value={editData.currency}
-                onChange={(e) => handleChange('currency', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="INR">INR</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-              </select>
-            ) : (
-              <span className="text-sm">{plan.currency}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Type</label>
-            {editMode ? (
-              <select
-                value={editData.type}
-                onChange={(e) => handleChange('type', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="individual">Individual</option>
-                <option value="business">Business</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
-            ) : (
-              <span className="text-sm capitalize">{plan.type}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Interval</label>
-            {editMode ? (
-              <select
-                value={editData.interval}
-                onChange={(e) => handleChange('interval', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="monthly">Monthly</option>
-                <option value="quarterly">Quarterly</option>
-                <option value="yearly">Yearly</option>
-              </select>
-            ) : (
-              <span className="text-sm capitalize">{plan.interval}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Features</label>
-            {editMode ? (
-              <textarea
-                value={editData.features}
-                onChange={(e) => handleChange('features', e.target.value)}
-                rows={3}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <p className="text-sm bg-gray-50 rounded p-3">{plan.features || 'No features listed'}</p>
-            )}
-          </div>
-        </div>
-
-        {/* Right Column */}
-        <div className="space-y-4">
-          <h4 className="font-medium border-b pb-2">Limits & Access</h4>
-          
-          <div>
-            <label className="block text-sm font-medium mb-1">Document Limit</label>
-            {editMode ? (
-              <input
-                type="number"
-                value={editData.document_limit || ''}
-                onChange={(e) => handleChange('document_limit', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.document_limit || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">AI Analysis Limit</label>
-            {editMode ? (
-              <input
-                type="number"
-                value={editData.ai_analysis_limit || ''}
-                onChange={(e) => handleChange('ai_analysis_limit', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.ai_analysis_limit || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Storage Limit (GB)</label>
-            {editMode ? (
-              <input
-                type="number"
-                value={editData.storage_limit_gb || ''}
-                onChange={(e) => handleChange('storage_limit_gb', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.storage_limit_gb || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Drafting Type</label>
-            {editMode ? (
-              <select
-                value={editData.drafting_type}
-                onChange={(e) => handleChange('drafting_type', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="basic">Basic</option>
-                <option value="premium">Premium</option>
-              </select>
-            ) : (
-              <span className="text-sm capitalize">{plan.drafting_type || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Razorpay Plan ID</label>
-            {editMode ? (
-              <input
-                type="text"
-                value={editData.razorpay_plan_id || ''}
-                onChange={(e) => handleChange('razorpay_plan_id', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.razorpay_plan_id || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Template Access</label>
-            {editMode ? (
-              <select
-                value={editData.template_access}
-                onChange={(e) => handleChange('template_access', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              >
-                <option value="basic">Basic</option>
-                <option value="premium">Premium</option>
-                <option value="enterprise">Enterprise</option>
-              </select>
-            ) : (
-              <span className="text-sm capitalize">{plan.template_access || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Token Limit</label>
-            {editMode ? (
-              <input
-                type="number"
-                value={editData.token_limit || ''}
-                onChange={(e) => handleChange('token_limit', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.token_limit || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Carry Over Limit</label>
-            {editMode ? (
-              <input
-                type="number"
-                value={editData.carry_over_limit || ''}
-                onChange={(e) => handleChange('carry_over_limit', e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg"
-              />
-            ) : (
-              <span className="text-sm">{plan.carry_over_limit || 'N/A'}</span>
-            )}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium mb-1">Additional Limits</label>
-            <div className="bg-gray-50 rounded p-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span>Summaries:</span>
-                {editMode ? (
-                  <input
-                    type="number"
-                    value={editData.limits?.summaries || ''}
-                    onChange={(e) => handleChange('limits.summaries', e.target.value)}
-                    className="w-20 px-2 py-1 border rounded text-xs"
-                  />
-                ) : (
-                  <span>{plan.limits?.summaries || 'N/A'}</span>
-                )}
-              </div>
-              <div className="flex justify-between text-sm">
-                <span>Drafts:</span>
-                {editMode ? (
-                  <input
-                    type="number"
-                    value={editData.limits?.drafts || ''}
-                    onChange={(e) => handleChange('limits.drafts', e.target.value)}
-                    className="w-20 px-2 py-1 border rounded text-xs"
-                  />
-                ) : (
-                  <span>{plan.limits?.drafts || 'N/A'}</span>
-                )}
+              <div>
+                <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1.5">Billing Cycle</label>
+                <select value={form.interval} onChange={(e) => set('interval')(e.target.value)}
+                  className="w-full px-3 py-2.5 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all appearance-none">
+                  <option value="month">Monthly</option>
+                  <option value="year">Yearly</option>
+                  <option value="quarter">Quarterly</option>
+                </select>
               </div>
             </div>
           </div>
 
-          {plan.created_at && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Created At</label>
-              <span className="text-sm">{new Date(plan.created_at).toLocaleDateString()}</span>
-            </div>
-          )}
+          {/* Chat Model Limits */}
+          <DrawerSection
+            icon={MessageSquare}
+            color={{ bg: 'bg-blue-50', icon: 'text-blue-600', text: 'text-blue-800', border: 'border-blue-100', cardBorder: 'border-blue-100', headerBg: 'bg-blue-50/60' }}
+            title="Chat Model Limits"
+          >
+            <NumField label="Tokens / Day"         placeholder="e.g. 50000"  value={form.chat_token_limit}           onChange={set('chat_token_limit')} />
+            <NumField label="Messages / Hour"       placeholder="50"          value={form.chat_messages_per_hour}     onChange={set('chat_messages_per_hour')} />
+            <NumField label="Chats / Day"           placeholder="60"          value={form.chat_chats_per_day}         onChange={set('chat_chats_per_day')} />
+            <NumField label="Quota / Minute"        placeholder="10"          value={form.chat_quota_per_minute}      onChange={set('chat_quota_per_minute')} />
+            <NumField label="Max Doc Pages"         placeholder="300"         value={form.chat_max_document_pages}    onChange={set('chat_max_document_pages')} />
+            <NumField label="Max Doc Size (MB)"     placeholder="40"          value={form.chat_max_document_size_mb}  onChange={set('chat_max_document_size_mb')} />
+            <NumField label="Max Uploads / Day"     placeholder="15"          value={form.chat_max_file_upload_per_day} onChange={set('chat_max_file_upload_per_day')} />
+            <NumField label="Max Files / Request"   placeholder="8"           value={form.chat_max_upload_files}      onChange={set('chat_max_upload_files')} />
+          </DrawerSection>
 
-          {plan.updated_at && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Updated At</label>
-              <span className="text-sm">{new Date(plan.updated_at).toLocaleDateString()}</span>
-            </div>
-          )}
+          {/* Summarization Limits */}
+          <DrawerSection
+            icon={BookOpen}
+            color={{ bg: 'bg-emerald-50', icon: 'text-emerald-600', text: 'text-emerald-800', border: 'border-emerald-100', cardBorder: 'border-emerald-100', headerBg: 'bg-emerald-50/60' }}
+            title="Summarization Limits"
+          >
+            <NumField label="Tokens / Day"            placeholder="e.g. 100000"  value={form.summarization_token_limit}    onChange={set('summarization_token_limit')} />
+            <NumField label="Messages / Hour"          placeholder="60"           value={form.sum_messages_per_hour}        onChange={set('sum_messages_per_hour')} />
+            <NumField label="Chats / Day"              placeholder="80"           value={form.sum_chats_per_day}            onChange={set('sum_chats_per_day')} />
+            <NumField label="Quota / Minute"           placeholder="20"           value={form.sum_quota_per_minute}         onChange={set('sum_quota_per_minute')} />
+            <NumField label="Max Doc Pages"            placeholder="400"          value={form.sum_max_document_pages}       onChange={set('sum_max_document_pages')} />
+            <NumField label="Max Doc Size (MB)"        placeholder="40"           value={form.sum_max_document_size_mb}     onChange={set('sum_max_document_size_mb')} />
+            <NumField label="Max Uploads / Day"        placeholder="15"           value={form.sum_max_file_upload_per_day}  onChange={set('sum_max_file_upload_per_day')} />
+            <NumField label="Max Files / Request"      placeholder="10"           value={form.sum_max_upload_files}         onChange={set('sum_max_upload_files')} />
+            <NumField label="Max Context Documents"    placeholder="8"            value={form.sum_max_context_documents}    onChange={set('sum_max_context_documents')} />
+            <NumField label="Max Conv. History"        placeholder="25"           value={form.sum_max_conversation_history} onChange={set('sum_max_conversation_history')} />
+          </DrawerSection>
+        </form>
+
+        {/* Footer */}
+        <div className="shrink-0 flex gap-3 px-6 py-4 border-t border-slate-200 bg-slate-50/80">
+          <button type="button" onClick={onClose} disabled={saving}
+            className="flex-1 py-2.5 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors disabled:opacity-50">
+            Cancel
+          </button>
+          <button form="plan-form" type="submit" disabled={saving}
+            className="flex-1 py-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold flex items-center justify-center gap-2 transition-colors disabled:opacity-50 shadow-sm">
+            {saving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            {saving ? 'Saving…' : isEdit ? 'Save Changes' : 'Create Plan'}
+          </button>
         </div>
       </div>
-    </div>
+    </>
   );
 };
 
-// Main Component
-const SubscriptionManagement = () => {
-  const [plans, setPlans] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState('list');
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [editMode, setEditMode] = useState(false);
-  const [search, setSearch] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [apiLoading, setApiLoading] = useState(false);
-  
-  // Sweet Alert State
-  const [alert, setAlert] = useState({
-    isOpen: false,
-    title: '',
-    text: '',
-    type: 'info',
-    showCancel: false,
-    onConfirm: () => {}
+/* ─── Limit chip for expanded row ─── */
+const Chip = ({ icon: Icon, label, value, color }) => (
+  <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${color}`}>
+    <Icon className="w-3 h-3 shrink-0" />
+    <span className="opacity-70">{label}:</span>
+    <span className="font-semibold">{value != null ? Number(value).toLocaleString() : '—'}</span>
+  </div>
+);
+
+/* ─── API ─── */
+const api = {
+  base: `${API_BASE_URL}/admin/plans`,
+  async req(url, opts = {}) {
+    const res = await fetch(url, { ...opts, headers: { ...getAuthHeaders(), ...(opts.headers || {}) } });
+    let body = {};
+    try { body = await res.json(); } catch { /**/ }
+    if (!res.ok) throw new Error(body.message || body.error || `HTTP ${res.status}`);
+    return body;
+  },
+  fetchAll() { return this.req(this.base); },
+  create(data) { return this.req(this.base, { method: 'POST', body: JSON.stringify(data) }); },
+  update(id, data) { return this.req(`${this.base}/${id}`, { method: 'PUT', body: JSON.stringify(data) }); },
+  remove(id) { return this.req(`${this.base}/${id}`, { method: 'DELETE' }); },
+};
+
+const sortArr = (arr, key, dir) =>
+  [...arr].sort((a, b) => {
+    const va = a[key] ?? 0, vb = b[key] ?? 0;
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb));
+    return dir === 'asc' ? cmp : -cmp;
   });
 
-  const itemsPerPage = 5;
-
-  const showAlert = (config) => {
-    setAlert({
-      isOpen: true,
-      onConfirm: () => {
-        config.onConfirm?.();
-        setAlert(prev => ({ ...prev, isOpen: false }));
-      },
-      ...config
-    });
+function parseForm(form) {
+  const out = {
+    name:     form.name?.trim(),
+    type:     form.type || 'individual',
+    currency: form.currency || 'INR',
+    interval: form.interval || 'month',
+    price:    form.price !== '' && form.price != null ? parseFloat(form.price) : 0,
   };
+  const intKeys = Object.keys(EMPTY_FORM).filter((k) => !['name', 'type', 'price', 'currency', 'interval'].includes(k));
+  intKeys.forEach((k) => {
+    const v = form[k];
+    const n = v !== '' && v != null ? parseInt(v, 10) : null;
+    out[k] = Number.isFinite(n) ? n : null;
+  });
+  return out;
+}
 
-  const closeAlert = () => {
-    setAlert(prev => ({ ...prev, isOpen: false }));
-  };
+/* ─── Main component ─── */
+const SubscriptionManagement = () => {
+  const [plans, setPlans]             = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [saving, setSaving]           = useState(false);
+  const [deletingId, setDeletingId]   = useState(null);
+  const [search, setSearch]           = useState('');
+  const [sortKey, setSortKey]         = useState('name');
+  const [sortDir, setSortDir]         = useState('asc');
+  const [expandedId, setExpandedId]   = useState(null);
 
-  // Load plans
-  const loadPlans = async () => {
+  const [drawer, setDrawer]           = useState({ open: false, mode: 'add', plan: null });
+  const [delPlan, setDelPlan]         = useState(null);
+
+  const toast = useToast();
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await apiService.fetchPlans();
-      // Handle different response structures
-      const plansData = response.data || response;
-      setPlans(Array.isArray(plansData) ? plansData : []);
-    } catch (error) {
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Failed to load plans'
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
+      const res = await api.fetchAll();
+      setPlans(Array.isArray(res.data ?? res) ? (res.data ?? res) : []);
+    } catch (e) {
+      toast.add(e.message || 'Failed to load plans', 'error');
+    } finally { setLoading(false); }
+  }, []); // eslint-disable-line
 
-  useEffect(() => {
-    loadPlans();
-  }, []);
+  useEffect(() => { load(); }, [load]);
 
-  // Create plan
-  const handleCreate = async (data) => {
-    setApiLoading(true);
+  const openAdd    = () => setDrawer({ open: true, mode: 'add', plan: null });
+  const openEdit   = (plan) => setDrawer({ open: true, mode: 'edit', plan });
+  const closeDrawer = () => !saving && setDrawer((p) => ({ ...p, open: false }));
+
+  const handleSubmit = async (form) => {
+    const payload = parseForm(form);
+    if (!payload.name) { toast.add('Plan name is required.', 'warning'); return; }
+    if (payload.chat_token_limit == null) { toast.add('Chat token limit is required.', 'warning'); return; }
+    if (payload.summarization_token_limit == null) { toast.add('Summarization token limit is required.', 'warning'); return; }
+    setSaving(true);
     try {
-      await apiService.createPlan(data);
-      showAlert({
-        type: 'success',
-        title: 'Success!',
-        text: 'Plan created successfully'
-      });
-      setCurrentView('list');
-      loadPlans();
-    } catch (error) {
-      let errorMessage = 'Failed to create plan';
-      if (error.status === 409) {
-        errorMessage = 'A plan with this name or Razorpay Plan ID already exists.';
-      } else if (error.message) {
-        errorMessage = error.message;
+      if (drawer.mode === 'edit') {
+        await api.update(drawer.plan.id, payload);
+        toast.add(`"${payload.name}" updated.`, 'success');
+      } else {
+        await api.create(payload);
+        toast.add(`"${payload.name}" created.`, 'success');
       }
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: errorMessage
-      });
-    } finally {
-      setApiLoading(false);
-    }
+      closeDrawer();
+      await load();
+    } catch (e) {
+      toast.add(e.message || 'Operation failed.', 'error');
+    } finally { setSaving(false); }
   };
 
-  // View plan details
-  const handleView = async (plan) => {
+  const handleDelete = async () => {
+    if (!delPlan) return;
+    setDeletingId(delPlan.id);
     try {
-      const response = await apiService.getPlan(plan.id);
-      // Handle different response structures
-      const planData = response.data || response;
-      setSelectedPlan(planData);
-      setCurrentView('details');
-      setEditMode(false);
-    } catch (error) {
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Failed to load plan details'
-      });
-    }
+      await api.remove(delPlan.id);
+      toast.add(`"${delPlan.name}" deleted.`, 'success');
+      setDelPlan(null);
+      await load();
+    } catch (e) {
+      toast.add(e.message || 'Delete failed.', 'error');
+    } finally { setDeletingId(null); }
   };
 
-  // Update plan
-  const handleUpdate = async (data) => {
-    if (!selectedPlan || !selectedPlan.id) {
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: 'Plan ID is missing. Please refresh and try again.'
-      });
-      return;
-    }
-
-    setApiLoading(true);
-    try {
-      await apiService.updatePlan(selectedPlan.id, data);
-      showAlert({
-        type: 'success',
-        title: 'Success!',
-        text: 'Plan updated successfully'
-      });
-      setEditMode(false);
-      loadPlans();
-      // Refresh current plan
-      const response = await apiService.getPlan(selectedPlan.id);
-      const planData = response.data || response;
-      setSelectedPlan(planData);
-    } catch (error) {
-      let errorMessage = 'Failed to update plan';
-      if (error.status === 409) {
-        errorMessage = 'A plan with this name or Razorpay Plan ID already exists.';
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
-      showAlert({
-        type: 'error',
-        title: 'Error',
-        text: errorMessage
-      });
-    } finally {
-      setApiLoading(false);
-    }
+  const handleSort = (key) => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else { setSortKey(key); setSortDir('asc'); }
   };
 
-  // Delete plan
-  const handleDelete = (plan) => {
-    showAlert({
-      type: 'warning',
-      title: 'Are you sure?',
-      text: `This will permanently delete "${plan.name}" plan.`,
-      showCancel: true,
-      onConfirm: async () => {
-        setApiLoading(true);
-        try {
-          await apiService.deletePlan(plan.id);
-          showAlert({
-            type: 'success',
-            title: 'Deleted!',
-            text: 'Plan deleted successfully'
-          });
-          loadPlans();
-        } catch (error) {
-          showAlert({
-            type: 'error',
-            title: 'Error',
-            text: 'Failed to delete plan'
-          });
-        } finally {
-          setApiLoading(false);
-        }
-      }
-    });
-  };
-
-  // Filter and paginate
-  const filteredPlans = plans.filter(plan =>
-    plan.name?.toLowerCase().includes(search.toLowerCase()) ||
-    plan.description?.toLowerCase().includes(search.toLowerCase())
+  const SortIcon = ({ k }) => (
+    <span className="inline-flex flex-col ml-1 opacity-40">
+      <ChevronUp   className={`w-2.5 h-2.5 -mb-1 ${sortKey === k && sortDir === 'asc'  ? 'opacity-100 text-blue-600' : ''}`} />
+      <ChevronDown className={`w-2.5 h-2.5 ${sortKey === k && sortDir === 'desc' ? 'opacity-100 text-blue-600' : ''}`} />
+    </span>
   );
 
-  const totalPages = Math.ceil(filteredPlans.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const paginatedPlans = filteredPlans.slice(startIndex, startIndex + itemsPerPage);
+  const filtered = sortArr(
+    plans.filter((p) => p.name?.toLowerCase().includes(search.toLowerCase())),
+    sortKey, sortDir,
+  );
 
   if (loading) {
     return (
-      <div className="p-6 bg-white rounded-xl shadow-lg">
-        <div className="flex items-center justify-center h-64">
-          <div className="text-lg text-gray-600">Loading plans...</div>
-        </div>
+      <div className="p-6 space-y-4 animate-pulse">
+        <div className="h-8 bg-slate-100 rounded-xl w-64" />
+        <div className="h-4 bg-slate-100 rounded-xl w-96" />
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-14 bg-slate-100 rounded-xl" />
+        ))}
       </div>
     );
   }
 
   return (
-    <div className="p-6 bg-white rounded-xl shadow-lg">
-      <SweetAlert {...alert} onClose={closeAlert} />
-      
-      {currentView === 'create' && (
-        <PlanForm
-          onSave={handleCreate}
-          onCancel={() => setCurrentView('list')}
-          loading={apiLoading}
+    <>
+      <style>{`
+        @keyframes modalIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
+        @keyframes fadeIn   { from{opacity:0} to{opacity:1} }
+        @keyframes slideInRight { from{opacity:0;transform:translateX(100%)} to{opacity:1;transform:translateX(0)} }
+        .animate-slide-in-right { animation: slideInRight 0.25s ease-out; }
+      `}</style>
+
+      <Toast toasts={toast.toasts} remove={toast.remove} />
+
+      {delPlan && (
+        <DeleteModal
+          plan={delPlan}
+          onClose={() => setDelPlan(null)}
+          onConfirm={handleDelete}
+          loading={!!deletingId}
         />
       )}
 
-      {currentView === 'details' && (
-        <PlanDetails
-          plan={selectedPlan}
-          onEdit={setEditMode}
-          onBack={() => setCurrentView('list')}
-          onSave={handleUpdate}
-          editMode={editMode}
-          loading={apiLoading}
-        />
-      )}
+      <PlanDrawer
+        isOpen={drawer.open} mode={drawer.mode} plan={drawer.plan}
+        onClose={closeDrawer} onSubmit={handleSubmit} saving={saving}
+      />
 
-      {currentView === 'list' && (
-        <>
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-semibold flex items-center">
-              <CreditCard className="mr-3" />
-              Subscription Management
-            </h2>
-            <div className="flex items-center space-x-4">
-              <div className="flex items-center space-x-2">
-                <Filter className="w-5 h-5 text-gray-600" />
-                <input
-                  type="text"
-                  placeholder="Search plans..."
-                  value={search}
-                  onChange={(e) => {
-                    setSearch(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
-                />
+      <div className="p-6 space-y-6">
+
+        {/* ── Header ── */}
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div className="flex items-center gap-2.5 mb-1">
+              <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm">
+                <CreditCard className="w-5 h-5 text-white" />
               </div>
-              <button
-                onClick={() => setCurrentView('create')}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center"
-              >
-                <PlusCircle className="w-4 h-4 mr-2" />
-                Add Plan
-              </button>
+              <h1 className="text-xl font-bold text-slate-800">Subscription Plans</h1>
             </div>
+            <p className="text-sm text-slate-500 ml-11">
+              Each plan carries its own Chat Model and Summarization limits.
+            </p>
+          </div>
+          <button onClick={openAdd}
+            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors">
+            <Plus className="w-4 h-4" /> Add Plan
+          </button>
+        </div>
+
+        {/* ── Table ── */}
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+
+          {/* Toolbar */}
+          <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100">
+            <div className="relative flex-1 max-w-xs">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+              <input type="text" value={search} onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search plans…"
+                className="w-full pl-8 pr-3 py-2 text-sm bg-white border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-500 hover:border-slate-300 transition-all"
+              />
+            </div>
+            <button onClick={load} title="Refresh"
+              className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+              <RefreshCw className="w-4 h-4" />
+            </button>
+            <span className="text-xs text-slate-400 hidden sm:block">{filtered.length} plan{filtered.length !== 1 ? 's' : ''}</span>
           </div>
 
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white border rounded-lg">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Name</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Price</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Interval</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Doc Limit</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">AI Limit</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Storage (GB)</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Drafting Type</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Razorpay ID</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase">Actions</th>
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="w-4 px-3 py-3" />
+                  {[
+                    { key: 'id',   label: 'ID',        cls: 'w-14' },
+                    { key: 'name', label: 'Plan Name',  cls: '' },
+                    { key: 'price', label: 'Price',     cls: 'text-right' },
+                    { key: 'chat_token_limit',          label: 'Chat Tokens / Day',  cls: 'text-right' },
+                    { key: 'summarization_token_limit', label: 'Sum Tokens / Day',   cls: 'text-right' },
+                    { key: null,   label: 'Actions',    cls: 'text-right w-24' },
+                  ].map(({ key, label, cls }) => (
+                    <th key={label} onClick={() => key && handleSort(key)}
+                      className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide select-none ${cls} ${key ? 'cursor-pointer hover:text-slate-700' : ''}`}>
+                      {label}{key && <SortIcon k={key} />}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
-                {paginatedPlans.map((plan) => (
-                  <tr key={plan.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-sm">#{plan.id}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-1 rounded text-xs font-semibold ${
-                        plan.name === 'Basic' ? 'bg-blue-50 text-blue-600' :
-                        plan.name === 'Pro' ? 'bg-green-50 text-green-600' :
-                        plan.name === 'Enterprise' ? 'bg-purple-50 text-purple-600' :
-                        'bg-gray-50 text-gray-600'
-                      }`}>
-                        {plan.name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm flex items-center">
-                      <IndianRupee className="w-4 h-4 mr-1" />
-                      {typeof plan.price === 'number' ? plan.price.toFixed(2) : parseFloat(plan.price)?.toFixed(2)}
-                      <span className="ml-1 text-xs text-gray-500">{plan.currency}</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm capitalize">{plan.type}</td>
-                    <td className="px-4 py-3 text-sm capitalize">{plan.interval}</td>
-                    <td className="px-4 py-3 text-sm">{plan.document_limit || 'N/A'}</td>
-                    <td className="px-4 py-3 text-sm">{plan.ai_analysis_limit || 'N/A'}</td>
-                    <td className="px-4 py-3 text-sm">{plan.storage_limit_gb || 'N/A'}</td>
-                    <td className="px-4 py-3 text-sm capitalize">{plan.drafting_type || 'N/A'}</td>
-                    <td className="px-4 py-3 text-sm">{plan.razorpay_plan_id || 'N/A'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex space-x-2">
-                        <button
-                          onClick={() => handleView(plan)}
-                          className="p-1 border rounded hover:bg-gray-50"
-                          title="View Details"
-                        >
-                          <Eye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(plan)}
-                          className="p-1 border border-red-300 text-red-600 rounded hover:bg-red-50"
-                          disabled={apiLoading}
-                          title="Delete Plan"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+              <tbody>
+                {filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-5 py-16 text-center">
+                      <div className="flex flex-col items-center gap-2 text-slate-400">
+                        <CreditCard className="w-10 h-10 opacity-30" />
+                        <p className="text-sm font-medium">
+                          {search ? 'No plans match your search.' : 'No plans yet.'}
+                        </p>
+                        {!search && (
+                          <button onClick={openAdd}
+                            className="mt-1 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">
+                            Add First Plan
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
-                {paginatedPlans.length === 0 && (
-                  <tr>
-                    <td colSpan="11" className="px-4 py-8 text-center text-gray-500">
-                      No plans found
-                    </td>
-                  </tr>
-                )}
+                ) : filtered.map((plan) => {
+                  const isExpanded = expandedId === plan.id;
+                  return (
+                    <React.Fragment key={plan.id}>
+                      <tr className={`hover:bg-blue-50/40 transition-colors border-b border-slate-100 ${isExpanded ? 'bg-blue-50/30' : ''}`}>
+                        {/* Expand toggle */}
+                        <td className="px-3 py-3">
+                          <button onClick={() => setExpandedId(isExpanded ? null : plan.id)}
+                            className="p-1 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                            {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                          </button>
+                        </td>
+                        <td className="px-4 py-3 text-xs text-slate-400 font-mono">#{plan.id}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold border ${planTypeColor(plan.type)}`}>
+                              <CreditCard className="w-3 h-3" />{plan.name}
+                            </span>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold border self-start capitalize ${planTypeColor(plan.type)} opacity-80`}>
+                              {PLAN_TYPES.find((t) => t.value === plan.type)?.label ?? plan.type ?? 'Individual'}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {plan.price != null && Number(plan.price) > 0 ? (
+                            <span className="inline-flex items-center gap-1 text-violet-700 font-semibold text-sm">
+                              <DollarSign className="w-3 h-3" />
+                              {Number(plan.price).toLocaleString()} {plan.currency || 'INR'}
+                              <span className="text-xs font-normal text-slate-400">/ {plan.interval || 'mo'}</span>
+                            </span>
+                          ) : (
+                            <span className="text-slate-300 text-sm">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex items-center gap-1 text-blue-700 font-semibold text-sm">
+                            <MessageSquare className="w-3 h-3" />
+                            {plan.chat_token_limit != null ? Number(plan.chat_token_limit).toLocaleString() : '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex items-center gap-1 text-emerald-700 font-semibold text-sm">
+                            <BookOpen className="w-3 h-3" />
+                            {plan.summarization_token_limit != null ? Number(plan.summarization_token_limit).toLocaleString() : '—'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button onClick={() => openEdit(plan)} title="Edit"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => setDelPlan(plan)} title="Delete"
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Expanded detail row */}
+                      {isExpanded && (
+                        <tr className="bg-gradient-to-r from-blue-50/60 to-emerald-50/60 border-b border-slate-100">
+                          <td colSpan={7} className="px-6 py-4">
+                            {/* Type + Pricing summary */}
+                            <div className="flex items-center gap-2 mb-3 flex-wrap">
+                              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-semibold capitalize ${planTypeColor(plan.type)}`}>
+                                {PLAN_TYPES.find((t) => t.value === plan.type)?.label ?? plan.type ?? 'Individual'}
+                              </span>
+                              {plan.price != null && Number(plan.price) > 0 && (
+                                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-violet-100 bg-violet-50 text-xs font-semibold text-violet-800">
+                                  <DollarSign className="w-3 h-3" />
+                                  {Number(plan.price).toLocaleString()} {plan.currency || 'INR'} / {plan.interval || 'month'}
+                                </span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              {/* Chat limits */}
+                              <div>
+                                <p className="text-xs font-semibold text-blue-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                  <MessageSquare className="w-3.5 h-3.5" /> Chat Model Limits
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  <Chip icon={Activity}  label="Tokens/day"  value={plan.chat_token_limit}             color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={Clock}     label="Msg/hr"       value={plan.chat_messages_per_hour}       color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={Users}     label="Chats/day"    value={plan.chat_chats_per_day}           color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={BarChart2} label="Quota/min"    value={plan.chat_quota_per_minute}        color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={FileText}  label="Max pages"    value={plan.chat_max_document_pages}      color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={FileText}  label="Max doc MB"   value={plan.chat_max_document_size_mb}    color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={Upload}    label="Uploads/day"  value={plan.chat_max_file_upload_per_day} color="bg-blue-50 border-blue-100 text-blue-800" />
+                                  <Chip icon={Hash}      label="Files/req"    value={plan.chat_max_upload_files}        color="bg-blue-50 border-blue-100 text-blue-800" />
+                                </div>
+                              </div>
+                              {/* Summarization limits */}
+                              <div>
+                                <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                  <BookOpen className="w-3.5 h-3.5" /> Summarization Limits
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  <Chip icon={Activity}      label="Tokens/day"   value={plan.summarization_token_limit}    color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={Clock}         label="Msg/hr"        value={plan.sum_messages_per_hour}        color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={Users}         label="Chats/day"     value={plan.sum_chats_per_day}            color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={BarChart2}     label="Quota/min"     value={plan.sum_quota_per_minute}         color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={FileText}      label="Max pages"     value={plan.sum_max_document_pages}       color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={FileText}      label="Max doc MB"    value={plan.sum_max_document_size_mb}     color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={Upload}        label="Uploads/day"   value={plan.sum_max_file_upload_per_day}  color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={Hash}          label="Files/req"     value={plan.sum_max_upload_files}         color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={FileText}      label="Context docs"  value={plan.sum_max_context_documents}    color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                  <Chip icon={MessageSquare} label="Conv. hist"    value={plan.sum_max_conversation_history} color="bg-emerald-50 border-emerald-100 text-emerald-800" />
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-
-          {filteredPlans.length > 0 && (
-            <div className="flex items-center justify-between mt-6">
-              <div className="text-sm text-gray-700">
-                Showing {startIndex + 1} to {Math.min(startIndex + itemsPerPage, filteredPlans.length)} of {filteredPlans.length} entries
-              </div>
-              
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setCurrentPage(currentPage - 1)}
-                  disabled={currentPage === 1}
-                  className={`flex items-center px-3 py-2 text-sm border rounded-lg ${
-                    currentPage === 1
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  <ChevronLeft className="w-4 h-4 mr-1" />
-                  Previous
-                </button>
-                
-                <div className="flex space-x-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-2 text-sm border rounded-lg ${
-                        currentPage === page
-                          ? 'bg-blue-50 border-blue-500 text-blue-600'
-                          : 'text-gray-700 hover:bg-gray-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  ))}
-                </div>
-                
-                <button
-                  onClick={() => setCurrentPage(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                  className={`flex items-center px-3 py-2 text-sm border rounded-lg ${
-                    currentPage === totalPages
-                      ? 'text-gray-400 cursor-not-allowed'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  Next
-                  <ChevronRight className="w-4 h-4 ml-1" />
-                </button>
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </div>
+        </div>
+      </div>
+    </>
   );
 };
 

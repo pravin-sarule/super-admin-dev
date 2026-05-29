@@ -315,12 +315,80 @@ const updateModelParameters = async (req, res) => {
   }
 };
 
+// Delete an LLM max token entry
+const deleteMaxTokenEntry = async (req, res) => {
+  const { id } = req.params;
+
+  if (!id || Number.isNaN(Number(id))) {
+    return res.status(400).json({ message: 'Valid entry id is required' });
+  }
+
+  try {
+    const result = await pool.query('DELETE FROM llm_max_tokens WHERE id = $1 RETURNING *', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'LLM max token entry not found' });
+    }
+    res.status(200).json({
+      message: 'LLM max token entry deleted successfully',
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error('Error deleting LLM max token entry:', error.message);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+// Delete an LLM model (and related max-token rows; parameters cascade)
+const deleteLLMModel = async (req, res) => {
+  const modelId = parseInt(req.params.id, 10);
+  if (Number.isNaN(modelId) || modelId <= 0) {
+    return res.status(400).json({ message: 'Valid model id is required' });
+  }
+
+  try {
+    const modelResult = await pool.query('SELECT id, name FROM llm_models WHERE id = $1', [modelId]);
+    if (modelResult.rows.length === 0) {
+      return res.status(404).json({ message: 'LLM model not found' });
+    }
+
+    const secrets = await pool.query(
+      'SELECT COUNT(*)::int AS count FROM secret_manager WHERE llm_id = $1',
+      [modelId]
+    );
+    const promptCount = secrets.rows[0]?.count ?? 0;
+    if (promptCount > 0) {
+      return res.status(409).json({
+        message: `Cannot delete "${modelResult.rows[0].name}": ${promptCount} prompt(s) still use this model. Update or remove those prompts first.`,
+        prompts_using: promptCount,
+      });
+    }
+
+    await pool.query('DELETE FROM llm_max_tokens WHERE model_id = $1', [modelId]);
+    const deleted = await pool.query('DELETE FROM llm_models WHERE id = $1 RETURNING *', [modelId]);
+
+    res.status(200).json({
+      message: 'LLM model deleted successfully',
+      model: deleted.rows[0],
+    });
+  } catch (error) {
+    console.error('Error deleting LLM model:', error.message);
+    if (error.code === '23503') {
+      return res.status(409).json({
+        message: 'This LLM model is still referenced elsewhere and cannot be deleted.',
+      });
+    }
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   getAllLLMModels,
   addLLMModel,
+  deleteLLMModel,
   createMaxTokenEntry,
   getAllMaxTokenEntries,
   updateMaxTokenEntry,
+  deleteMaxTokenEntry,
   getModelParameters,
   updateModelParameters,
 };

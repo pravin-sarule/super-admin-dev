@@ -65,14 +65,22 @@ module.exports = (docDB) => {
   // Destructure all controller functions
   const {
     getAllSecrets,
+    getPlansForPromptManagement,
+    getPromptDailyTokenLimit,
     createSecret,
     fetchSecretValueById,
     updateSecret,
-    deleteSecret
+    deleteSecret,
   } = secretManagerController;
 
   // 🔍 GET /api/secrets → list all secrets (use ?fetch=true to include secret values)
   router.get('/', getAllSecrets);
+
+  // 📋 GET /api/secrets/plans → subscription plans from payment service (for plan dropdown)
+  router.get('/plans', getPlansForPromptManagement);
+
+  // 📊 GET /api/secrets/:id/daily-token-limit → per-day token cap from assigned plan
+  router.get('/:id/daily-token-limit', getPromptDailyTokenLimit);
 
   // 🔐 GET /api/secrets/:id → fetch single secret by ID (includes its value and template files)
   router.get('/:id', fetchSecretValueById);

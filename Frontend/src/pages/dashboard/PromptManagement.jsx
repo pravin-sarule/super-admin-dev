@@ -3213,11 +3213,11 @@
 
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, Edit, Save, FileText, Key, Code, Hash, Filter, ChevronLeft, ChevronRight, Trash2, Copy, Calendar, User, PlusCircle, X, Lock, Unlock } from 'lucide-react';
+import { Eye, Edit, Save, FileText, Key, Code, Hash, Filter, ChevronLeft, ChevronRight, Trash2, Copy, Calendar, User, PlusCircle, X, Lock, Unlock, Tag, CreditCard } from 'lucide-react';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
-import { API_BASE_URL as API_ROOT } from '../../config';
+import { API_BASE_URL as API_ROOT, getAuthHeaders } from '../../config';
 
 // Helper function to decode JWT token
 const decodeToken = (token) => {
@@ -3258,6 +3258,8 @@ const PromptManagement = () => {
     llm_id: null,
     chunking_method_id: null,
     temperature: null,
+    role_id: '',
+    plan_id: '',
   });
   const [inputPdfFile, setInputPdfFile] = useState(null);
   const [outputPdfFile, setOutputPdfFile] = useState(null);
@@ -3269,10 +3271,20 @@ const PromptManagement = () => {
   const [rawResponseTitle, setRawResponseTitle] = useState('');
   const [showMappedSchema, setShowMappedSchema] = useState(true);
 
+  const [appRoles, setAppRoles] = useState([]);
+  const [showCreateRoleModal, setShowCreateRoleModal] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleDescription, setNewRoleDescription] = useState('');
+  const [roleLoading, setRoleLoading] = useState(false);
+
+  const [subscriptionPlans, setSubscriptionPlans] = useState([]);
+
   const [llmModels, setLlmModels] = useState([]);
   const [showCreateLlmModal, setShowCreateLlmModal] = useState(false);
+  const [showManageLlmModal, setShowManageLlmModal] = useState(false);
   const [newLlmName, setNewLlmName] = useState('');
   const [llmLoading, setLlmLoading] = useState(false);
+  const [llmDeleteLoading, setLlmDeleteLoading] = useState({});
 
   const [chunkingMethods, setChunkingMethods] = useState([]);
   const [showCreateChunkingModal, setShowCreateChunkingModal] = useState(false);
@@ -3294,6 +3306,28 @@ const PromptManagement = () => {
   const API_BASE_URL = `${API_ROOT}/secrets`;
   const LLM_API_BASE_URL = `${API_ROOT}/llm`;
   const CHUNKING_API_BASE_URL = `${API_ROOT}/chunking-methods`;
+  const APP_ROLES_API_URL = `${API_ROOT}/app-roles`;
+  /** Same plans as Subscription Management (payment DB) */
+  const PLANS_API_URL = `${API_ROOT}/admin/plans`;
+  const PLANS_FALLBACK_URL = `${API_ROOT}/secrets/plans`;
+
+  const formatDailyTokens = (n) => {
+    if (n == null || n === '') return null;
+    const num = Number(n);
+    return Number.isNaN(num) ? null : num.toLocaleString();
+  };
+
+  const planNameById = (planId) => {
+    if (!planId) return null;
+    const p = subscriptionPlans.find((x) => x.id === planId || x.id === parseInt(planId, 10));
+    return p?.name || null;
+  };
+
+  const planDailyLimitById = (planId) => {
+    if (!planId) return null;
+    const p = subscriptionPlans.find((x) => x.id === planId || x.id === parseInt(planId, 10));
+    return p?.token_limit ?? p?.daily_token_limit ?? null;
+  };
 
   // Get user info from token
   useEffect(() => {
@@ -3377,6 +3411,10 @@ const PromptManagement = () => {
           llm_id: prompt.llm_id || null,
           chunking_method_id: chunkingMethodId,
           temperature: prompt.temperature !== null && prompt.temperature !== undefined ? parseFloat(prompt.temperature) : null,
+          role_id: prompt.role_id || null,
+          plan_id: prompt.plan_id || null,
+          plan_info: prompt.plan_info || null,
+          daily_token_limit: prompt.daily_token_limit ?? prompt.plan_info?.token_limit ?? null,
         };
       });
       
@@ -3402,8 +3440,41 @@ const PromptManagement = () => {
       fetchPrompts();
       fetchLlmModels();
       fetchChunkingMethods();
+      fetchAppRoles();
+      fetchSubscriptionPlans();
     }
   }, [userInfo]);
+
+  const fetchSubscriptionPlans = async () => {
+    const parsePlansResponse = (data) => {
+      if (data?.success && Array.isArray(data.data)) return data.data;
+      if (Array.isArray(data?.data)) return data.data;
+      if (Array.isArray(data)) return data;
+      return [];
+    };
+
+    try {
+      const res = await axios.get(PLANS_API_URL, { headers: getAuthHeaders() });
+      setSubscriptionPlans(parsePlansResponse(res.data));
+      return;
+    } catch (primaryErr) {
+      console.warn('Plans from /admin/plans failed, trying fallback:', primaryErr.message);
+    }
+
+    try {
+      const res = await axios.get(PLANS_FALLBACK_URL, { headers: getAuthHeaders() });
+      setSubscriptionPlans(parsePlansResponse(res.data));
+    } catch (err) {
+      console.error('Error fetching subscription plans:', err);
+      setSubscriptionPlans([]);
+    }
+  };
+
+  useEffect(() => {
+    if (showCreateForm || editMode) {
+      fetchSubscriptionPlans();
+    }
+  }, [showCreateForm, editMode]);
 
   // Debug effect to monitor state changes
   useEffect(() => {
@@ -3499,6 +3570,49 @@ const PromptManagement = () => {
     }
   };
 
+  // Fetch app roles from main DB (roles table)
+  const fetchAppRoles = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(APP_ROLES_API_URL, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      if (response.data.success) {
+        const active = (response.data.data || []).filter((r) => r.is_active !== false);
+        setAppRoles(active);
+      }
+    } catch (err) {
+      console.error('Error fetching app roles:', err);
+      // non-fatal — roles dropdown will be empty
+    }
+  };
+
+  // Create new Role
+  const handleCreateRole = async () => {
+    if (!newRoleName.trim()) {
+      MySwal.fire({ icon: 'warning', title: 'Validation Error', text: 'Please enter a role name.', confirmButtonColor: '#3085d6' });
+      return;
+    }
+    setRoleLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.post(
+        APP_ROLES_API_URL,
+        { name: newRoleName.trim(), description: newRoleDescription.trim() },
+        { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+      );
+      MySwal.fire({ icon: 'success', title: 'Success!', text: 'Role created successfully.', confirmButtonColor: '#3085d6', timer: 2000 });
+      setNewRoleName('');
+      setNewRoleDescription('');
+      setShowCreateRoleModal(false);
+      fetchAppRoles();
+    } catch (err) {
+      MySwal.fire({ icon: 'error', title: 'Error!', text: err.response?.data?.message || 'Failed to create role.', confirmButtonColor: '#3085d6' });
+    } finally {
+      setRoleLoading(false);
+    }
+  };
+
   // Create new LLM Model
   const handleCreateLlm = async () => {
     if (!newLlmName.trim()) {
@@ -3546,6 +3660,37 @@ const PromptManagement = () => {
       });
     } finally {
       setLlmLoading(false);
+    }
+  };
+
+  const handleDeleteLlm = async (llm) => {
+    const result = await MySwal.fire({
+      title: `Delete "${llm.name}"?`,
+      text: 'This permanently removes the LLM model. Prompts using it must be updated first.',
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#d33',
+      confirmButtonText: 'Delete',
+    });
+    if (!result.isConfirmed) return;
+
+    setLlmDeleteLoading((p) => ({ ...p, [llm.id]: true }));
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`${LLM_API_BASE_URL}/${llm.id}`, {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      setLlmModels((prev) => prev.filter((m) => m.id !== llm.id));
+      MySwal.fire({ icon: 'success', title: 'Deleted!', text: `"${llm.name}" was removed.`, timer: 2000, confirmButtonColor: '#3085d6' });
+    } catch (err) {
+      MySwal.fire({
+        icon: 'error',
+        title: 'Cannot delete',
+        text: err.response?.data?.message || 'Failed to delete LLM model.',
+        confirmButtonColor: '#3085d6',
+      });
+    } finally {
+      setLlmDeleteLoading((p) => ({ ...p, [llm.id]: false }));
     }
   };
 
@@ -3704,7 +3849,11 @@ const PromptManagement = () => {
       } else {
         updateData.temperature = null;
       }
-      
+
+      // Add role_id
+      updateData.role_id = editedPrompt.role_id || null;
+      updateData.plan_id = editedPrompt.plan_id ? parseInt(editedPrompt.plan_id, 10) : null;
+
       // Add secret_value only if it exists and has been loaded
       if (editedPrompt.value) {
         updateData.secret_value = editedPrompt.value;
@@ -3848,7 +3997,15 @@ const PromptManagement = () => {
       if (newPrompt.temperature !== null && newPrompt.temperature !== undefined && newPrompt.temperature !== '') {
         formData.append('temperature', parseFloat(newPrompt.temperature));
       }
-      
+
+      if (newPrompt.role_id) {
+        formData.append('role_id', newPrompt.role_id);
+      }
+
+      if (newPrompt.plan_id) {
+        formData.append('plan_id', parseInt(newPrompt.plan_id, 10));
+      }
+
       if (inputPdfFile && outputPdfFile) {
         formData.append('input_pdf', inputPdfFile);
         formData.append('output_pdf', outputPdfFile);
@@ -3893,6 +4050,8 @@ const PromptManagement = () => {
         llm_id: null,
         chunking_method_id: null,
         temperature: null,
+        role_id: '',
+        plan_id: '',
       });
       setInputPdfFile(null);
       setOutputPdfFile(null);
@@ -4059,11 +4218,25 @@ const PromptManagement = () => {
                   Add LLM Model
                 </button>
                 <button
+                  onClick={() => setShowManageLlmModal(true)}
+                  className="inline-flex items-center px-4 py-2.5 border border-gray-300 text-sm font-semibold rounded-lg text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-sm"
+                >
+                  <Edit className="w-5 h-5 mr-2" />
+                  Manage LLMs
+                </button>
+                <button
                   onClick={() => setShowCreateChunkingModal(true)}
                   className="inline-flex items-center px-4 py-2.5 border border-transparent text-sm font-semibold rounded-lg text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all shadow-md hover:shadow-lg"
                 >
                   <PlusCircle className="w-5 h-5 mr-2" />
                   Add Chunking Method
+                </button>
+                <button
+                  onClick={() => setShowCreateRoleModal(true)}
+                  className="inline-flex items-center px-4 py-2.5 border border-transparent text-sm font-semibold rounded-lg text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all shadow-md hover:shadow-lg"
+                >
+                  <PlusCircle className="w-5 h-5 mr-2" />
+                  Add Role
                 </button>
               </div>
               
@@ -4114,6 +4287,53 @@ const PromptManagement = () => {
               >
                 🔍 Debug
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Manage LLMs Modal */}
+        {showManageLlmModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full p-6 max-h-[80vh] flex flex-col">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-gray-800">Manage LLM Models</h3>
+                <button
+                  onClick={() => setShowManageLlmModal(false)}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="overflow-y-auto flex-1 -mx-1 px-1">
+                {llmModels.length === 0 ? (
+                  <p className="text-sm text-gray-500 py-8 text-center">No LLM models found.</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100">
+                    {llmModels.map((llm) => (
+                      <li key={llm.id} className="flex items-center justify-between py-3 gap-3">
+                        <span className="text-sm font-semibold text-gray-800">{llm.name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLlm(llm)}
+                          disabled={llmDeleteLoading[llm.id]}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-200 text-red-700 text-xs font-semibold hover:bg-red-50 disabled:opacity-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          {llmDeleteLoading[llm.id] ? 'Deleting…' : 'Delete'}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              <div className="pt-4 mt-2 border-t border-gray-100">
+                <button
+                  onClick={() => { setShowManageLlmModal(false); setShowCreateLlmModal(true); }}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  + Add new LLM model
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -4226,6 +4446,84 @@ const PromptManagement = () => {
           </div>
         )}
 
+        {/* Create Role Modal */}
+        {showCreateRoleModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                  <Tag className="w-5 h-5 text-indigo-600" />
+                  Create New Role
+                </h3>
+                <button
+                  onClick={() => { setShowCreateRoleModal(false); setNewRoleName(''); setNewRoleDescription(''); }}
+                  className="text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Role Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    placeholder="e.g., Trainee, Senior Associate, Partner"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    onKeyDown={(e) => e.key === 'Enter' && handleCreateRole()}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newRoleDescription}
+                    onChange={(e) => setNewRoleDescription(e.target.value)}
+                    placeholder="Brief description of this role"
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  />
+                </div>
+
+                {appRoles.length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 mb-2">Existing roles:</p>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {appRoles.map((r) => (
+                        <span key={r.id} className={`px-2 py-0.5 rounded text-xs font-medium ${r.is_system ? 'bg-amber-100 text-amber-800' : 'bg-indigo-100 text-indigo-800'}`}>
+                          {r.name}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={handleCreateRole}
+                    disabled={roleLoading}
+                    className="flex-1 px-4 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {roleLoading ? 'Creating...' : 'Create Role'}
+                  </button>
+                  <button
+                    onClick={() => { setShowCreateRoleModal(false); setNewRoleName(''); setNewRoleDescription(''); }}
+                    className="flex-1 px-4 py-2.5 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-semibold transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Create Form */}
         {showCreateForm && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
@@ -4244,6 +4542,9 @@ const PromptManagement = () => {
                     status: 'active',
                     llm_id: null,
                     chunking_method_id: null,
+                    temperature: null,
+                    role_id: '',
+                    plan_id: '',
                   });
                 }}
                 className="text-gray-400 hover:text-gray-600 transition-colors"
@@ -4360,6 +4661,77 @@ const PromptManagement = () => {
                 </p>
               </div>
 
+              {/* Assign Role */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <Tag className="w-4 h-4" /> Assign Role
+                </label>
+                <div className="flex gap-2">
+                  <select
+                    value={newPrompt.role_id || ''}
+                    onChange={(e) => setNewPrompt({ ...newPrompt, role_id: e.target.value || null })}
+                    className="flex-1 px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">— No role assigned —</option>
+                    {appRoles.map((role) => (
+                      <option key={role.id} value={role.id}>
+                        {role.name}{role.description ? ` — ${role.description}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateRoleModal(true)}
+                    className="flex-shrink-0 inline-flex items-center px-3 py-2.5 border border-indigo-300 text-sm font-semibold rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                    title="Add new role"
+                  >
+                    <PlusCircle className="w-4 h-4 mr-1" />
+                    New
+                  </button>
+                </div>
+                {appRoles.length === 0 && (
+                  <p className="text-xs text-gray-400 mt-1">No roles yet — click <strong>New</strong> to create one.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center gap-1">
+                  <CreditCard className="w-4 h-4" />
+                  Subscription Plan <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={newPrompt.plan_id || ''}
+                  onChange={(e) => setNewPrompt({ ...newPrompt, plan_id: e.target.value || '' })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                >
+                  <option value="">— No plan —</option>
+                  {subscriptionPlans.map((plan) => (
+                    <option key={plan.id} value={plan.id}>
+                      {plan.name} — {formatDailyTokens(plan.token_limit ?? plan.daily_token_limit)} tokens/day
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {subscriptionPlans.length === 0
+                    ? 'No plans yet — create plans under Subscription Management first, then refresh this form.'
+                    : 'Plans from Subscription Management. Token limit is the per-day cap.'}
+                </p>
+                {subscriptionPlans.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={fetchSubscriptionPlans}
+                    className="text-xs text-blue-600 hover:underline mt-1"
+                  >
+                    Refresh plan list
+                  </button>
+                )}
+                {newPrompt.plan_id && planDailyLimitById(newPrompt.plan_id) != null && (
+                  <p className="text-xs text-emerald-700 mt-1 font-medium">
+                    Daily token limit: {formatDailyTokens(planDailyLimitById(newPrompt.plan_id))}
+                  </p>
+                )}
+              </div>
+
               <div className="md:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Description
@@ -4451,6 +4823,8 @@ const PromptManagement = () => {
                     llm_id: null,
                     chunking_method_id: null,
                     temperature: null,
+                    role_id: '',
+                    plan_id: '',
                   });
                   setInputPdfFile(null);
                   setOutputPdfFile(null);
@@ -4492,6 +4866,15 @@ const PromptManagement = () => {
                       Chunking Method
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Role
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <div className="flex items-center">
+                        <CreditCard className="w-4 h-4 mr-2" />
+                        Plan / Daily limit
+                      </div>
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Usage
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -4502,7 +4885,7 @@ const PromptManagement = () => {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {loading ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td colSpan="9" className="px-6 py-12 text-center">
                         <div className="flex flex-col items-center justify-center">
                           <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-blue-600 mb-4"></div>
                           <p className="text-gray-600 font-medium">Loading prompts...</p>
@@ -4511,7 +4894,7 @@ const PromptManagement = () => {
                     </tr>
                   ) : paginatedPrompts.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td colSpan="9" className="px-6 py-12 text-center">
                         <FileText className="w-16 h-16 text-gray-300 mx-auto mb-4" />
                         <p className="text-gray-500 font-medium text-lg">No prompts found</p>
                         <p className="text-gray-400 text-sm mt-2">
@@ -4555,6 +4938,31 @@ const PromptManagement = () => {
                                 'null'}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {prompt.role_id ? (
+                            <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium capitalize">
+                              {appRoles.find(r => r.id === prompt.role_id)?.name || prompt.role_id.substring(0, 8) + '…'}
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                          {prompt.plan_id || prompt.plan_info ? (
+                            <div>
+                              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs font-medium">
+                                {prompt.plan_info?.name || planNameById(prompt.plan_id) || `Plan #${prompt.plan_id}`}
+                              </span>
+                              {(prompt.daily_token_limit != null || prompt.plan_info?.token_limit != null) && (
+                                <div className="text-xs text-emerald-700 mt-0.5">
+                                  {formatDailyTokens(prompt.daily_token_limit ?? prompt.plan_info?.token_limit)} / day
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-xs">—</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
                           {prompt.usageCount} uses
@@ -4827,10 +5235,94 @@ const PromptManagement = () => {
                     </div>
                   ) : (
                     <p className="text-sm text-gray-900">
-                      {selectedPrompt.temperature !== null && selectedPrompt.temperature !== undefined 
-                        ? selectedPrompt.temperature 
+                      {selectedPrompt.temperature !== null && selectedPrompt.temperature !== undefined
+                        ? selectedPrompt.temperature
                         : 'Not set'}
                     </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                    <Tag className="w-4 h-4" /> Assigned Role
+                  </label>
+                  {editMode ? (
+                    <div className="flex gap-2 mt-1">
+                      <select
+                        value={editedPrompt.role_id || ''}
+                        onChange={(e) => handleInputChange('role_id', e.target.value || null)}
+                        className="flex-1 block px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 font-medium"
+                      >
+                        <option value="">— No role assigned —</option>
+                        {appRoles.map((role) => (
+                          <option key={role.id} value={role.id}>
+                            {role.name}{role.description ? ` — ${role.description}` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setShowCreateRoleModal(true)}
+                        className="flex-shrink-0 inline-flex items-center px-3 py-2 border border-indigo-300 text-sm font-semibold rounded-lg text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+                        title="Add new role"
+                      >
+                        <PlusCircle className="w-4 h-4 mr-1" />
+                        New
+                      </button>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-900">
+                      {selectedPrompt.role_id
+                        ? <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium capitalize">
+                            {appRoles.find(r => r.id === selectedPrompt.role_id)?.name || selectedPrompt.role_id}
+                          </span>
+                        : <span className="text-gray-400">No role assigned</span>
+                      }
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-1">
+                    <CreditCard className="w-4 h-4" /> Subscription Plan
+                  </label>
+                  {editMode ? (
+                    <div className="mt-1">
+                      <select
+                        value={editedPrompt.plan_id || ''}
+                        onChange={(e) => handleInputChange('plan_id', e.target.value || null)}
+                        className="block w-full px-3 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-emerald-500 focus:border-emerald-500 font-medium"
+                      >
+                        <option value="">— No plan —</option>
+                        {subscriptionPlans.map((plan) => (
+                          <option key={plan.id} value={plan.id}>
+                            {plan.name} — {formatDailyTokens(plan.token_limit ?? plan.daily_token_limit)} tokens/day
+                          </option>
+                        ))}
+                      </select>
+                      {editedPrompt.plan_id && planDailyLimitById(editedPrompt.plan_id) != null && (
+                        <p className="text-xs text-emerald-700 mt-1">
+                          Daily token limit: {formatDailyTokens(planDailyLimitById(editedPrompt.plan_id))}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-gray-900">
+                      {selectedPrompt.plan_id || selectedPrompt.plan_info ? (
+                        <>
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-xs font-medium">
+                            {selectedPrompt.plan_info?.name || planNameById(selectedPrompt.plan_id) || `Plan #${selectedPrompt.plan_id}`}
+                          </span>
+                          {(selectedPrompt.daily_token_limit != null || selectedPrompt.plan_info?.token_limit != null) && (
+                            <p className="text-xs text-emerald-700 mt-1">
+                              {formatDailyTokens(selectedPrompt.daily_token_limit ?? selectedPrompt.plan_info?.token_limit)} tokens per day
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-gray-400">No plan assigned</span>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
