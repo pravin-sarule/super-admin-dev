@@ -25,6 +25,8 @@ const adminRoutes = require('./routes/adminRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminTemplateRoutes = require('./routes/adminTemplateRoutes');
 const planRoutes = require('./routes/planRoutes');
+const monthlyPlanRoutes = require('./routes/monthlyPlanRoutes');
+const topupPlanRoutes = require('./routes/topupPlanRoutes');
 const supportQueryRoutes = require('./routes/supportQueryRoutes');
 const supportPriorityRoutes = require('./routes/supportPriorityRoutes');
 const supportWorkspaceRoutes = require('./routes/support/workspace.routes');
@@ -117,6 +119,12 @@ app.use('/api/citation-admin', citationAdminRoutes(citationPool, pool, docPool))
 
 console.log('📌 /api/admin/plans     → Using Payment DB (paymentPool)');
 app.use('/api/admin/plans', planRoutes(paymentPool));
+
+console.log('📌 /api/admin/monthly-plans → Using Payment DB (paymentPool)');
+app.use('/api/admin/monthly-plans', monthlyPlanRoutes(paymentPool));
+
+console.log('📌 /api/admin/topup-plans   → Using Payment DB (paymentPool)');
+app.use('/api/admin/topup-plans', topupPlanRoutes(paymentPool));
 
 console.log('📌 /api/support-queries   → Using Main DB (pool)');
 app.use('/api/support-queries', supportQueryRoutes(pool));
