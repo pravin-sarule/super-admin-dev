@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   CreditCard, Plus, Edit2, Trash2, X, Check, AlertTriangle, Search, RefreshCw,
   DollarSign, Calendar, Zap, Package, Repeat, Coins, Clock, Power,
-  User, Users, Building2, Mail,
+  User, Users, Building2, Mail, HardDrive,
 } from 'lucide-react';
 import { API_BASE_URL, getAuthHeaders } from '../../config';
 
@@ -133,6 +133,50 @@ const MONTHLY_CATEGORIES = [
   { key: 'firm', label: 'Firm', icon: Building2 },
 ];
 
+// Storage cap presets (1 GB → 1 TB). Stored as whole GB; 1024 = 1 TB.
+const STORAGE_PRESETS = [
+  { gb: 1, label: '1 GB' }, { gb: 5, label: '5 GB' }, { gb: 10, label: '10 GB' },
+  { gb: 25, label: '25 GB' }, { gb: 50, label: '50 GB' }, { gb: 100, label: '100 GB' },
+  { gb: 250, label: '250 GB' }, { gb: 500, label: '500 GB' }, { gb: 1024, label: '1 TB' },
+];
+const storageLabel = (gb) => {
+  if (gb == null || gb === '') return 'No cap';
+  const n = Number(gb);
+  return STORAGE_PRESETS.find((p) => p.gb === n)?.label || (n >= 1024 && n % 1024 === 0 ? `${n / 1024} TB` : `${n} GB`);
+};
+
+/* Storage Cap field — preset dropdown + an "Other" option to type a custom GB value. */
+const StorageField = ({ value, onChange }) => {
+  const [other, setOther] = useState(false);
+  useEffect(() => {
+    // Auto-switch to "Other" when editing a plan whose stored value isn't a preset.
+    if (value !== '' && value != null && !STORAGE_PRESETS.some((p) => String(p.gb) === String(value))) setOther(true);
+  }, [value]);
+
+  const selectValue = other ? '__other__' : (value == null ? '' : String(value));
+  return (
+    <div>
+      <Label>Storage Cap</Label>
+      <select value={selectValue}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (v === '__other__') setOther(true);
+          else { setOther(false); onChange(v); }
+        }}
+        className={`${inputCls} appearance-none ${other ? 'mb-2' : ''}`}>
+        <option value="">No cap</option>
+        {STORAGE_PRESETS.map((p) => <option key={p.gb} value={String(p.gb)}>{p.label}</option>)}
+        <option value="__other__">Other (enter GB)…</option>
+      </select>
+      {other && (
+        <input type="number" min="1" value={value == null ? '' : value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Enter GB — e.g. 2048 (2 TB)" className={inputCls} />
+      )}
+    </div>
+  );
+};
+
 const VALIDITY_PRESETS = [
   { days: 1, label: '1 day' }, { days: 7, label: '7 days' }, { days: 15, label: '15 days' },
   { days: 30, label: '30 days' }, { days: 60, label: '60 days' }, { days: 90, label: '90 days' },
@@ -149,7 +193,7 @@ const fmt = (n) => (n != null && n !== '' ? Number(n).toLocaleString() : '—');
 const EMPTY_MONTHLY = {
   name: '', description: '', price: '', currency: 'INR',
   monthly_tokens: '', daily_token_limit: '', billing_interval_months: '1',
-  category: 'solo', is_custom: false, sort_order: '0', is_active: true,
+  storage_limit_gb: '', category: 'solo', is_custom: false, sort_order: '0', is_active: true,
 };
 const EMPTY_TOPUP = {
   name: '', description: '', price: '', currency: 'INR',
@@ -175,6 +219,7 @@ function parseMonthly(form) {
     currency: form.currency || 'INR',
     monthly_tokens: numOrNull(form.monthly_tokens),
     daily_token_limit: numOrNull(form.daily_token_limit),
+    storage_limit_gb: numOrNull(form.storage_limit_gb),
     billing_interval_months: numOrNull(form.billing_interval_months) ?? 1,
     category: form.category === 'firm' ? 'firm' : 'solo',
     is_custom: !!form.is_custom,
@@ -266,11 +311,13 @@ const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubm
                 <SelectField label="Billing Cycle" value={form.billing_interval_months} onChange={set('billing_interval_months')}
                   options={BILLING_CYCLES.map((c) => ({ value: String(c.months), label: c.label }))} />
               </Card>
-              <Card icon={Coins} color="bg-blue-50 text-blue-600" title="Tokens">
+              <Card icon={Coins} color="bg-blue-50 text-blue-600" title="Tokens & Storage">
                 <NumberField label="Monthly Tokens" required={!form.is_custom} value={form.monthly_tokens} onChange={set('monthly_tokens')}
                   placeholder={form.is_custom ? 'Custom / negotiated' : 'e.g. 30000'} hint="Granted per month" />
                 <NumberField label="Daily Token Limit" value={form.daily_token_limit} onChange={set('daily_token_limit')}
                   placeholder="e.g. 2000" hint="Leave blank = no daily cap" />
+                <StorageField value={form.storage_limit_gb} onChange={set('storage_limit_gb')} />
+                {form.is_custom && <p className="text-xs text-amber-600 self-center mt-5">Leave as "No cap" for negotiated/custom storage.</p>}
               </Card>
               {form.is_custom && (
                 <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-lg bg-amber-50/70 border border-amber-100 text-xs text-amber-700">
@@ -541,6 +588,7 @@ const SubscriptionManagement = () => {
                       <Th>Cycle</Th>
                       <Th right>Monthly Tokens</Th>
                       <Th right>Daily Limit</Th>
+                      <Th right>Storage</Th>
                     </>
                   ) : (
                     <>
@@ -555,7 +603,7 @@ const SubscriptionManagement = () => {
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-5 py-16 text-center">
+                    <td colSpan={9} className="px-5 py-16 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-400">
                         {tab === 'monthly' ? <Repeat className="w-10 h-10 opacity-30" /> : <Package className="w-10 h-10 opacity-30" />}
                         <p className="text-sm font-medium">{search ? 'No plans match your search.' : `No ${tab} plans yet.`}</p>
@@ -603,6 +651,11 @@ const SubscriptionManagement = () => {
                             : <span className="inline-flex items-center gap-1 text-blue-700 font-semibold text-sm"><Coins className="w-3 h-3" />{fmt(plan.monthly_tokens)}</span>}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-600 font-medium">{plan.is_custom ? <span className="text-slate-300">—</span> : plan.daily_token_limit != null ? fmt(plan.daily_token_limit) : <span className="text-slate-300">No cap</span>}</td>
+                        <td className="px-4 py-3 text-right">
+                          {plan.is_custom
+                            ? <span className="text-slate-400 text-sm italic">Custom</span>
+                            : <span className="inline-flex items-center gap-1 justify-end text-slate-600 font-medium text-sm"><HardDrive className="w-3 h-3 text-slate-400" />{storageLabel(plan.storage_limit_gb)}</span>}
+                        </td>
                       </>
                     ) : (
                       <>

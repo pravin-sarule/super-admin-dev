@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS monthly_plans (
     billing_interval_months INTEGER       NOT NULL DEFAULT 1,   -- 1=monthly, 3=quarterly, 6=half-yearly, 12=yearly
     category                VARCHAR(20)   NOT NULL DEFAULT 'solo', -- audience: 'solo' or 'firm'
     is_custom               BOOLEAN       NOT NULL DEFAULT FALSE,  -- true = "Contact us" card (no fixed price/tokens)
+    storage_limit_gb        INTEGER,                              -- storage cap in GB (NULL = no cap / custom). 1024 = 1 TB
     is_active               BOOLEAN       NOT NULL DEFAULT TRUE,
     sort_order              INTEGER       NOT NULL DEFAULT 0,
     razorpay_plan_id        VARCHAR(120),
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS monthly_plans (
 ALTER TABLE monthly_plans ADD COLUMN IF NOT EXISTS billing_interval_months INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE monthly_plans ADD COLUMN IF NOT EXISTS category  VARCHAR(20) NOT NULL DEFAULT 'solo';
 ALTER TABLE monthly_plans ADD COLUMN IF NOT EXISTS is_custom BOOLEAN     NOT NULL DEFAULT FALSE;
+ALTER TABLE monthly_plans ADD COLUMN IF NOT EXISTS storage_limit_gb INTEGER;
 
 CREATE TABLE IF NOT EXISTS topup_plans (
     id                SERIAL PRIMARY KEY,

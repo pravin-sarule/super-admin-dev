@@ -34,6 +34,14 @@ function rowFromBody(body, existing = null) {
         daily_token_limit = existing?.daily_token_limit ?? null;
     }
 
+    // storage_limit_gb is nullable (NULL = no cap / custom). 1024 = 1 TB.
+    let storage_limit_gb;
+    if (body.storage_limit_gb !== undefined) {
+        storage_limit_gb = body.storage_limit_gb === '' || body.storage_limit_gb === null ? null : toInt(body.storage_limit_gb);
+    } else {
+        storage_limit_gb = existing?.storage_limit_gb ?? null;
+    }
+
     return {
         name,
         description: body.description != null ? String(body.description) : existing?.description ?? null,
@@ -41,6 +49,7 @@ function rowFromBody(body, existing = null) {
         currency: body.currency || existing?.currency || 'INR',
         monthly_tokens,
         daily_token_limit,
+        storage_limit_gb,
         // 1=monthly, 3=quarterly, 6=half-yearly, 12=yearly
         billing_interval_months: body.billing_interval_months != null
             ? (toInt(body.billing_interval_months) ?? 1)
@@ -63,6 +72,8 @@ function validate(row) {
         return 'Monthly token allocation is required and must be a non-negative number';
     if (row.daily_token_limit != null && row.daily_token_limit < 0)
         return 'Daily token limit must be a non-negative number';
+    if (row.storage_limit_gb != null && row.storage_limit_gb < 1)
+        return 'Storage cap must be at least 1 GB';
     if (row.billing_interval_months == null || Number.isNaN(row.billing_interval_months) || row.billing_interval_months < 1)
         return 'Billing cycle must be at least 1 month';
     if (row.price != null && row.price < 0) return 'Price must be a non-negative number';
@@ -86,11 +97,11 @@ exports.createMonthlyPlan = async (req, res, paymentPool) => {
 
         const { rows } = await paymentPool.query(
             `INSERT INTO monthly_plans
-               (name, description, price, currency, monthly_tokens, daily_token_limit, billing_interval_months, category, is_custom, is_active, sort_order, razorpay_plan_id)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+               (name, description, price, currency, monthly_tokens, daily_token_limit, billing_interval_months, category, is_custom, is_active, sort_order, razorpay_plan_id, storage_limit_gb)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
              RETURNING *`,
             [row.name, row.description, row.price, row.currency, row.monthly_tokens ?? 0,
-             row.daily_token_limit, row.billing_interval_months, row.category, row.is_custom, row.is_active, row.sort_order, row.razorpay_plan_id]
+             row.daily_token_limit, row.billing_interval_months, row.category, row.is_custom, row.is_active, row.sort_order, row.razorpay_plan_id, row.storage_limit_gb]
         );
         return res.status(201).json({ success: true, data: rows[0] });
     } catch (error) {
@@ -164,11 +175,11 @@ exports.updateMonthlyPlan = async (req, res, paymentPool) => {
         const { rows } = await paymentPool.query(
             `UPDATE monthly_plans SET
                name=$1, description=$2, price=$3, currency=$4, monthly_tokens=$5,
-               daily_token_limit=$6, billing_interval_months=$7, category=$8, is_custom=$9, is_active=$10, sort_order=$11, razorpay_plan_id=$12, updated_at=NOW()
-             WHERE id=$13
+               daily_token_limit=$6, billing_interval_months=$7, category=$8, is_custom=$9, is_active=$10, sort_order=$11, razorpay_plan_id=$12, storage_limit_gb=$13, updated_at=NOW()
+             WHERE id=$14
              RETURNING *`,
             [row.name, row.description, row.price, row.currency, row.monthly_tokens ?? 0,
-             row.daily_token_limit, row.billing_interval_months, row.category, row.is_custom, row.is_active, row.sort_order, row.razorpay_plan_id, id]
+             row.daily_token_limit, row.billing_interval_months, row.category, row.is_custom, row.is_active, row.sort_order, row.razorpay_plan_id, row.storage_limit_gb, id]
         );
         return res.status(200).json({ success: true, data: rows[0] });
     } catch (error) {
