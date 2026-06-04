@@ -27,6 +27,9 @@ const adminTemplateRoutes = require('./routes/adminTemplateRoutes');
 const planRoutes = require('./routes/planRoutes');
 const monthlyPlanRoutes = require('./routes/monthlyPlanRoutes');
 const topupPlanRoutes = require('./routes/topupPlanRoutes');
+const addonPlanRoutes = require('./routes/addonPlanRoutes');
+const userAnalyticsRoutes = require('./routes/userAnalyticsRoutes');
+const planAnalyticsRoutes = require('./routes/planAnalyticsRoutes');
 const supportQueryRoutes = require('./routes/supportQueryRoutes');
 const supportPriorityRoutes = require('./routes/supportPriorityRoutes');
 const supportWorkspaceRoutes = require('./routes/support/workspace.routes');
@@ -125,6 +128,15 @@ app.use('/api/admin/monthly-plans', monthlyPlanRoutes(paymentPool));
 
 console.log('📌 /api/admin/topup-plans   → Using Payment DB (paymentPool)');
 app.use('/api/admin/topup-plans', topupPlanRoutes(paymentPool));
+
+console.log('📌 /api/admin/addon-plans   → Using Payment DB (paymentPool)');
+app.use('/api/admin/addon-plans', addonPlanRoutes(paymentPool));
+
+console.log('📌 /api/admin/user-analytics → Read-only across Auth+Payment+Document+Draft+Citation DBs');
+app.use('/api/admin/user-analytics', userAnalyticsRoutes(pool));
+
+console.log('📌 /api/admin/plan-analytics → Read-only plan purchase analytics (Auth + Payment DBs)');
+app.use('/api/admin/plan-analytics', planAnalyticsRoutes(pool));
 
 console.log('📌 /api/support-queries   → Using Main DB (pool)');
 app.use('/api/support-queries', supportQueryRoutes(pool));

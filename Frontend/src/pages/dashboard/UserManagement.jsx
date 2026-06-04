@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Eye, Lock, Unlock, Edit, Save, User, Mail, Shield, Hash, Filter, ChevronLeft, ChevronRight, Clock, RefreshCw, X, AlertTriangle, CheckCircle, AlertCircle, Building2, Users, CheckCircle2, XCircle, Trash2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Eye, Lock, Unlock, Edit, Save, User, Mail, Shield, Hash, Filter, ChevronLeft, ChevronRight, Clock, RefreshCw, X, AlertTriangle, CheckCircle, AlertCircle, Building2, Users, CheckCircle2, XCircle, Trash2, BarChart3 } from 'lucide-react';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import { API_BASE_URL } from '../../config';
@@ -228,6 +229,8 @@ const UserManagement = () => {
   };
 
   // Fetch firm details by ID
+  const navigate = useNavigate();
+
   const fetchFirmDetails = async (firmId) => {
     setLoading(true);
     try {
@@ -903,6 +906,13 @@ const UserManagement = () => {
                               <Eye className="w-4 h-4 mr-1" />
                               View
                             </button>
+                            <button
+                              onClick={() => navigate(`/dashboard/firms/${firm.id}/analytics`)}
+                              className="inline-flex items-center px-3 py-1.5 border border-blue-300 text-xs leading-4 font-semibold rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100"
+                            >
+                              <BarChart3 className="w-4 h-4 mr-1" />
+                              Usage
+                            </button>
                             {firm.approval_status === 'PENDING' && (
                               <>
                                 <button
@@ -1002,6 +1012,13 @@ const UserManagement = () => {
                             >
                               <Eye className="w-4 h-4 mr-1" />
                               View
+                            </button>
+                            <button
+                              onClick={() => navigate(`/dashboard/users/${user.id}/analytics`)}
+                              className="inline-flex items-center px-3 py-1.5 border border-blue-300 text-xs leading-4 font-semibold rounded-lg text-blue-700 bg-blue-50 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+                            >
+                              <BarChart3 className="w-4 h-4 mr-1" />
+                              Usage
                             </button>
                             <button
                               onClick={() => handleBlockUser(user.id)}

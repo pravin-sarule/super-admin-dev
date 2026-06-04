@@ -6,6 +6,8 @@ import LandingPage from './pages/LandingPage';
 import DashboardLayout from './pages/dashboard/DashboardLayout';
 import DashboardContent from './pages/dashboard/DashboardContent';
 import UserManagement from './pages/dashboard/UserManagement';
+import UserAnalytics from './pages/dashboard/UserAnalytics';
+import PlanAnalytics from './pages/dashboard/PlanAnalytics';
 import AdminManagement from './components/auth/Admins/AdminManagement';
 import ContentManagement from './pages/dashboard/ContentManagement';
 import TemplateManagement from './pages/dashboard/TemplateManagement/index';
@@ -73,6 +75,8 @@ function App() {
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardContent />} /> {/* Default dashboard content */}
             <Route path="users" element={<UserManagement />} />
+            <Route path="users/:userId/analytics" element={<UserAnalytics />} />
+            <Route path="firms/:firmId/analytics" element={<UserAnalytics mode="firm" />} />
             <Route path="admins" element={<AdminManagement />} />
             <Route path="content" element={<ContentManagement />} />
             <Route path="content/case-type" element={<AddCaseType />} />
@@ -80,6 +84,7 @@ function App() {
             <Route path="content/judge" element={<AddJudge />} />
             <Route path="templates" element={<TemplateManagement />} />
             <Route path="subscriptions" element={<SubscriptionManagement />} />
+            <Route path="subscriptions/analytics" element={<PlanAnalytics />} />
             <Route path="prompts" element={<PromptManagement />} />
             <Route path="agent-prompts" element={<AgentList />} />
             <Route path="system-prompts" element={<SystemPromptManagement />} />

@@ -17,7 +17,7 @@ const sql = fs.readFileSync(path.join(__dirname, 'create_simple_plans_tables.sql
 
     const check = await client.query(
       `SELECT table_name FROM information_schema.tables
-       WHERE table_schema = 'public' AND table_name IN ('monthly_plans', 'topup_plans')
+       WHERE table_schema = 'public' AND table_name IN ('monthly_plans', 'topup_plans', 'addon_plans')
        ORDER BY table_name`
     );
     console.log('✅ Tables present:', check.rows.map((r) => r.table_name).join(', '));

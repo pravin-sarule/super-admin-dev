@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS topup_plans (
     price             NUMERIC(10,2) NOT NULL DEFAULT 0,
     currency          VARCHAR(3)    NOT NULL DEFAULT 'INR',
     tokens            BIGINT        NOT NULL DEFAULT 0,    -- tokens granted on purchase
-    validity_days     INTEGER       NOT NULL DEFAULT 30,   -- fixed presets, expiry = purchase + N days. Convention: 1 month=30d, 1 year=365d (e.g. 6mo=180, 12yr=4380)
+    validity_days     INTEGER       NOT NULL DEFAULT 30,   -- fixed presets, expiry = purchase + N days. Convention: 1 month=30d, 1 year=360d (e.g. 6mo=180, 12yr=4320)
     is_active         BOOLEAN       NOT NULL DEFAULT TRUE,
     sort_order        INTEGER       NOT NULL DEFAULT 0,
     razorpay_plan_id  VARCHAR(120),
@@ -48,5 +48,27 @@ CREATE TABLE IF NOT EXISTS topup_plans (
     updated_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
+-- Add-on plans (storage for now). Recurring or one-time-permanent. No tokens.
+CREATE TABLE IF NOT EXISTS addon_plans (
+    id                      SERIAL PRIMARY KEY,
+    name                    VARCHAR(100) NOT NULL UNIQUE,
+    description             TEXT,
+    addon_type              VARCHAR(20)   NOT NULL DEFAULT 'storage', -- 'storage' for now; room for future add-on types
+    price                   NUMERIC(10,2) NOT NULL DEFAULT 0,
+    currency                VARCHAR(3)    NOT NULL DEFAULT 'INR',
+    storage_gb              INTEGER       NOT NULL DEFAULT 0,           -- extra storage granted (1..1024+; 1024 = 1 TB)
+    billing_type            VARCHAR(20)   NOT NULL DEFAULT 'recurring', -- 'recurring' | 'one_time'
+    billing_interval_months INTEGER,                                   -- used when recurring (1/3/6/12); NULL for one-time
+    validity_years          INTEGER,                                   -- used when one_time (e.g. 10/15 yr term, then renew); NULL for recurring
+    is_active               BOOLEAN       NOT NULL DEFAULT TRUE,
+    sort_order              INTEGER       NOT NULL DEFAULT 0,
+    created_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+
+-- Patch already-created addon_plans (idempotent):
+ALTER TABLE addon_plans ADD COLUMN IF NOT EXISTS validity_years INTEGER;
+
 CREATE INDEX IF NOT EXISTS idx_monthly_plans_active ON monthly_plans (is_active, sort_order);
 CREATE INDEX IF NOT EXISTS idx_topup_plans_active   ON topup_plans   (is_active, sort_order);
+CREATE INDEX IF NOT EXISTS idx_addon_plans_active   ON addon_plans   (is_active, sort_order);

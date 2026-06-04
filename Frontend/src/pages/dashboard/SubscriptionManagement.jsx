@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CreditCard, Plus, Edit2, Trash2, X, Check, AlertTriangle, Search, RefreshCw,
   DollarSign, Calendar, Zap, Package, Repeat, Coins, Clock, Power,
-  User, Users, Building2, Mail, HardDrive,
+  User, Users, Building2, Mail, HardDrive, BarChart3,
 } from 'lucide-react';
 import { API_BASE_URL, getAuthHeaders } from '../../config';
 
@@ -127,6 +128,16 @@ const BILLING_CYCLES = [
 const billingLabel = (m) => BILLING_CYCLES.find((c) => c.months === Number(m))?.label || `${m} months`;
 const billingShort = (m) => { const n = Number(m); return n === 1 ? '/mo' : n === 12 ? '/yr' : `/${n}mo`; };
 
+// Add-on billing: one combined dropdown — recurring cycles + one-time. (1 month = 30 days for our plans.)
+const ADDON_BILLING_OPTIONS = [
+  { value: '1', label: 'Monthly' },
+  { value: '3', label: 'Quarterly' },
+  { value: '6', label: 'Half-yearly' },
+  { value: '12', label: 'Yearly' },
+  { value: 'one_time', label: 'One-time' },
+];
+const ADDON_VALIDITY_YEARS = [5, 10, 15, 20]; // one-time term length, then renew under updated terms
+
 // Monthly plans are split into these audience sub-tabs (topups stay uncategorised).
 const MONTHLY_CATEGORIES = [
   { key: 'solo', label: 'Solo', icon: User },
@@ -146,7 +157,7 @@ const storageLabel = (gb) => {
 };
 
 /* Storage Cap field — preset dropdown + an "Other" option to type a custom GB value. */
-const StorageField = ({ value, onChange }) => {
+const StorageField = ({ value, onChange, label = 'Storage Cap', emptyLabel = 'No cap' }) => {
   const [other, setOther] = useState(false);
   useEffect(() => {
     // Auto-switch to "Other" when editing a plan whose stored value isn't a preset.
@@ -156,7 +167,7 @@ const StorageField = ({ value, onChange }) => {
   const selectValue = other ? '__other__' : (value == null ? '' : String(value));
   return (
     <div>
-      <Label>Storage Cap</Label>
+      <Label>{label}</Label>
       <select value={selectValue}
         onChange={(e) => {
           const v = e.target.value;
@@ -164,7 +175,7 @@ const StorageField = ({ value, onChange }) => {
           else { setOther(false); onChange(v); }
         }}
         className={`${inputCls} appearance-none ${other ? 'mb-2' : ''}`}>
-        <option value="">No cap</option>
+        <option value="">{emptyLabel}</option>
         {STORAGE_PRESETS.map((p) => <option key={p.gb} value={String(p.gb)}>{p.label}</option>)}
         <option value="__other__">Other (enter GB)…</option>
       </select>
@@ -180,8 +191,8 @@ const StorageField = ({ value, onChange }) => {
 const VALIDITY_PRESETS = [
   { days: 1, label: '1 day' }, { days: 7, label: '7 days' }, { days: 15, label: '15 days' },
   { days: 30, label: '30 days' }, { days: 60, label: '60 days' }, { days: 90, label: '90 days' },
-  { days: 180, label: '6 months' }, { days: 365, label: '1 year' }, { days: 730, label: '2 years' },
-  { days: 1825, label: '5 years' }, { days: 4380, label: '12 years' },
+  { days: 180, label: '6 months' }, { days: 360, label: '1 year' }, { days: 720, label: '2 years' },
+  { days: 1800, label: '5 years' }, { days: 4320, label: '12 years' },
 ];
 const validityLabel = (d) => {
   const n = Number(d);
@@ -199,9 +210,14 @@ const EMPTY_TOPUP = {
   name: '', description: '', price: '', currency: 'INR',
   tokens: '', validity_days: '30', sort_order: '0', is_active: true,
 };
+const EMPTY_ADDON = {
+  name: '', description: '', price: '', currency: 'INR',
+  storage_gb: '', billing_type: 'recurring', billing_interval_months: '1', validity_years: '10',
+  sort_order: '0', is_active: true,
+};
 
 function planToForm(plan, kind) {
-  const base = kind === 'monthly' ? EMPTY_MONTHLY : EMPTY_TOPUP;
+  const base = kind === 'monthly' ? EMPTY_MONTHLY : kind === 'addon' ? EMPTY_ADDON : EMPTY_TOPUP;
   const f = {};
   Object.keys(base).forEach((k) => {
     if (k === 'is_active' || k === 'is_custom') f[k] = plan[k] != null ? !!plan[k] : (k === 'is_active');
@@ -239,10 +255,26 @@ function parseTopup(form) {
     is_active: !!form.is_active,
   };
 }
+function parseAddon(form) {
+  const billing_type = form.billing_type === 'one_time' ? 'one_time' : 'recurring';
+  return {
+    name: form.name?.trim(),
+    description: form.description?.trim() || null,
+    addon_type: 'storage',
+    price: form.price !== '' && form.price != null ? parseFloat(form.price) : 0,
+    currency: form.currency || 'INR',
+    storage_gb: numOrNull(form.storage_gb),
+    billing_type,
+    billing_interval_months: billing_type === 'recurring' ? (numOrNull(form.billing_interval_months) ?? 1) : null,
+    validity_years: billing_type === 'one_time' ? (numOrNull(form.validity_years) ?? 10) : null,
+    sort_order: numOrNull(form.sort_order) ?? 0,
+    is_active: !!form.is_active,
+  };
+}
 
 /* ─────────────────────────── Drawer ─────────────────────────── */
 const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubmit, saving }) => {
-  const empty = kind === 'monthly' ? EMPTY_MONTHLY : EMPTY_TOPUP;
+  const empty = kind === 'monthly' ? EMPTY_MONTHLY : kind === 'addon' ? EMPTY_ADDON : EMPTY_TOPUP;
   const [form, setForm] = useState(empty);
 
   useEffect(() => {
@@ -263,8 +295,12 @@ const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubm
     ? VALIDITY_PRESETS
     : [...VALIDITY_PRESETS, { days: Number(form.validity_days), label: validityLabel(form.validity_days) }];
 
-  const Icon = kind === 'monthly' ? Repeat : Package;
-  const title = `${isEdit ? 'Edit' : 'Add'} ${kind === 'monthly' ? 'Monthly Plan' : 'Topup Plan'}`;
+  const Icon = kind === 'monthly' ? Repeat : kind === 'addon' ? HardDrive : Package;
+  const kindName = kind === 'monthly' ? 'Monthly Plan' : kind === 'addon' ? 'Add-on Plan' : 'Topup Plan';
+  const title = `${isEdit ? 'Edit' : 'Add'} ${kindName}`;
+  const subtitle = kind === 'monthly' ? 'Recurring plan with a monthly token grant + daily cap'
+    : kind === 'addon' ? 'Storage add-on — extra space, recurring or one-time'
+    : 'One-time token pack with a validity period';
 
   return (
     <>
@@ -276,9 +312,7 @@ const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubm
             <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-blue-50"><Icon className="w-4 h-4 text-blue-600" /></div>
             <div>
               <h3 className="text-base font-semibold text-slate-800">{title}</h3>
-              <p className="text-xs text-slate-400">
-                {kind === 'monthly' ? 'Recurring plan with a monthly token grant + daily cap' : 'One-time token pack with a validity period'}
-              </p>
+              <p className="text-xs text-slate-400">{subtitle}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"><X className="w-5 h-5" /></button>
@@ -287,7 +321,7 @@ const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubm
         {/* Body */}
         <form id="plan-form" onSubmit={(e) => { e.preventDefault(); onSubmit(form); }} className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
           <TextField label="Plan Name" required value={form.name} onChange={set('name')}
-            placeholder={kind === 'monthly' ? 'e.g. Basic, Pro, Enterprise' : 'e.g. Booster 5K, Power Pack'} />
+            placeholder={kind === 'monthly' ? 'e.g. Basic, Pro, Enterprise' : kind === 'addon' ? 'e.g. +100 GB Storage, +1 TB Storage' : 'e.g. Booster 5K, Power Pack'} />
           <TextArea label="Description" value={form.description} onChange={set('description')}
             placeholder="Short description shown to users" />
 
@@ -325,6 +359,31 @@ const PlanDrawer = ({ isOpen, kind, mode, plan, defaultCategory, onClose, onSubm
                   <span>This is a <b>Contact us</b> plan — price &amp; tokens are optional; it shows a contact CTA instead of a buy button.</span>
                 </div>
               )}
+            </>
+          ) : kind === 'addon' ? (
+            <>
+              <Card icon={DollarSign} color="bg-violet-50 text-violet-600" title="Pricing">
+                <NumberField label="Price" required value={form.price} onChange={set('price')} placeholder="0.00" step="0.01" />
+                <SelectField label="Currency" value={form.currency} onChange={set('currency')} options={CURRENCIES} />
+              </Card>
+              <Card icon={HardDrive} color="bg-cyan-50 text-cyan-600" title="Storage & Billing">
+                <StorageField label="Storage Amount" emptyLabel="Select size…" value={form.storage_gb} onChange={set('storage_gb')} />
+                <SelectField label="Billing"
+                  value={form.billing_type === 'one_time' ? 'one_time' : String(form.billing_interval_months)}
+                  onChange={(v) => {
+                    if (v === 'one_time') setForm((p) => ({ ...p, billing_type: 'one_time' }));
+                    else setForm((p) => ({ ...p, billing_type: 'recurring', billing_interval_months: v }));
+                  }}
+                  options={ADDON_BILLING_OPTIONS} />
+                {form.billing_type === 'one_time' && (
+                  <SelectField label="Validity" value={form.validity_years} onChange={set('validity_years')}
+                    options={ADDON_VALIDITY_YEARS.map((y) => ({ value: String(y), label: `${y} years` }))} />
+                )}
+              </Card>
+              <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-lg bg-cyan-50/70 border border-cyan-100 text-xs text-cyan-700">
+                <HardDrive className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>Add-ons only increase storage — no tokens or daily limits. {form.billing_type === 'one_time' ? `Paid once; valid ${form.validity_years || '—'} years, then renew under updated terms.` : 'Billed each cycle while active.'}</span>
+              </div>
             </>
           ) : (
             <>
@@ -384,6 +443,7 @@ function makeApi(path) {
 }
 const monthlyApi = makeApi('/admin/monthly-plans');
 const topupApi = makeApi('/admin/topup-plans');
+const addonApi = makeApi('/admin/addon-plans');
 
 /* ─────────────────────────── Shared row bits ─────────────────────────── */
 const StatusBadge = ({ active, onClick }) => (
@@ -417,6 +477,7 @@ const Th = ({ children, right }) => (
 const TABS = [
   { key: 'monthly', label: 'Monthly Plans', icon: Repeat },
   { key: 'topup', label: 'Topup Plans', icon: Package },
+  { key: 'addon', label: 'Add-on Plans', icon: HardDrive },
 ];
 
 const SubscriptionManagement = () => {
@@ -424,6 +485,7 @@ const SubscriptionManagement = () => {
   const [monthlyCat, setMonthlyCat] = useState('solo'); // Solo | Firm sub-tab (monthly only)
   const [monthly, setMonthly] = useState([]);
   const [topup, setTopup] = useState([]);
+  const [addon, setAddon] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
@@ -431,17 +493,19 @@ const SubscriptionManagement = () => {
   const [drawer, setDrawer] = useState({ open: false, mode: 'add', plan: null });
   const [delTarget, setDelTarget] = useState(null);
   const toast = useToast();
+  const navigate = useNavigate();
 
-  const api = tab === 'monthly' ? monthlyApi : topupApi;
-  const list = tab === 'monthly' ? monthly : topup;
-  const kindLabel = tab === 'monthly' ? 'Monthly Plan' : 'Topup Plan';
+  const api = tab === 'monthly' ? monthlyApi : tab === 'addon' ? addonApi : topupApi;
+  const list = tab === 'monthly' ? monthly : tab === 'addon' ? addon : topup;
+  const kindLabel = tab === 'monthly' ? 'Monthly Plan' : tab === 'addon' ? 'Add-on Plan' : 'Topup Plan';
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [m, t] = await Promise.all([monthlyApi.fetchAll(), topupApi.fetchAll()]);
+      const [m, t, a] = await Promise.all([monthlyApi.fetchAll(), topupApi.fetchAll(), addonApi.fetchAll()]);
       setMonthly(Array.isArray(m.data) ? m.data : []);
       setTopup(Array.isArray(t.data) ? t.data : []);
+      setAddon(Array.isArray(a.data) ? a.data : []);
     } catch (e) {
       toast.add(e.message || 'Failed to load plans', 'error');
     } finally { setLoading(false); }
@@ -453,11 +517,12 @@ const SubscriptionManagement = () => {
   const closeDrawer = () => !saving && setDrawer((p) => ({ ...p, open: false }));
 
   const handleSubmit = async (form) => {
-    const payload = tab === 'monthly' ? parseMonthly(form) : parseTopup(form);
+    const payload = tab === 'monthly' ? parseMonthly(form) : tab === 'addon' ? parseAddon(form) : parseTopup(form);
     if (!payload.name) return toast.add('Plan name is required.', 'warning');
     if (tab === 'monthly' && !payload.is_custom && payload.monthly_tokens == null) return toast.add('Monthly tokens is required.', 'warning');
     if (tab === 'topup' && payload.tokens == null) return toast.add('Tokens is required.', 'warning');
     if (tab === 'topup' && !payload.validity_days) return toast.add('Validity is required.', 'warning');
+    if (tab === 'addon' && !payload.storage_gb) return toast.add('Storage amount is required.', 'warning');
     setSaving(true);
     try {
       if (drawer.mode === 'edit') { await api.update(drawer.plan.id, payload); toast.add(`"${payload.name}" updated.`, 'success'); }
@@ -522,19 +587,25 @@ const SubscriptionManagement = () => {
               <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center shadow-sm"><CreditCard className="w-5 h-5 text-white" /></div>
               <h1 className="text-xl font-bold text-slate-800">Subscription Plans</h1>
             </div>
-            <p className="text-sm text-slate-500 ml-11">Monthly plans grant tokens per cycle with a daily cap. Topup packs add tokens that last until they expire.</p>
+            <p className="text-sm text-slate-500 ml-11">Monthly plans grant tokens with a daily cap. Topups add tokens that expire. Add-ons add extra storage.</p>
           </div>
-          <button onClick={openAdd}
-            className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors">
-            <Plus className="w-4 h-4" /> Add {tab === 'monthly' ? 'Monthly Plan' : 'Topup Plan'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate('/dashboard/subscriptions/analytics')}
+              className="inline-flex items-center gap-2 px-4 py-2.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg shadow-sm transition-colors">
+              <BarChart3 className="w-4 h-4" /> Plan Analytics
+            </button>
+            <button onClick={openAdd}
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-colors">
+              <Plus className="w-4 h-4" /> Add {kindLabel}
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}
         <div className="flex items-center gap-1 border-b border-slate-200">
           {TABS.map((t) => {
             const active = tab === t.key;
-            const count = t.key === 'monthly' ? monthly.length : topup.length;
+            const count = t.key === 'monthly' ? monthly.length : t.key === 'addon' ? addon.length : topup.length;
             return (
               <button key={t.key} onClick={() => { setTab(t.key); setSearch(''); }}
                 className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors
@@ -590,6 +661,11 @@ const SubscriptionManagement = () => {
                       <Th right>Daily Limit</Th>
                       <Th right>Storage</Th>
                     </>
+                  ) : tab === 'addon' ? (
+                    <>
+                      <Th right>Storage</Th>
+                      <Th>Billing</Th>
+                    </>
                   ) : (
                     <>
                       <Th right>Tokens</Th>
@@ -605,11 +681,11 @@ const SubscriptionManagement = () => {
                   <tr>
                     <td colSpan={9} className="px-5 py-16 text-center">
                       <div className="flex flex-col items-center gap-2 text-slate-400">
-                        {tab === 'monthly' ? <Repeat className="w-10 h-10 opacity-30" /> : <Package className="w-10 h-10 opacity-30" />}
+                        {tab === 'monthly' ? <Repeat className="w-10 h-10 opacity-30" /> : tab === 'addon' ? <HardDrive className="w-10 h-10 opacity-30" /> : <Package className="w-10 h-10 opacity-30" />}
                         <p className="text-sm font-medium">{search ? 'No plans match your search.' : `No ${tab} plans yet.`}</p>
                         {!search && (
                           <button onClick={openAdd} className="mt-1 px-4 py-2 bg-blue-600 text-white text-xs font-semibold rounded-lg hover:bg-blue-700 transition-colors">
-                            Add First {tab === 'monthly' ? 'Monthly Plan' : 'Topup Plan'}
+                            Add First {kindLabel}
                           </button>
                         )}
                       </div>
@@ -621,8 +697,8 @@ const SubscriptionManagement = () => {
                     <td className="px-4 py-3">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-1.5">
-                          <NameCell icon={tab === 'monthly' ? Repeat : Package} name={plan.name}
-                            tint={tab === 'monthly' ? 'bg-blue-50 text-blue-700 border-blue-100' : 'bg-amber-50 text-amber-700 border-amber-100'} />
+                          <NameCell icon={tab === 'monthly' ? Repeat : tab === 'addon' ? HardDrive : Package} name={plan.name}
+                            tint={tab === 'monthly' ? 'bg-blue-50 text-blue-700 border-blue-100' : tab === 'addon' ? 'bg-cyan-50 text-cyan-700 border-cyan-100' : 'bg-amber-50 text-amber-700 border-amber-100'} />
                           {plan.is_custom && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-100"><Mail className="w-2.5 h-2.5" />Contact us</span>}
                         </div>
                         {plan.description && <span className="text-xs text-slate-400 max-w-xs truncate">{plan.description}</span>}
@@ -635,6 +711,7 @@ const SubscriptionManagement = () => {
                         <span className="inline-flex items-center gap-1 text-violet-700 font-semibold text-sm">
                           {money(plan.price, plan.currency)}
                           {tab === 'monthly' && <span className="text-xs font-normal text-slate-400">{billingShort(plan.billing_interval_months)}</span>}
+                          {tab === 'addon' && <span className="text-xs font-normal text-slate-400">{plan.billing_type === 'one_time' ? 'once' : billingShort(plan.billing_interval_months)}</span>}
                         </span>
                       ) : <span className="text-slate-300 text-sm">Free</span>}
                     </td>
@@ -655,6 +732,17 @@ const SubscriptionManagement = () => {
                           {plan.is_custom
                             ? <span className="text-slate-400 text-sm italic">Custom</span>
                             : <span className="inline-flex items-center gap-1 justify-end text-slate-600 font-medium text-sm"><HardDrive className="w-3 h-3 text-slate-400" />{storageLabel(plan.storage_limit_gb)}</span>}
+                        </td>
+                      </>
+                    ) : tab === 'addon' ? (
+                      <>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-flex items-center gap-1 justify-end text-cyan-700 font-semibold text-sm"><HardDrive className="w-3 h-3" />{storageLabel(plan.storage_gb)}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-violet-50 text-violet-700 border border-violet-100">
+                            <Calendar className="w-3 h-3" />{plan.billing_type === 'one_time' ? `One-time · ${plan.validity_years} yr` : billingLabel(plan.billing_interval_months)}
+                          </span>
                         </td>
                       </>
                     ) : (
