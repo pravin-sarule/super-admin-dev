@@ -138,3 +138,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 *.zip
+
+# Ignore specific docs
+Jurinex_voice_docs.md

@@ -20,3 +20,4 @@ const PBASE = `${API_BASE_URL}/admin/plan-analytics`;
 export const fetchPlanSummary = () => req(`${PBASE}/summary`);
 export const fetchMonthlySubscribers = (planId) => req(`${PBASE}/monthly/${planId}/subscribers`);
 export const fetchTopupBuyers = (planId) => req(`${PBASE}/topup/${planId}/buyers`);
+export const fetchAddonBuyers = (planId) => req(`${PBASE}/addon/${planId}/buyers`);

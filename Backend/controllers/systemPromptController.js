@@ -20,7 +20,7 @@ async function enrichRolesInfo(rolesInfo) {
   if (planIds.length > 0) {
     try {
       const { rows: plans } = await paymentPool.query(
-        'SELECT id, name, token_limit FROM subscription_plans WHERE id = ANY($1)',
+        'SELECT id, name, daily_token_limit AS token_limit FROM monthly_plans WHERE id = ANY($1)',
         [planIds]
       );
       planMap = Object.fromEntries(plans.map((p) => [p.id, p]));

@@ -178,23 +178,34 @@ async function queryPaymentsTotalPerUser(userIds, paymentPool) {
     return rows;
 }
 
-/** Add-ons: catalog only for now. Detect a runtime per-user table without assuming it exists. */
+/** Per-user storage add-on purchases (user-facing app writes user_storage_addon_purchases). */
+async function queryAddonPurchases(userIds, paymentPool) {
+    const { rows } = await paymentPool.query(
+        `SELECT up.id, up.user_id, up.addon_plan_id, up.storage_bytes_granted, up.amount, up.currency,
+                up.status, up.expires_at, up.created_at, up.razorpay_payment_id,
+                ap.name AS plan_name, ap.storage_gb
+         FROM user_storage_addon_purchases up
+         LEFT JOIN addon_plans ap ON ap.id = up.addon_plan_id
+         WHERE up.user_id = ANY($1::int[])
+         ORDER BY up.created_at DESC NULLS LAST
+         LIMIT 200`,
+        [userIds]
+    );
+    return rows;
+}
+
+/** Add-ons: active catalog + this user's actual purchases (tracked:false only if the table is missing). */
 async function queryAddons(userIds, paymentPool) {
-    const reg = await paymentPool.query(`SELECT to_regclass('public.user_addons') AS t`);
-    const hasUserAddons = reg.rows[0] && reg.rows[0].t;
     const catalog = await paymentPool.query(
         `SELECT id, name, price, currency, storage_gb, billing_type, billing_interval_months, validity_years
          FROM addon_plans WHERE is_active = true ORDER BY sort_order ASC, id ASC`
     );
-    if (!hasUserAddons) {
+    try {
+        const purchased = await queryAddonPurchases(userIds, paymentPool);
+        return { tracked: true, catalog: catalog.rows, purchased };
+    } catch {
         return { tracked: false, catalog: catalog.rows, purchased: [] };
     }
-    // Defensive: only runs if a user_addons table actually exists.
-    const purchased = await paymentPool.query(
-        `SELECT * FROM user_addons WHERE user_id = ANY($1::int[])`,
-        [userIds]
-    );
-    return { tracked: true, catalog: catalog.rows, purchased: purchased.rows };
 }
 
 /* ── derivations ── */
@@ -230,35 +241,42 @@ function aiTotals(byModel) {
 
 const PAID_STATUSES = new Set(['captured', 'paid', 'success', 'succeeded', 'completed']);
 
-/** Merge regular plan payments + topup purchases into one typed, sorted list with a summary + monthly series. */
-function buildPaymentsPayload(planRows, topupRows) {
+/** Merge plan payments + topup purchases + storage add-on purchases into one typed list + summary + monthly series. */
+function buildPaymentsPayload(planRows, topupRows, addonRows) {
     const items = [
         ...(planRows || []).map((r) => ({
             id: `p-${r.id}`, type: 'plan', amount: num(r.amount), currency: r.currency || 'INR',
             status: r.status, payment_method: r.payment_method || '—', created_at: r.created_at || r.transaction_date,
-            plan_name: r.plan_name || '—', tokens_credited: null, expires_at: null, razorpay_payment_id: r.razorpay_payment_id,
+            plan_name: r.plan_name || '—', tokens_credited: null, storage_bytes_granted: null, expires_at: null, razorpay_payment_id: r.razorpay_payment_id,
         })),
         ...(topupRows || []).map((r) => ({
             id: `t-${r.id}`, type: 'topup', amount: num(r.amount), currency: r.currency || 'INR',
             status: r.status, payment_method: 'Razorpay', created_at: r.created_at,
-            plan_name: r.plan_name || 'Top-up', tokens_credited: num(r.tokens_credited), expires_at: r.expires_at, razorpay_payment_id: r.razorpay_payment_id,
+            plan_name: r.plan_name || 'Top-up', tokens_credited: num(r.tokens_credited), storage_bytes_granted: null, expires_at: r.expires_at, razorpay_payment_id: r.razorpay_payment_id,
+        })),
+        ...(addonRows || []).map((r) => ({
+            id: `a-${r.id}`, type: 'addon', amount: num(r.amount), currency: r.currency || 'INR',
+            status: r.status, payment_method: 'Razorpay', created_at: r.created_at,
+            plan_name: r.plan_name || (r.storage_gb ? `+${r.storage_gb} GB Storage` : 'Storage add-on'),
+            tokens_credited: null, storage_bytes_granted: num(r.storage_bytes_granted), expires_at: r.expires_at, razorpay_payment_id: r.razorpay_payment_id,
         })),
     ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
 
     const summary = items.reduce((s, it) => {
         const paid = PAID_STATUSES.has(String(it.status || '').toLowerCase());
         if (it.type === 'topup') { s.topup_count += 1; s.topup_total += paid ? it.amount : 0; s.topup_tokens += it.tokens_credited || 0; }
+        else if (it.type === 'addon') { s.addon_count += 1; s.addon_total += paid ? it.amount : 0; }
         else { s.plan_count += 1; s.plan_total += paid ? it.amount : 0; }
         return s;
-    }, { plan_total: 0, plan_count: 0, topup_total: 0, topup_count: 0, topup_tokens: 0 });
-    summary.total = summary.plan_total + summary.topup_total;
+    }, { plan_total: 0, plan_count: 0, topup_total: 0, topup_count: 0, topup_tokens: 0, addon_total: 0, addon_count: 0 });
+    summary.total = summary.plan_total + summary.topup_total + summary.addon_total;
 
     const mm = {};
     items.forEach((it) => {
         if (!PAID_STATUSES.has(String(it.status || '').toLowerCase()) || !it.created_at) return;
         const key = new Date(it.created_at).toISOString().slice(0, 7); // YYYY-MM
-        if (!mm[key]) mm[key] = { month: key, plan: 0, topup: 0 };
-        mm[key][it.type === 'topup' ? 'topup' : 'plan'] += it.amount;
+        if (!mm[key]) mm[key] = { month: key, plan: 0, topup: 0, addon: 0 };
+        mm[key][it.type === 'topup' ? 'topup' : it.type === 'addon' ? 'addon' : 'plan'] += it.amount;
     });
     const by_month = Object.values(mm).sort((a, b) => a.month.localeCompare(b.month));
 
@@ -375,7 +393,8 @@ exports.getUserAnalytics = async (req, res, pools) => {
         const subRow = subs.ok ? subs.data[0] || null : null;
         const tokenRow = tokensPU.ok ? tokensPU.data[0] || null : null;
         const byModelRows = byModel.ok ? byModel.data : [];
-        const paymentsPayload = buildPaymentsPayload(payments.ok ? payments.data : [], topups.ok ? topups.data : []);
+        const addonRows = addons.ok && addons.data ? (addons.data.purchased || []) : [];
+        const paymentsPayload = buildPaymentsPayload(payments.ok ? payments.data : [], topups.ok ? topups.data : [], addonRows);
 
         return res.status(200).json({
             success: true,
@@ -402,16 +421,40 @@ exports.getUserStorage = async (req, res, pools) => {
     const section_errors = [];
     try {
         const subs = await safeSection('plan', () => querySubscriptions(ids, pools.paymentPool), section_errors);
-        const limitGb = subs.ok && subs.data[0] && subs.data[0].storage_limit_gb != null ? num(subs.data[0].storage_limit_gb) : null;
+        const baseGb = subs.ok && subs.data[0] && subs.data[0].storage_limit_gb != null ? num(subs.data[0].storage_limit_gb) : null;
+        const baseBytes = baseGb != null ? baseGb * GB : 0;
+
+        // Extra storage the user actually bought — completed, non-expired add-on purchases.
+        let addonBytes = 0;
+        let addonPurchases = 0;
+        const addonStorage = await safeSection('addon_storage', async () => {
+            const { rows } = await pools.paymentPool.query(
+                `SELECT COALESCE(SUM(storage_bytes_granted), 0)::bigint AS bytes, COUNT(*)::int AS purchases
+                 FROM user_storage_addon_purchases
+                 WHERE user_id = ANY($1::int[]) AND LOWER(COALESCE(status, '')) = 'completed'
+                   AND (expires_at IS NULL OR expires_at > NOW())`,
+                [ids]
+            );
+            return rows[0];
+        }, section_errors);
+        if (addonStorage.ok) { addonBytes = num(addonStorage.data.bytes); addonPurchases = num(addonStorage.data.purchases); }
+
         const { totalBytes, breakdown } = await computeStorage(ids, pools, section_errors);
-        const limitBytes = limitGb != null ? limitGb * GB : null;
+
+        // Effective limit = plan base + active add-on storage. NULL only if there's no plan limit AND no add-ons.
+        const hasLimit = baseGb != null || addonBytes > 0;
+        const limitBytes = hasLimit ? baseBytes + addonBytes : null;
         return res.status(200).json({
             success: true,
             data: {
                 total_bytes: totalBytes,
                 total_gb: +(totalBytes / GB).toFixed(2),
-                limit_gb: limitGb,
+                limit_gb: limitBytes != null ? +(limitBytes / GB).toFixed(2) : null,
                 limit_bytes: limitBytes,
+                base_limit_gb: baseGb,
+                addon_limit_bytes: addonBytes,
+                addon_limit_gb: +(addonBytes / GB).toFixed(2),
+                addon_purchases: addonPurchases,
                 used_percent: limitBytes ? +pct(totalBytes, limitBytes).toFixed(1) : null,
                 over_limit: limitBytes ? totalBytes > limitBytes : false,
                 breakdown,
@@ -487,13 +530,14 @@ exports.getFirmAnalytics = async (req, res, pools) => {
             });
         }
 
-        const [subs, tokensPU, byModel, payTotals, payments, topups] = await Promise.all([
+        const [subs, tokensPU, byModel, payTotals, payments, topups, addonPurch] = await Promise.all([
             safeSection('plan', () => querySubscriptions(memberIds, pools.paymentPool), section_errors),
             safeSection('tokens', () => queryTokensPerUser(memberIds, pools.paymentPool), section_errors),
             safeSection('ai_usage', () => queryAiByModel(memberIds, pools.paymentPool), section_errors),
             safeSection('payments_total', () => queryPaymentsTotalPerUser(memberIds, pools.paymentPool), section_errors),
             safeSection('payments', () => queryPayments(memberIds, pools.paymentPool), section_errors),
             safeSection('topups', () => queryTopupPurchases(memberIds, pools.paymentPool), section_errors),
+            safeSection('addons', () => queryAddonPurchases(memberIds, pools.paymentPool), section_errors),
         ]);
 
         const subByUser = new Map((subs.ok ? subs.data : []).map((r) => [String(r.user_id), r]));
@@ -533,7 +577,7 @@ exports.getFirmAnalytics = async (req, res, pools) => {
                     ai_usage: { by_model: byModelRows, totals: aiTotals(byModelRows) },
                     payments_total: paidTotal,
                     payment_count: payCount,
-                    payments: buildPaymentsPayload(payments.ok ? payments.data : [], topups.ok ? topups.data : []),
+                    payments: buildPaymentsPayload(payments.ok ? payments.data : [], topups.ok ? topups.data : [], addonPurch.ok ? addonPurch.data : []),
                 },
                 members: memberRows,
             },

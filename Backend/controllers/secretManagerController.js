@@ -1108,8 +1108,9 @@ async function fetchPlanById(planId) {
   if (!planId) return null;
   try {
     const { rows } = await paymentPool.query(
-      `SELECT id, name, token_limit, price, currency, "interval", type, description
-       FROM subscription_plans WHERE id = $1`,
+      `SELECT id, name, daily_token_limit AS token_limit, price, currency,
+              billing_interval_months AS "interval", category AS type, description
+       FROM monthly_plans WHERE id = $1`,
       [planId]
     );
     return rows[0] || null;
@@ -1125,8 +1126,9 @@ async function enrichRowsWithPlanInfo(rows) {
   }
   try {
     const { rows: plans } = await paymentPool.query(
-      `SELECT id, name, token_limit, price, currency, "interval", type
-       FROM subscription_plans WHERE id = ANY($1)`,
+      `SELECT id, name, daily_token_limit AS token_limit, price, currency,
+              billing_interval_months AS "interval", category AS type
+       FROM monthly_plans WHERE id = ANY($1)`,
       [planIds]
     );
     const planMap = Object.fromEntries(plans.map((p) => [p.id, p]));
@@ -1150,8 +1152,9 @@ async function enrichRowsWithPlanInfo(rows) {
 const getPlansForPromptManagement = async (req, res) => {
   try {
     const { rows } = await paymentPool.query(
-      `SELECT id, name, description, token_limit, price, currency, "interval", type
-       FROM subscription_plans
+      `SELECT id, name, description, daily_token_limit AS token_limit, price, currency,
+              billing_interval_months AS "interval", category AS type
+       FROM monthly_plans
        ORDER BY name ASC`
     );
     res.status(200).json({

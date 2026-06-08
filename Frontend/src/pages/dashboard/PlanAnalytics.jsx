@@ -4,9 +4,9 @@ import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContaine
 import {
   ArrowLeft, RefreshCw, BarChart3, Repeat, Package, HardDrive, Users, CreditCard, AlertTriangle, X, Eye, Lock,
 } from 'lucide-react';
-import { COLORS, fmtINR, fmtNum, fmtDate } from './userAnalytics/analyticsFormat';
+import { COLORS, fmtINR, fmtNum, fmtBytes, fmtDate } from './userAnalytics/analyticsFormat';
 import { KpiCard, ChartCard, EmptyState, Donut, StatusPill } from './userAnalytics/AnalyticsCharts';
-import { fetchPlanSummary, fetchMonthlySubscribers, fetchTopupBuyers } from './userAnalytics/analyticsApi';
+import { fetchPlanSummary, fetchMonthlySubscribers, fetchTopupBuyers, fetchAddonBuyers } from './userAnalytics/analyticsApi';
 
 const TABS = [
   { key: 'monthly', label: 'Monthly Plans', icon: Repeat },
@@ -43,7 +43,9 @@ const PlanAnalytics = () => {
     if (plan.is_custom) return;
     setSel({ type, id: plan.id, name: plan.name }); setRows([]); setRowsLoading(true);
     try {
-      const r = type === 'monthly' ? await fetchMonthlySubscribers(plan.id) : await fetchTopupBuyers(plan.id);
+      const r = type === 'monthly' ? await fetchMonthlySubscribers(plan.id)
+        : type === 'addon' ? await fetchAddonBuyers(plan.id)
+        : await fetchTopupBuyers(plan.id);
       setRows(Array.isArray(r.data) ? r.data : []);
     } catch { setRows([]); } finally { setRowsLoading(false); }
   };
@@ -51,7 +53,8 @@ const PlanAnalytics = () => {
 
   const monthly = summary?.monthly || [];
   const topup = summary?.topup || [];
-  const addons = summary?.addons?.catalog || [];
+  const addonInfo = summary?.addons || {};
+  const addonPlans = addonInfo.plans || [];
 
   const UserCell = ({ r }) => (
     <div className="flex flex-col">
@@ -73,6 +76,7 @@ const PlanAnalytics = () => {
   const Panel = () => {
     if (!sel || sel.type !== tab) return null;
     const isMonthly = sel.type === 'monthly';
+    const isAddon = sel.type === 'addon';
     return (
       <ChartCard
         title={`${isMonthly ? 'Subscribers' : 'Buyers'} — ${sel.name}`}
@@ -87,6 +91,8 @@ const PlanAnalytics = () => {
                   <th className="px-3 py-2 text-left">User</th>
                   {isMonthly
                     ? <><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Joined</th><th className="px-3 py-2 text-right">Plan balance</th><th className="px-3 py-2 text-right">Top-up balance</th></>
+                    : isAddon
+                    ? <><th className="px-3 py-2 text-left">Purchased</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Expires</th></>
                     : <><th className="px-3 py-2 text-left">Purchased</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-right">Tokens</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Expires</th></>}
                   <th className="px-3 py-2 text-right">Actions</th>
                 </tr></thead>
@@ -100,6 +106,14 @@ const PlanAnalytics = () => {
                           <td className="px-3 py-2 text-slate-600">{fmtDate(r.created_at || r.start_date)}</td>
                           <td className="px-3 py-2 text-right text-slate-700">{fmtNum(r.current_token_balance)}</td>
                           <td className="px-3 py-2 text-right text-slate-700">{fmtNum(r.topup_token_balance)}</td>
+                        </>
+                      ) : isAddon ? (
+                        <>
+                          <td className="px-3 py-2 text-slate-600">{fmtDate(r.created_at)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtINR(r.amount)} {r.currency || ''}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtBytes(r.storage_bytes_granted)}</td>
+                          <td className="px-3 py-2"><StatusPill status={r.status} /></td>
+                          <td className="px-3 py-2 text-slate-600">{fmtDate(r.expires_at)}</td>
                         </>
                       ) : (
                         <>
@@ -152,7 +166,7 @@ const PlanAnalytics = () => {
           <div className="flex items-center gap-1 border-b border-slate-200">
             {TABS.map((t) => {
               const active = tab === t.key;
-              const count = t.key === 'monthly' ? monthly.length : t.key === 'topup' ? topup.length : addons.length;
+              const count = t.key === 'monthly' ? monthly.length : t.key === 'topup' ? topup.length : addonPlans.length;
               return (
                 <button key={t.key} onClick={() => { setTab(t.key); setSel(null); }}
                   className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${active ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
@@ -266,32 +280,65 @@ const PlanAnalytics = () => {
           {/* ── ADD-ON ── */}
           {tab === 'addon' && (
             <div className="space-y-4">
-              <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>Add-on purchases aren't tracked yet (phase 2) — there's no per-user add-on purchase record, so buyer counts aren't available. Showing the active add-on catalog.</span>
+              {!addonInfo.tracked && (
+                <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <span>Add-on purchase data is unavailable right now — showing the catalog without buyer counts.</span>
+                </div>
+              )}
+              {addonInfo.unmatched && addonInfo.unmatched.purchases > 0 && (
+                <div className="flex items-start gap-2 px-4 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-xs text-slate-600">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-slate-400" />
+                  <span>{fmtNum(addonInfo.unmatched.purchases)} purchase{addonInfo.unmatched.purchases !== 1 ? 's' : ''} ({addonInfo.unmatched.buyers} user{addonInfo.unmatched.buyers !== 1 ? 's' : ''}, {fmtINR(addonInfo.unmatched.revenue)}) reference an add-on plan no longer in the catalog — not attributed below.</span>
+                </div>
+              )}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiCard icon={HardDrive} tone="cyan" label="Add-on plans" value={fmtNum(addonPlans.length)} sub={addonInfo.totals?.buyers != null ? `${fmtNum(addonInfo.totals.buyers)} buyer${addonInfo.totals.buyers !== 1 ? 's' : ''}` : undefined} />
+                <KpiCard icon={CreditCard} tone="emerald" label="Total purchases" value={fmtNum(addonInfo.totals?.purchases ?? addonPlans.reduce((s, a) => s + (a.purchases || 0), 0))} />
+                <KpiCard icon={CreditCard} tone="violet" label="Add-on revenue" value={fmtINR(addonInfo.totals?.revenue ?? addonPlans.reduce((s, a) => s + Number(a.revenue || 0), 0))} />
+                <KpiCard icon={HardDrive} tone="blue" label="Storage sold" value={fmtBytes(addonInfo.totals?.bytes_granted ?? addonPlans.reduce((s, a) => s + Number(a.bytes_granted || 0), 0))} />
               </div>
-              <ChartCard title="Add-on catalog" subtitle={`${addons.length} active add-ons`}>
-                {addons.length === 0 ? <EmptyState icon={HardDrive} text="No add-ons configured." /> : (
-                  <div className="overflow-x-auto">
-                    <table className="min-w-full text-sm">
-                      <thead><tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase">
-                        <th className="px-3 py-2 text-left">Add-on</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-left">Billing</th><th className="px-3 py-2 text-right">Buyers</th>
-                      </tr></thead>
-                      <tbody>
-                        {addons.map((a) => (
-                          <tr key={a.id} className="border-b border-slate-100">
-                            <td className="px-3 py-2 font-medium text-slate-700">{a.name}</td>
-                            <td className="px-3 py-2 text-right text-slate-600">{fmtINR(a.price)}</td>
-                            <td className="px-3 py-2 text-right text-slate-600">{a.storage_gb >= 1024 ? `${a.storage_gb / 1024} TB` : `${a.storage_gb} GB`}</td>
-                            <td className="px-3 py-2 capitalize text-slate-500">{a.billing_type === 'one_time' ? `One-time (${a.validity_years || '—'} yr)` : `${a.billing_interval_months || 1} mo`}</td>
-                            <td className="px-3 py-2 text-right text-slate-400 italic">n/a</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <ChartCard title="Purchases per add-on">
+                  {addonPlans.every((a) => !a.purchases) ? <EmptyState icon={HardDrive} text="No add-on purchases yet." /> : (
+                    <div className="h-64">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={addonPlans} margin={{ left: 8, right: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                          <XAxis dataKey="name" tick={{ fontSize: 9 }} interval={0} angle={-20} textAnchor="end" height={60} />
+                          <YAxis allowDecimals={false} tick={{ fontSize: 11 }} />
+                          <Tooltip formatter={(v) => fmtNum(v)} />
+                          <Bar dataKey="purchases" fill={COLORS[1]} radius={[4, 4, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </ChartCard>
+                <ChartCard title="Revenue by add-on"><Donut data={addonPlans.map((a) => ({ name: a.name, value: Number(a.revenue || 0) }))} valueFormatter={(v) => fmtINR(v)} /></ChartCard>
+              </div>
+              <ChartCard title="Add-on plans" subtitle="Click an add-on to see its buyers">
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead><tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase">
+                      <th className="px-3 py-2 text-left">Add-on</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-right">Buyers</th><th className="px-3 py-2 text-right">Purchases</th><th className="px-3 py-2 text-right">Revenue</th>
+                    </tr></thead>
+                    <tbody>
+                      {addonPlans.map((a) => (
+                        <tr key={a.id} onClick={() => openPlan('addon', a)}
+                          className={`border-b border-slate-100 cursor-pointer ${sel?.type === 'addon' && sel.id === a.id ? 'bg-cyan-50/60' : 'hover:bg-cyan-50/40'}`}>
+                          <td className="px-3 py-2 font-medium text-slate-700">{a.name}</td>
+                          <td className="px-3 py-2 text-right text-slate-600">{fmtINR(a.price)}</td>
+                          <td className="px-3 py-2 text-right text-slate-600">{a.storage_gb >= 1024 ? `${a.storage_gb / 1024} TB` : `${a.storage_gb} GB`}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtNum(a.buyers)}</td>
+                          <td className="px-3 py-2 text-right text-slate-700">{fmtNum(a.purchases)}</td>
+                          <td className="px-3 py-2 text-right font-semibold text-emerald-700">{fmtINR(a.revenue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </ChartCard>
+              <Panel />
             </div>
           )}
         </>

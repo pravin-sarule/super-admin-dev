@@ -31,7 +31,7 @@ async function fetchPlanById(planId) {
   if (!planId) return null;
   try {
     const { rows } = await paymentPool.query(
-      'SELECT id, name, token_limit, price, currency, "interval", type FROM subscription_plans WHERE id = $1',
+      'SELECT id, name, daily_token_limit AS token_limit, price, currency, billing_interval_months AS "interval", category AS type FROM monthly_plans WHERE id = $1',
       [planId]
     );
     return rows[0] || null;
@@ -79,7 +79,7 @@ const enrichWithPlanInfo = async (roles) => {
   if (planIds.length === 0) return roles.map((r) => ({ ...r, plan_info: null }));
   try {
     const { rows: plans } = await paymentPool.query(
-      'SELECT id, name, token_limit, price, currency, "interval", type FROM subscription_plans WHERE id = ANY($1)',
+      'SELECT id, name, daily_token_limit AS token_limit, price, currency, billing_interval_months AS "interval", category AS type FROM monthly_plans WHERE id = ANY($1)',
       [planIds]
     );
     const planMap = Object.fromEntries(plans.map((p) => [p.id, p]));

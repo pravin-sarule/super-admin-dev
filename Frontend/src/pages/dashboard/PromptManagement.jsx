@@ -3307,9 +3307,9 @@ const PromptManagement = () => {
   const LLM_API_BASE_URL = `${API_ROOT}/llm`;
   const CHUNKING_API_BASE_URL = `${API_ROOT}/chunking-methods`;
   const APP_ROLES_API_URL = `${API_ROOT}/app-roles`;
-  /** Same plans as Subscription Management (payment DB) */
-  const PLANS_API_URL = `${API_ROOT}/admin/plans`;
-  const PLANS_FALLBACK_URL = `${API_ROOT}/secrets/plans`;
+  /** Monthly plans from Subscription Management (payment DB) */
+  const PLANS_API_URL = `${API_ROOT}/admin/monthly-plans`;
+  const PLANS_FALLBACK_URL = `${API_ROOT}/admin/monthly-plans`;
 
   const formatDailyTokens = (n) => {
     if (n == null || n === '') return null;
@@ -3326,7 +3326,7 @@ const PromptManagement = () => {
   const planDailyLimitById = (planId) => {
     if (!planId) return null;
     const p = subscriptionPlans.find((x) => x.id === planId || x.id === parseInt(planId, 10));
-    return p?.token_limit ?? p?.daily_token_limit ?? null;
+    return p?.daily_token_limit ?? p?.token_limit ?? null;
   };
 
   // Get user info from token
@@ -4707,14 +4707,14 @@ const PromptManagement = () => {
                   <option value="">— No plan —</option>
                   {subscriptionPlans.map((plan) => (
                     <option key={plan.id} value={plan.id}>
-                      {plan.name} — {formatDailyTokens(plan.token_limit ?? plan.daily_token_limit)} tokens/day
+                      {plan.name} — {formatDailyTokens(plan.daily_token_limit ?? plan.token_limit)} tokens/day
                     </option>
                   ))}
                 </select>
                 <p className="text-xs text-gray-500 mt-1">
                   {subscriptionPlans.length === 0
                     ? 'No plans yet — create plans under Subscription Management first, then refresh this form.'
-                    : 'Plans from Subscription Management. Token limit is the per-day cap.'}
+                    : 'Plans from Monthly Plans. Daily token limit is the per-day cap.'}
                 </p>
                 {subscriptionPlans.length > 0 && (
                   <button
@@ -5296,7 +5296,7 @@ const PromptManagement = () => {
                         <option value="">— No plan —</option>
                         {subscriptionPlans.map((plan) => (
                           <option key={plan.id} value={plan.id}>
-                            {plan.name} — {formatDailyTokens(plan.token_limit ?? plan.daily_token_limit)} tokens/day
+                            {plan.name} — {formatDailyTokens(plan.daily_token_limit ?? plan.token_limit)} tokens/day
                           </option>
                         ))}
                       </select>

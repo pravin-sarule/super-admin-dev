@@ -56,6 +56,7 @@ const TokenCards = ({ t }) => (
 /* ── plan card (user mode) ── */
 const PlanCard = ({ plan, addons }) => {
   const p = plan?.data;
+  const purchasedAddons = addons?.data?.purchased || [];
   return (
     <div className="space-y-4">
       <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
@@ -78,55 +79,87 @@ const PlanCard = ({ plan, addons }) => {
         </div>
       </div>
 
-      <ChartCard title="Add-ons" subtitle="Storage add-on catalog">
-        {!addons?.data?.tracked && (
+      <ChartCard title="Add-ons" subtitle={purchasedAddons.length ? `${purchasedAddons.length} purchased` : 'Storage add-ons'}>
+        {addons?.data?.tracked === false && (
           <div className="flex items-start gap-2 px-3.5 py-2.5 mb-3 rounded-lg bg-amber-50/70 border border-amber-100 text-xs text-amber-700">
             <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-            <span>Per-user add-on purchases aren't tracked yet (phase 2). Showing the active add-on catalog.</span>
+            <span>Add-on purchase data is unavailable right now. Showing the active add-on catalog.</span>
           </div>
         )}
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead><tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase">
-              <th className="px-3 py-2 text-left">Add-on</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-left">Billing</th>
-            </tr></thead>
-            <tbody>
-              {(addons?.data?.catalog || []).length === 0 ? (
-                <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">No add-ons configured.</td></tr>
-              ) : addons.data.catalog.map((a) => (
-                <tr key={a.id} className="border-b border-slate-100">
-                  <td className="px-3 py-2 font-medium text-slate-700">{a.name}</td>
-                  <td className="px-3 py-2 text-right">{fmtINR(a.price)}</td>
-                  <td className="px-3 py-2 text-right">{a.storage_gb >= 1024 ? `${a.storage_gb / 1024} TB` : `${a.storage_gb} GB`}</td>
-                  <td className="px-3 py-2 capitalize">{a.billing_type === 'one_time' ? `One-time (${a.validity_years || '—'} yr)` : `${a.billing_interval_months || 1} mo cycle`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        {purchasedAddons.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead><tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase">
+                <th className="px-3 py-2 text-left">Add-on</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-right">Amount</th><th className="px-3 py-2 text-left">Status</th><th className="px-3 py-2 text-left">Purchased</th><th className="px-3 py-2 text-left">Expires</th>
+              </tr></thead>
+              <tbody>
+                {purchasedAddons.map((a) => (
+                  <tr key={a.id} className="border-b border-slate-100">
+                    <td className="px-3 py-2 font-medium text-slate-700">{a.plan_name || (a.storage_gb ? `+${a.storage_gb} GB Storage` : 'Storage add-on')}</td>
+                    <td className="px-3 py-2 text-right">{fmtBytes(a.storage_bytes_granted)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtINR(a.amount)} {a.currency || ''}</td>
+                    <td className="px-3 py-2"><StatusPill status={a.status} /></td>
+                    <td className="px-3 py-2 text-slate-600">{fmtDate(a.created_at)}</td>
+                    <td className="px-3 py-2 text-slate-600">{fmtDate(a.expires_at)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs text-slate-400 mb-2">No add-ons purchased by this user. Available catalog:</p>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead><tr className="bg-slate-50 border-b border-slate-200 text-xs text-slate-500 uppercase">
+                  <th className="px-3 py-2 text-left">Add-on</th><th className="px-3 py-2 text-right">Price</th><th className="px-3 py-2 text-right">Storage</th><th className="px-3 py-2 text-left">Billing</th>
+                </tr></thead>
+                <tbody>
+                  {(addons?.data?.catalog || []).length === 0 ? (
+                    <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">No add-ons configured.</td></tr>
+                  ) : addons.data.catalog.map((a) => (
+                    <tr key={a.id} className="border-b border-slate-100">
+                      <td className="px-3 py-2 font-medium text-slate-700">{a.name}</td>
+                      <td className="px-3 py-2 text-right">{fmtINR(a.price)}</td>
+                      <td className="px-3 py-2 text-right">{a.storage_gb >= 1024 ? `${a.storage_gb / 1024} TB` : `${a.storage_gb} GB`}</td>
+                      <td className="px-3 py-2 capitalize">{a.billing_type === 'one_time' ? `One-time (${a.validity_years || '—'} yr)` : `${a.billing_interval_months || 1} mo cycle`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </ChartCard>
     </div>
   );
 };
 
-const TypeBadge = ({ type }) => (
-  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${type === 'topup' ? 'bg-amber-50 text-amber-700 border-amber-100' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-    {type === 'topup' ? <Zap className="w-2.5 h-2.5" /> : <Repeat className="w-2.5 h-2.5" />}{type === 'topup' ? 'Top-up' : 'Plan'}
-  </span>
-);
+const TypeBadge = ({ type }) => {
+  const cfg = type === 'topup' ? { c: 'bg-amber-50 text-amber-700 border-amber-100', i: Zap, t: 'Top-up' }
+    : type === 'addon' ? { c: 'bg-cyan-50 text-cyan-700 border-cyan-100', i: HardDrive, t: 'Add-on' }
+    : { c: 'bg-blue-50 text-blue-700 border-blue-100', i: Repeat, t: 'Plan' };
+  const Icon = cfg.i;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold border ${cfg.c}`}>
+      <Icon className="w-2.5 h-2.5" />{cfg.t}
+    </span>
+  );
+};
 
 const PaymentsView = ({ data }) => {
   const items = Array.isArray(data) ? data : (data?.items || []);
   const summary = (data && !Array.isArray(data) && data.summary) || null;
   const byMonth = (data && !Array.isArray(data) && data.by_month) || [];
-  const donut = summary ? [{ name: 'Plan', value: summary.plan_total }, { name: 'Top-up', value: summary.topup_total }] : [];
+  const donut = summary ? [{ name: 'Plan', value: summary.plan_total }, { name: 'Top-up', value: summary.topup_total }, { name: 'Add-on', value: summary.addon_total || 0 }] : [];
   return (
     <div className="space-y-4">
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <KpiCard icon={CreditCard} tone="emerald" label="Total paid" value={fmtINR(summary.total)} sub={`${summary.plan_count + summary.topup_count} payments`} />
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <KpiCard icon={CreditCard} tone="emerald" label="Total paid" value={fmtINR(summary.total)} sub={`${summary.plan_count + summary.topup_count + (summary.addon_count || 0)} payments`} />
           <KpiCard icon={Repeat} tone="blue" label="Plan payments" value={fmtINR(summary.plan_total)} sub={`${summary.plan_count} payment${summary.plan_count !== 1 ? 's' : ''}`} />
           <KpiCard icon={Zap} tone="amber" label="Top-up payments" value={fmtINR(summary.topup_total)} sub={`${summary.topup_count} purchase${summary.topup_count !== 1 ? 's' : ''}`} />
+          <KpiCard icon={HardDrive} tone="cyan" label="Add-on payments" value={fmtINR(summary.addon_total || 0)} sub={`${summary.addon_count || 0} purchase${(summary.addon_count || 0) !== 1 ? 's' : ''}`} />
           <KpiCard icon={Coins} tone="violet" label="Top-up tokens" value={fmtNum(summary.topup_tokens)} sub="credited" />
         </div>
       )}
@@ -140,9 +173,10 @@ const PaymentsView = ({ data }) => {
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="month" tick={{ fontSize: 10 }} />
                   <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `₹${v >= 1000 ? `${(v / 1000).toFixed(0)}k` : v}`} />
-                  <Tooltip formatter={(v, n) => [fmtINR(v), n === 'topup' ? 'Top-up' : 'Plan']} />
-                  <Bar dataKey="plan" stackId="a" fill={COLORS[0]} />
+                  <Tooltip formatter={(v, n) => [fmtINR(v), n === 'topup' ? 'Top-up' : n === 'addon' ? 'Add-on' : 'Plan']} />
+                  <Bar dataKey="plan" stackId="a" fill={COLORS[0]} radius={[3, 3, 0, 0]} />
                   <Bar dataKey="topup" stackId="a" fill={COLORS[4]} radius={[3, 3, 0, 0]} />
+                  <Bar dataKey="addon" stackId="a" fill={COLORS[1]} radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -160,7 +194,7 @@ const PaymentHistory = ({ items }) => {
   const [page, setPage] = useState(1);
   const PER = 10;
 
-  const counts = { all: items.length, plan: items.filter((i) => i.type === 'plan').length, topup: items.filter((i) => i.type === 'topup').length };
+  const counts = { all: items.length, plan: items.filter((i) => i.type === 'plan').length, topup: items.filter((i) => i.type === 'topup').length, addon: items.filter((i) => i.type === 'addon').length };
   const filtered = typeFilter === 'all' ? items : items.filter((i) => i.type === typeFilter);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PER));
   const cur = Math.min(page, totalPages);
@@ -169,7 +203,7 @@ const PaymentHistory = ({ items }) => {
 
   const filterBtns = (
     <div className="flex items-center gap-1">
-      {[['all', 'All'], ['plan', 'Plan'], ['topup', 'Top-up']].map(([k, label]) => (
+      {[['all', 'All'], ['plan', 'Plan'], ['topup', 'Top-up'], ['addon', 'Add-on']].map(([k, label]) => (
         <button key={k} onClick={() => setFilter(k)}
           className={`px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors ${typeFilter === k ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
           {label} <span className="opacity-70">{counts[k]}</span>
@@ -197,6 +231,7 @@ const PaymentHistory = ({ items }) => {
                     <td className="px-3 py-2 text-slate-700">
                       {p.plan_name}
                       {p.type === 'topup' && p.tokens_credited ? <span className="text-xs text-slate-400"> · {fmtNum(p.tokens_credited)} tokens{p.expires_at ? `, exp ${fmtDate(p.expires_at)}` : ''}</span> : null}
+                      {p.type === 'addon' && p.storage_bytes_granted ? <span className="text-xs text-slate-400"> · {fmtBytes(p.storage_bytes_granted)}{p.expires_at ? `, exp ${fmtDate(p.expires_at)}` : ''}</span> : null}
                     </td>
                     <td className="px-3 py-2 text-right font-semibold text-slate-800">{fmtINR(p.amount)} {p.currency || ''}</td>
                     <td className="px-3 py-2"><StatusPill status={p.status} /></td>
@@ -326,6 +361,13 @@ const StorageView = ({ storage, loading, error, onRetry }) => {
           {storage.used_percent != null && <span className={`text-2xl font-bold ${storage.over_limit ? 'text-red-600' : 'text-slate-700'}`}>{storage.used_percent}%</span>}
         </div>
         <StorageBar percent={storage.used_percent} over={storage.over_limit} />
+        {storage.addon_limit_bytes > 0 && (
+          <p className="text-xs text-slate-500 mt-2">
+            {storage.base_limit_gb != null ? `${storage.base_limit_gb} GB plan` : 'No plan limit'}
+            {' + '}<span className="font-medium text-cyan-700">{fmtBytes(storage.addon_limit_bytes)}</span> from {storage.addon_purchases} add-on{storage.addon_purchases !== 1 ? 's' : ''}
+            {' = '}<span className="font-medium">{fmtBytes(storage.limit_bytes)}</span> total
+          </p>
+        )}
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <ChartCard title="What's using storage"><Donut data={donut} valueFormatter={(v) => fmtBytes(v)} /></ChartCard>

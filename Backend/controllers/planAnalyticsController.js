@@ -46,17 +46,51 @@ exports.getSummary = async (req, res, pools) => {
              ORDER BY purchases DESC, tp.sort_order ASC, tp.id ASC`,
             [PAID]
         );
-        const addons = await pools.paymentPool.query(
-            `SELECT id, name, price, currency, storage_gb, billing_type, billing_interval_months, validity_years
-             FROM addon_plans WHERE is_active = true ORDER BY sort_order ASC, id ASC`
-        );
+        // Per-add-on purchase analytics — the user-facing app now records buys in user_storage_addon_purchases.
+        let addons;
+        try {
+            const perPlan = await pools.paymentPool.query(
+                `SELECT ap.id, ap.name, ap.price, ap.currency, ap.storage_gb,
+                        COUNT(DISTINCT up.user_id)::int AS buyers,
+                        COUNT(up.id)::int AS purchases,
+                        COUNT(up.id) FILTER (WHERE LOWER(COALESCE(up.status, '')) = 'completed')::int AS completed,
+                        COALESCE(SUM(up.amount) FILTER (WHERE LOWER(COALESCE(up.status, '')) = 'completed'), 0)::numeric AS revenue,
+                        COALESCE(SUM(up.storage_bytes_granted) FILTER (WHERE LOWER(COALESCE(up.status, '')) = 'completed'), 0)::bigint AS bytes_granted
+                 FROM addon_plans ap
+                 LEFT JOIN user_storage_addon_purchases up ON up.addon_plan_id = ap.id
+                 GROUP BY ap.id, ap.name, ap.price, ap.currency, ap.storage_gb
+                 ORDER BY purchases DESC, ap.sort_order ASC, ap.id ASC`
+            );
+            // purchases whose addon_plan_id no longer matches a catalog plan (stale ids)
+            const orphan = await pools.paymentPool.query(
+                `SELECT COUNT(*)::int AS purchases, COUNT(DISTINCT user_id)::int AS buyers,
+                        COALESCE(SUM(amount) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed'), 0)::numeric AS revenue
+                 FROM user_storage_addon_purchases up
+                 WHERE NOT EXISTS (SELECT 1 FROM addon_plans ap WHERE ap.id = up.addon_plan_id)`
+            );
+            // grand totals across ALL purchases (incl. orphans) — powers the top KPIs
+            const totals = await pools.paymentPool.query(
+                `SELECT COUNT(*)::int AS purchases, COUNT(DISTINCT user_id)::int AS buyers,
+                        COUNT(*) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed')::int AS completed,
+                        COALESCE(SUM(amount) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed'), 0)::numeric AS revenue,
+                        COALESCE(SUM(storage_bytes_granted) FILTER (WHERE LOWER(COALESCE(status, '')) = 'completed'), 0)::bigint AS bytes_granted
+                 FROM user_storage_addon_purchases`
+            );
+            addons = { tracked: true, plans: perPlan.rows, unmatched: orphan.rows[0], totals: totals.rows[0] };
+        } catch (e) {
+            const catalog = await pools.paymentPool.query(
+                `SELECT id, name, price, currency, storage_gb FROM addon_plans WHERE is_active = true ORDER BY sort_order ASC, id ASC`
+            );
+            addons = {
+                tracked: false,
+                plans: catalog.rows.map((c) => ({ ...c, buyers: 0, purchases: 0, completed: 0, revenue: 0, bytes_granted: 0 })),
+                unmatched: null,
+                error: e.message,
+            };
+        }
         return res.status(200).json({
             success: true,
-            data: {
-                monthly: monthly.rows,
-                topup: topup.rows,
-                addons: { tracked: false, catalog: addons.rows },
-            },
+            data: { monthly: monthly.rows, topup: topup.rows, addons },
         });
     } catch (e) {
         return res.status(500).json({ success: false, message: e.message });
@@ -75,6 +109,25 @@ exports.getMonthlySubscribers = async (req, res, pools) => {
              FROM user_subscriptions us
              WHERE us.monthly_plan_id = $1
              ORDER BY us.created_at DESC NULLS LAST`,
+            [planId]
+        );
+        return res.status(200).json({ success: true, data: await attachUsers(rows, pools.authPool) });
+    } catch (e) {
+        return res.status(500).json({ success: false, message: e.message });
+    }
+};
+
+/** GET /addon/:planId/buyers — storage add-on purchasers from user_storage_addon_purchases. */
+exports.getAddonBuyers = async (req, res, pools) => {
+    const planId = parseInt(req.params.planId, 10);
+    if (!Number.isFinite(planId)) return res.status(400).json({ success: false, message: 'Invalid plan id' });
+    try {
+        const { rows } = await pools.paymentPool.query(
+            `SELECT up.user_id, up.amount, up.currency, up.storage_bytes_granted, up.status, up.created_at, up.expires_at
+             FROM user_storage_addon_purchases up
+             WHERE up.addon_plan_id = $1
+             ORDER BY up.created_at DESC NULLS LAST
+             LIMIT 500`,
             [planId]
         );
         return res.status(200).json({ success: true, data: await attachUsers(rows, pools.authPool) });

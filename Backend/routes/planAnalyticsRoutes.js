@@ -20,6 +20,7 @@ module.exports = (authPool) => {
   router.get('/summary', (req, res) => load().getSummary(req, res, pools));
   router.get('/monthly/:planId/subscribers', (req, res) => load().getMonthlySubscribers(req, res, pools));
   router.get('/topup/:planId/buyers', (req, res) => load().getTopupBuyers(req, res, pools));
+  router.get('/addon/:planId/buyers', (req, res) => load().getAddonBuyers(req, res, pools));
 
   return router;
 };
