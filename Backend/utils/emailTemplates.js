@@ -236,7 +236,208 @@ const getQueryStatusUpdateEmailTemplate = (
 </html>`;
 };
 
+/**
+ * Admin account creation email — sent to the new admin with their login credentials
+ */
+const getAdminCreationEmailTemplate = (name, email, password, role) => {
+  const safeEmail = escapeHtml(email || '');
+  const safeName = escapeHtml(name || 'Admin');
+  const safePassword = escapeHtml(password || '');
+  const roleLabel = escapeHtml(
+    (role || 'admin')
+      .replace(/-/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+
+  const loginUrl = process.env.ADMIN_PORTAL_URL || process.env.FRONTEND_URL || 'https://admin.nexintel.ai';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your Admin Account – Nexintel</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+    <div style="max-width:600px;margin:32px auto;padding:0 16px;">
+
+      <!-- Card -->
+      <div style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(15,23,42,0.10);">
+
+        <!-- Header bar -->
+        <div style="height:5px;background:linear-gradient(90deg,#3b82f6 0%,#2563eb 50%,#1d4ed8 100%);"></div>
+
+        <!-- Logo / Brand -->
+        <div style="padding:36px 40px 24px;text-align:center;background:linear-gradient(180deg,#f8fafc 0%,#ffffff 100%);">
+          <div style="display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);border-radius:16px;box-shadow:0 8px 24px rgba(37,99,235,0.35);margin-bottom:18px;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M2 17L12 22L22 17" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M2 12L12 17L22 12" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <h1 style="margin:0 0 4px;font-size:13px;font-weight:700;letter-spacing:0.18em;text-transform:uppercase;color:#2563eb;">Nexintel Admin Portal</h1>
+          <p style="margin:0;font-size:11px;color:#94a3b8;letter-spacing:0.04em;">Secure · Reliable · Powerful</p>
+        </div>
+
+        <!-- Body -->
+        <div style="padding:0 40px 36px;">
+
+          <h2 style="margin:0 0 10px;font-size:24px;font-weight:700;color:#0f172a;">Welcome aboard, ${safeName}! 👋</h2>
+          <p style="margin:0 0 24px;font-size:15px;line-height:1.7;color:#475569;">
+            Your admin account on <strong>Nexintel Super Admin Portal</strong> has been created successfully by a Super Administrator. Use the credentials below to sign in for the first time.
+          </p>
+
+          <!-- Credentials card -->
+          <div style="background:linear-gradient(145deg,#f8faff 0%,#eff6ff 100%);border:1px solid #bfdbfe;border-radius:16px;padding:28px;margin-bottom:28px;position:relative;overflow:hidden;">
+            <div style="position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,#3b82f6,#2563eb);"></div>
+            <p style="margin:0 0 18px;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:#64748b;border-bottom:1px dashed #bfdbfe;padding-bottom:12px;">Your Login Credentials</p>
+
+            <table width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="padding:8px 0;font-size:13px;color:#64748b;width:40%;">
+                  <span style="display:inline-flex;align-items:center;gap:6px;">
+                    <!-- envelope icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" xmlns="http://www.w3.org/2000/svg"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                    Email Address
+                  </span>
+                </td>
+                <td style="padding:8px 0;font-size:14px;font-weight:600;color:#1e40af;text-align:right;">${safeEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;font-size:13px;color:#64748b;">
+                  <span style="display:inline-flex;align-items:center;gap:6px;">
+                    <!-- lock icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    Temporary Password
+                  </span>
+                </td>
+                <td style="padding:8px 0;text-align:right;">
+                  <span style="display:inline-block;background:#1e40af;color:#ffffff;font-size:14px;font-weight:700;padding:4px 14px;border-radius:8px;letter-spacing:0.08em;font-family:monospace;">${safePassword}</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding:8px 0;font-size:13px;color:#64748b;">
+                  <span style="display:inline-flex;align-items:center;gap:6px;">
+                    <!-- shield icon -->
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" xmlns="http://www.w3.org/2000/svg"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    Assigned Role
+                  </span>
+                </td>
+                <td style="padding:8px 0;text-align:right;">
+                  <span style="display:inline-block;background:#eff6ff;color:#1e40af;font-size:13px;font-weight:700;padding:3px 12px;border-radius:20px;border:1px solid #bfdbfe;letter-spacing:0.03em;">${roleLabel}</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+
+          <!-- Security notice -->
+          <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:12px;padding:16px 18px;margin-bottom:28px;">
+            <p style="margin:0 0 4px;font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.1em;">⚠ Security Notice</p>
+            <p style="margin:0;font-size:13px;color:#78350f;line-height:1.5;">
+              Please change your password immediately after your first login. Do not share these credentials with anyone.
+            </p>
+          </div>
+
+          <!-- CTA -->
+          <div style="text-align:center;margin-bottom:28px;">
+            <a href="${loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#2563eb 0%,#1d4ed8 100%);color:#ffffff;font-size:15px;font-weight:700;padding:16px 40px;border-radius:12px;text-decoration:none;box-shadow:0 6px 20px rgba(37,99,235,0.35);letter-spacing:0.02em;">
+              Sign In to Admin Portal →
+            </a>
+          </div>
+
+          <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.6;text-align:center;">
+            Having trouble? Contact your Super Administrator or reach out to<br/>
+            <a href="mailto:support@nexintel.ai" style="color:#2563eb;text-decoration:none;font-weight:600;">support@nexintel.ai</a>
+          </p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background:#f8fafc;padding:20px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+          <p style="margin:0 0 6px;font-size:12px;color:#64748b;">© 2025 Nexintel Admin · All rights reserved</p>
+          <p style="margin:0;font-size:11px;color:#94a3b8;">This is an automated email. Please do not reply to this message.</p>
+        </div>
+      </div>
+
+      <p style="max-width:600px;margin:14px auto 0;text-align:center;font-size:10px;color:#94a3b8;line-height:1.5;">
+        This email was sent because an admin account was created for you on the Nexintel platform. If you did not expect this, contact your organisation's Super Administrator.
+      </p>
+    </div>
+  </body>
+</html>`;
+};
+
+const getAdminUpdateEmailTemplate = (name, email) => {
+  const safeName = escapeHtml(name || 'Admin');
+  const safeEmail = escapeHtml(email || '');
+  const loginUrl = process.env.ADMIN_PORTAL_URL || process.env.FRONTEND_URL || 'https://admin.nexintel.ai';
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Account Updated – Nexintel</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+    <div style="max-width:600px;margin:32px auto;padding:0 16px;">
+      <div style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(15,23,42,0.10);">
+        <div style="height:5px;background:linear-gradient(90deg,#10b981 0%,#059669 100%);"></div>
+        <div style="padding:36px 40px 28px;">
+          <h2 style="margin:0 0 10px;font-size:22px;font-weight:700;color:#0f172a;">Account Details Updated</h2>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.7;color:#475569;">
+            Hello <strong>${safeName}</strong>, your Nexintel admin account (<strong>${safeEmail}</strong>) has been updated by a Super Administrator. If you did not expect this change, please contact support immediately.
+          </p>
+          <div style="text-align:center;">
+            <a href="${loginUrl}" style="display:inline-block;background:linear-gradient(135deg,#10b981 0%,#059669 100%);color:#ffffff;font-size:15px;font-weight:700;padding:14px 36px;border-radius:12px;text-decoration:none;">Sign In →</a>
+          </div>
+        </div>
+        <div style="background:#f8fafc;padding:18px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#94a3b8;">© 2025 Nexintel Admin · This is an automated message.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+};
+
+const getAdminDeletionEmailTemplate = (name, email) => {
+  const safeName = escapeHtml(name || 'Admin');
+  const safeEmail = escapeHtml(email || '');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Account Removed – Nexintel</title>
+  </head>
+  <body style="margin:0;padding:0;background:#f1f5f9;font-family:Inter,Arial,sans-serif;color:#0f172a;">
+    <div style="max-width:600px;margin:32px auto;padding:0 16px;">
+      <div style="background:#ffffff;border-radius:20px;overflow:hidden;box-shadow:0 20px 60px rgba(15,23,42,0.10);">
+        <div style="height:5px;background:linear-gradient(90deg,#ef4444 0%,#dc2626 100%);"></div>
+        <div style="padding:36px 40px 28px;">
+          <h2 style="margin:0 0 10px;font-size:22px;font-weight:700;color:#0f172a;">Admin Account Deactivated</h2>
+          <p style="margin:0 0 20px;font-size:15px;line-height:1.7;color:#475569;">
+            Hello <strong>${safeName}</strong>, your Nexintel admin account (<strong>${safeEmail}</strong>) has been removed by a Super Administrator. Your access to the admin portal has been revoked.
+          </p>
+          <p style="margin:0;font-size:14px;color:#475569;">
+            If you believe this was done in error, please reach out to your organisation's Super Administrator or contact <a href="mailto:support@nexintel.ai" style="color:#ef4444;text-decoration:none;font-weight:600;">support@nexintel.ai</a>.
+          </p>
+        </div>
+        <div style="background:#f8fafc;padding:18px 40px;border-top:1px solid #e2e8f0;text-align:center;">
+          <p style="margin:0;font-size:11px;color:#94a3b8;">© 2025 Nexintel Admin · This is an automated message.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>`;
+};
+
 module.exports = {
   getFirmApprovalEmailTemplate,
   getQueryStatusUpdateEmailTemplate,
+  getAdminCreationEmailTemplate,
+  getAdminUpdateEmailTemplate,
+  getAdminDeletionEmailTemplate,
 };

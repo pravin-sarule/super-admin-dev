@@ -439,7 +439,7 @@ module.exports = (pool) => {
         await sendEmail({
           email: email,
           subject: 'Admin Account Created - Nexintel',
-          html: getAdminCreationEmailTemplate(name, email, password),
+          html: getAdminCreationEmailTemplate(name, email, password, role_name),
         });
       } catch (emailError) {
         logger.errorWithContext('Failed to send admin creation email', emailError, {
