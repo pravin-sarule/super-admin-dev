@@ -2,12 +2,11 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Get firm approval email template
+ * Get firm approval email template (set-password invite)
  * @param {Object} firmData - Firm data
- * @param {string} certificateUrl - Certificate signed URL (valid for 30 days)
  * @returns {string} - HTML email content
  */
-const getFirmApprovalEmailTemplate = (firmData, certificateUrl) => {
+const getFirmApprovalEmailTemplate = (firmData) => {
   const issueDate = new Date().toLocaleDateString('en-GB', {
     day: '2-digit',
     month: '2-digit',
@@ -15,10 +14,11 @@ const getFirmApprovalEmailTemplate = (firmData, certificateUrl) => {
   });
 
   // Get frontend URL from environment or use default
-  const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://jurinex-dev.netlify.app';
+  const frontendUrl = (process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://ailearn.co.in').trim().replace(/\/$/, '');
   
-  // Encode email for URL
-  const encodedEmail = encodeURIComponent(firmData.email);
+  // Prefer firm contact email, fall back to admin login email
+  const loginEmail = firmData.email || firmData.admin_email || '';
+  const encodedEmail = encodeURIComponent(loginEmail);
   const setPasswordUrl = `${frontendUrl}/set-password?email=${encodedEmail}`;
 
   return `<!DOCTYPE html>
@@ -109,15 +109,11 @@ const getFirmApprovalEmailTemplate = (firmData, certificateUrl) => {
           </div>
 
           <div style="text-align: center; margin-bottom: 25px;">
-            <a href="${setPasswordUrl}" style="display: block; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); color: white; padding: 16px 32px; border-radius: 10px; text-decoration: none; font-size: 15px; font-weight: 700; box-shadow: 0 4px 14px rgba(33, 193, 182, 0.3); transition: all 0.3s ease; margin-bottom: 12px;">
+            <a href="${setPasswordUrl}" style="display: block; background: linear-gradient(135deg, #21C1B6 0%, #1AA49B 100%); color: white; padding: 16px 32px; border-radius: 10px; text-decoration: none; font-size: 15px; font-weight: 700; box-shadow: 0 4px 14px rgba(33, 193, 182, 0.3); transition: all 0.3s ease;">
               Generate Login Password
             </a>
-            
-            <a href="${certificateUrl}" style="display: inline-block; background: transparent; color: #4b5563; padding: 10px 24px; border-radius: 8px; text-decoration: none; font-size: 13px; font-weight: 600; border: 1px solid #e5e7eb; transition: all 0.2s ease;">
-              📥 Download Certificate (PDF)
-            </a>
-            <p style="margin: 8px 0 0; font-size: 11px; color: #9ca3af; text-align: center;">
-              Certificate link valid for 24 hours
+            <p style="margin: 12px 0 0; font-size: 12px; color: #6b7280; text-align: center;">
+              Use this link to create your login password and access your account.
             </p>
           </div>
 

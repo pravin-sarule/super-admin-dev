@@ -160,7 +160,8 @@ const UserManagement = () => {
         ...user,
         last_login_at: user.login_time,
         auth_type: user.auth_type || 'manual',
-        is_blocked: user.is_blocked || false
+        is_blocked: user.is_blocked || false,
+        is_active: user.is_active !== false
       }));
       
       setUsers(transformedUsers);
@@ -189,7 +190,8 @@ const UserManagement = () => {
         ...user,
         last_login_at: user.login_time,
         auth_type: user.auth_type || 'manual',
-        is_blocked: user.is_blocked || false
+        is_blocked: user.is_blocked || false,
+        is_active: user.is_active !== false
       }));
       
       setSoloUsers(transformedUsers);
@@ -265,11 +267,21 @@ const UserManagement = () => {
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
-          await apiCall(`/users/firms/${firmId}/approval`, {
+          const data = await apiCall(`/users/firms/${firmId}/approval`, {
             method: 'PUT',
             body: JSON.stringify({ approval_status: 'APPROVED' })
           });
-          showToast('Firm approved successfully!', 'success');
+          if (data.emailSent) {
+            showToast(data.message || 'Firm approved successfully. Approval email sent.', 'success');
+          } else {
+            showToast(
+              data.emailError
+                ? `Firm approved, but email failed: ${data.emailError}`
+                : (data.message || 'Firm approved, but the set-password email could not be sent.'),
+              'warning',
+              6000
+            );
+          }
           fetchFirms();
           if (selectedFirm && selectedFirm.id === firmId) {
             setSelectedFirm({ ...selectedFirm, approval_status: 'APPROVED' });
@@ -285,6 +297,29 @@ const UserManagement = () => {
         }
       }
     });
+  };
+
+  // Resend set-password email for approved firm
+  const handleResendPasswordEmail = async (firmId) => {
+    try {
+      const data = await apiCall(`/users/firms/${firmId}/resend-password-email`, {
+        method: 'POST',
+        body: JSON.stringify({})
+      });
+      if (data.emailSent) {
+        showToast(`Password email sent to ${data.recipientEmail}`, 'success', 5000);
+      } else {
+        showToast(data.error || data.emailError || 'Failed to send password email', 'error', 6000);
+      }
+    } catch (error) {
+      console.error('Resend password email error:', error);
+      MySwal.fire({
+        icon: 'error',
+        title: 'Email Failed',
+        text: error.message || 'Failed to send set-password email',
+        confirmButtonColor: '#3085d6',
+      });
+    }
   };
 
   // Delete firm
@@ -349,47 +384,117 @@ const UserManagement = () => {
     }
   };
 
-  // Toggle block/unblock user
-  const handleBlockUser = async (userId) => {
-    const user = users.find(u => u.id === userId);
-    const action = user.is_blocked ? 'unblock' : 'block';
-    
+  // Toggle enable/disable user (true = enabled, false = disabled)
+  const isUserEnabled = (user) => !user?.is_blocked && user?.is_active !== false;
+
+  const handleToggleUserEnabled = async (userId, userListSource = 'users') => {
+    const sourceList =
+      userListSource === 'solo' ? soloUsers :
+      userListSource === 'firm' ? (selectedFirm?.users || []) :
+      users;
+    const user = sourceList.find((u) => String(u.id) === String(userId) || String(u.user_id) === String(userId));
+    const currentlyEnabled = isUserEnabled(user);
+    const nextEnabled = !currentlyEnabled;
+    const action = nextEnabled ? 'enable' : 'disable';
+    const displayName = user?.username || user?.email || `User #${userId}`;
+
     MySwal.fire({
-      title: `${action.charAt(0).toUpperCase() + action.slice(1)} User`,
-      text: `Are you sure you want to ${action} ${user.username}?`,
+      title: `${nextEnabled ? 'Enable' : 'Disable'} User`,
+      text: `Are you sure you want to ${action} ${displayName}? Disabled users cannot log in.`,
       icon: 'warning',
       showCancelButton: true,
-      confirmButtonColor: '#3085d6',
-      cancelButtonColor: '#d33',
+      confirmButtonColor: nextEnabled ? '#16a34a' : '#dc2626',
+      cancelButtonColor: '#6b7280',
       confirmButtonText: `Yes, ${action}!`,
       cancelButtonText: 'Cancel'
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
-          await apiCall(`/users/block/${userId}`, {
-            method: 'PUT'
+          const data = await apiCall(`/users/block/${userId}`, {
+            method: 'PUT',
+            body: JSON.stringify({ enabled: nextEnabled })
           });
 
-          const updatedUsers = users.map(u => 
-            u.id === userId 
-              ? { ...u, is_blocked: !u.is_blocked }
-              : u
-          );
-          setUsers(updatedUsers);
-          
-          if (selectedUser && selectedUser.id === userId) {
-            const updatedUser = updatedUsers.find(u => u.id === userId);
-            setSelectedUser(updatedUser);
-            setEditedUser(updatedUser);
+          const applyUpdate = (u) => {
+            const matchId = u.user_id != null ? u.user_id : u.id;
+            if (String(matchId) !== String(userId)) return u;
+            return {
+              ...u,
+              is_blocked: data.is_blocked ?? !nextEnabled,
+              is_active: data.is_active ?? nextEnabled
+            };
+          };
+
+          setUsers((prev) => prev.map(applyUpdate));
+          setSoloUsers((prev) => prev.map(applyUpdate));
+          if (selectedFirm?.users) {
+            setSelectedFirm((prev) => ({
+              ...prev,
+              users: prev.users.map(applyUpdate)
+            }));
+          }
+          if (selectedUser && String(selectedUser.id) === String(userId)) {
+            setSelectedUser((prev) => applyUpdate(prev));
+            setEditedUser((prev) => applyUpdate(prev));
           }
 
-          showToast(`User ${action}ed successfully!`, 'success');
+          showToast(data.message || `User ${action}d successfully!`, 'success');
         } catch (error) {
-          console.error('Block/unblock error:', error);
+          console.error('Enable/disable error:', error);
           MySwal.fire({
             icon: 'error',
             title: 'Error',
             text: `Failed to ${action} user: ${error.message}`,
+            confirmButtonColor: '#3085d6',
+          });
+        }
+      }
+    });
+  };
+
+  // Enable specific user (from detail view)
+  const handleEnableUser = async (userId) => {
+    const user = users.find((u) => u.id === userId) || selectedUser;
+    if (isUserEnabled(user)) {
+      showToast('User is already enabled', 'info');
+      return;
+    }
+
+    MySwal.fire({
+      title: 'Enable User',
+      text: `Are you sure you want to enable ${user?.username || user?.email}?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonColor: '#16a34a',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, enable!',
+      cancelButtonText: 'Cancel'
+    }).then(async (result) => {
+      if (result.isConfirmed) {
+        try {
+          const data = await apiCall(`/users/unblock/${userId}`, {
+            method: 'PUT'
+          });
+
+          const applyUpdate = (u) =>
+            String(u.id) === String(userId)
+              ? { ...u, is_blocked: false, is_active: true }
+              : u;
+
+          setUsers((prev) => prev.map(applyUpdate));
+          setSoloUsers((prev) => prev.map(applyUpdate));
+          if (selectedUser && String(selectedUser.id) === String(userId)) {
+            setSelectedUser((prev) => applyUpdate(prev));
+            setEditedUser((prev) => applyUpdate(prev));
+          }
+
+          showToast(data.message || 'User enabled successfully!', 'success');
+        } catch (error) {
+          console.error('Enable error:', error);
+          MySwal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: `Failed to enable user: ${error.message}`,
             confirmButtonColor: '#3085d6',
           });
         }
@@ -427,58 +532,6 @@ const UserManagement = () => {
         confirmButtonColor: '#3085d6',
       });
     }
-  };
-
-  // Unblock specific user
-  const handleUnblockUser = async (userId) => {
-    const user = users.find(u => u.id === userId);
-    
-    if (!user.is_blocked) {
-      showToast('User is already unblocked!', 'info');
-      return;
-    }
-
-    MySwal.fire({
-      title: 'Unblock User',
-      text: `Are you sure you want to unblock ${user.username}?`,
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#3085d6',
-      cancelButtonColor: '#d33',
-      confirmButtonText: 'Yes, unblock!',
-      cancelButtonText: 'Cancel'
-    }).then(async (result) => {
-      if (result.isConfirmed) {
-        try {
-          await apiCall(`/users/unblock/${userId}`, {
-            method: 'PUT'
-          });
-
-          const updatedUsers = users.map(u =>
-            u.id === userId
-              ? { ...u, is_blocked: false }
-              : u
-          );
-          setUsers(updatedUsers);
-          
-          if (selectedUser && selectedUser.id === userId) {
-            const updatedUser = updatedUsers.find(u => u.id === userId);
-            setSelectedUser(updatedUser);
-            setEditedUser(updatedUser);
-          }
-
-          showToast('User unblocked successfully!', 'success');
-        } catch (error) {
-          console.error('Unblock error:', error);
-          MySwal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: `Failed to unblock user: ${error.message}`,
-            confirmButtonColor: '#3085d6',
-          });
-        }
-      }
-    });
   };
 
   // Load data based on active tab
@@ -774,12 +827,33 @@ const UserManagement = () => {
               <div className="space-y-4">
                 <h4 className="text-lg font-medium text-gray-900 border-b pb-2">Firm Users ({selectedFirm.users.length})</h4>
                 <div className="max-h-64 overflow-y-auto space-y-2">
-                  {selectedFirm.users.map((user) => (
-                    <div key={user.id} className="bg-gray-50 rounded-lg p-3 text-sm">
-                      <div className="font-medium text-gray-900">{user.username || user.email}</div>
-                      <div className="text-gray-600 mt-1">Role: {user.role} | Status: {user.is_blocked ? 'Blocked' : 'Active'}</div>
-                    </div>
-                  ))}
+                  {selectedFirm.users.map((user) => {
+                    const enabled = isUserEnabled(user);
+                    return (
+                      <div key={user.id} className="bg-gray-50 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+                        <div>
+                          <div className="font-medium text-gray-900">{user.username || user.email}</div>
+                          <div className="text-gray-600 mt-1">
+                            Role: {user.role} | Status:{' '}
+                            <span className={enabled ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}>
+                              {enabled ? 'Enabled' : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => handleToggleUserEnabled(user.user_id || user.id, 'firm')}
+                          className={`inline-flex items-center px-3 py-1.5 border text-xs font-semibold rounded-lg ${
+                            enabled
+                              ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100'
+                              : 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100'
+                          }`}
+                        >
+                          {enabled ? <Lock className="w-4 h-4 mr-1" /> : <Unlock className="w-4 h-4 mr-1" />}
+                          {enabled ? 'Disable' : 'Enable'}
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -799,6 +873,17 @@ const UserManagement = () => {
               >
                 <Trash2 className="w-4 h-4 mr-2" />
                 Delete Firm
+              </button>
+            </div>
+          )}
+          {selectedFirm.approval_status === 'APPROVED' && (
+            <div className="mt-6 pt-6 border-t flex justify-end space-x-3">
+              <button
+                onClick={() => handleResendPasswordEmail(selectedFirm.id)}
+                className="inline-flex items-center px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Resend Password Email
               </button>
             </div>
           )}
@@ -931,6 +1016,15 @@ const UserManagement = () => {
                                 </button>
                               </>
                             )}
+                            {firm.approval_status === 'APPROVED' && (
+                              <button
+                                onClick={() => handleResendPasswordEmail(firm.id)}
+                                className="inline-flex items-center px-3 py-1.5 border border-teal-300 text-xs leading-4 font-semibold rounded-lg text-teal-700 bg-teal-50 hover:bg-teal-100"
+                              >
+                                <Mail className="w-4 h-4 mr-1" />
+                                Resend Email
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -994,11 +1088,11 @@ const UserManagement = () => {
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm font-semibold">
                           <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                            user.is_blocked 
-                              ? 'bg-red-100 text-red-800' 
-                              : 'bg-green-100 text-green-800'
+                            isUserEnabled(user)
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-red-100 text-red-800'
                           }`}>
-                            {user.is_blocked ? 'Blocked' : 'Active'}
+                            {isUserEnabled(user) ? 'Enabled' : 'Disabled'}
                           </span>
                         </td>
                         <td className="px-4 py-2.5 whitespace-nowrap text-sm text-gray-900">
@@ -1021,15 +1115,15 @@ const UserManagement = () => {
                               Usage
                             </button>
                             <button
-                              onClick={() => handleBlockUser(user.id)}
+                              onClick={() => handleToggleUserEnabled(user.id, activeTab === 'solo' ? 'solo' : 'users')}
                               className={`inline-flex items-center px-3 py-1.5 border text-xs leading-4 font-semibold rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors ${
-                                user.is_blocked 
-                                  ? 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100 focus:ring-green-500' 
-                                  : 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100 focus:ring-red-500'
+                                isUserEnabled(user)
+                                  ? 'border-red-300 text-red-700 bg-red-50 hover:bg-red-100 focus:ring-red-500' 
+                                  : 'border-green-300 text-green-700 bg-green-50 hover:bg-green-100 focus:ring-green-500'
                               }`}
                             >
-                              {user.is_blocked ? <Unlock className="w-4 h-4 mr-1" /> : <Lock className="w-4 h-4 mr-1" />}
-                              {user.is_blocked ? 'Unblock' : 'Block'}
+                              {isUserEnabled(user) ? <Lock className="w-4 h-4 mr-1" /> : <Unlock className="w-4 h-4 mr-1" />}
+                              {isUserEnabled(user) ? 'Disable' : 'Enable'}
                             </button>
                           </div>
                         </td>
@@ -1155,13 +1249,22 @@ const UserManagement = () => {
                   Edit
                 </button>
               )}
-              {selectedUser?.is_blocked && (
+              {!isUserEnabled(selectedUser) && (
                 <button
-                  onClick={() => handleUnblockUser(selectedUser.id)}
+                  onClick={() => handleEnableUser(selectedUser.id)}
                   className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-colors"
                 >
                   <Unlock className="w-4 h-4 mr-2" />
-                  Unblock User
+                  Enable User
+                </button>
+              )}
+              {isUserEnabled(selectedUser) && (
+                <button
+                  onClick={() => handleToggleUserEnabled(selectedUser.id)}
+                  className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-semibold rounded-lg text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors"
+                >
+                  <Lock className="w-4 h-4 mr-2" />
+                  Disable User
                 </button>
               )}
             </div>
@@ -1209,11 +1312,11 @@ const UserManagement = () => {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
                     <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                      selectedUser?.is_blocked 
-                        ? 'bg-red-100 text-red-800' 
-                        : 'bg-green-100 text-green-800'
+                      selectedUser && isUserEnabled(selectedUser)
+                        ? 'bg-green-100 text-green-800'
+                        : 'bg-red-100 text-red-800'
                     }`}>
-                      {selectedUser?.is_blocked ? 'Blocked' : 'Active'}
+                      {selectedUser && isUserEnabled(selectedUser) ? 'Enabled' : 'Disabled'}
                     </span>
                   </div>
                   <div>
