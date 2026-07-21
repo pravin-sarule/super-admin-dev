@@ -279,7 +279,24 @@ A minimal local frontend can run without `Frontend/.env` when the main API is av
 
 ## Local development
 
-Use a separate terminal for each service.
+Run each service in its own terminal window. Keep every terminal open while using the application. Press `Ctrl+C` in a terminal when you want to stop that service.
+
+### Local ports
+
+| Start order | Service | Port | Local address |
+| --- | --- | --- | --- |
+| 1 | Judgment service | `8095` | `http://localhost:8095` |
+| 2 | Main backend API | `4000` | `http://localhost:4000` |
+| 3 | Template Analyzer Agent | `8000` | `http://localhost:8000` |
+| 4 | React frontend | `3001` | `http://localhost:3001` |
+
+Before starting the services:
+
+1. Create the required `.env` files described in the [Configuration](#configuration) section.
+2. Make sure the required PostgreSQL, Google Cloud, Elasticsearch, and Qdrant dependencies are available.
+3. Open four terminals at the repository root.
+
+`npm ci` installs the exact versions from `package-lock.json`. Run it on the first setup and whenever dependencies change. `npm run dev` starts a development server that automatically reloads after code changes.
 
 ### Recommended startup order
 
@@ -314,7 +331,11 @@ Use a separate terminal for each service.
 
 The frontend can open after the main API starts, but the judgment and template-analysis screens require their corresponding services and external dependencies.
 
-### 1. Start the judgment service
+### 1. Start the Judgment service on port 8095
+
+This service uploads and processes judgment documents. It also provides semantic and full-text judgment search.
+
+In terminal 1, run:
 
 ```bash
 cd judgement-service
@@ -322,9 +343,25 @@ npm ci
 npm run dev
 ```
 
-Basic health check: `GET http://localhost:8095/health`.
+The service uses `PORT=8095` by default. If it starts successfully, its base URL is:
 
-### 2. Start the main API
+```text
+http://localhost:8095
+```
+
+Check that it is running:
+
+```bash
+curl http://localhost:8095/health
+```
+
+The health endpoint should return a JSON response showing that `judgement-service` is running. Keep this terminal open.
+
+### 2. Start the main backend API on port 4000
+
+The backend handles login, JWT validation, roles, users, plans, support, prompts, voice administration, and most dashboard API requests. It also forwards judgment requests to the Judgment service.
+
+In terminal 2, run from the repository root:
 
 ```bash
 cd Backend
@@ -332,23 +369,58 @@ npm ci
 npm run dev
 ```
 
-Database health check: `GET http://localhost:4000/api/admin/health`.
+The backend uses `PORT=4000` by default. Its local base URL is:
 
-The API initializes supporting tables during startup. Review the first-run output and resolve any unavailable database or cloud dependency before using its related dashboard module.
+```text
+http://localhost:4000
+```
 
-### 3. Start the Template Analyzer Agent
+Check its database health endpoint:
 
 ```bash
-cd 'Template Analyzer Agent'
+curl http://localhost:4000/api/admin/health
+```
+
+A `200` response means the checked databases are available. A `503` response means the API is running but at least one checked database is unavailable. The backend also initializes supporting database tables during startup, so review this terminal for connection or migration errors.
+
+### 3. Start the Template Analyzer Agent on port 8000
+
+This FastAPI service analyzes legal templates, extracts sections and fields, and generates prompts. Python dependencies are installed in a virtual environment so they stay separate from the system Python installation.
+
+In terminal 3, run on Linux or macOS:
+
+```bash
+cd "Template Analyzer Agent"
 python -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-uvicorn src.app:app --reload --port 8000
+uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-On Windows PowerShell, activate the environment with `.venv\Scripts\Activate.ps1`. FastAPI documentation is available at `http://localhost:8000/docs`.
+On Windows PowerShell, activate the virtual environment with:
 
-### 4. Start the frontend
+```powershell
+./.venv/Scripts/Activate.ps1
+```
+
+After activation, run the same `pip install` and `uvicorn` commands shown above. If `.venv` already exists and the dependencies have not changed, you can skip creating it and reinstalling the packages.
+
+The analyzer is available at:
+
+```text
+http://localhost:8000
+```
+
+Useful checks:
+
+- Service root: `http://localhost:8000/`
+- Interactive API documentation: `http://localhost:8000/docs`
+
+### 4. Start the React frontend on port 3001
+
+The frontend displays the administration dashboard. During local development, Vite forwards `/api` requests to the backend at `http://localhost:4000`.
+
+In terminal 4, run from the repository root:
 
 ```bash
 cd Frontend
@@ -356,7 +428,24 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3001`. Requests to `/api` are proxied to `http://localhost:4000` unless `VITE_DEV_PROXY_TARGET` is set.
+Vite starts the frontend on port `3001`. Open this address in a browser:
+
+```text
+http://localhost:3001
+```
+
+If the login page opens but API calls fail, confirm that the backend terminal is still running on port `4000`. Judgment screens also require port `8095`, and template-analysis screens require port `8000`.
+
+### Quick port check
+
+After starting everything, these four addresses should be reachable:
+
+```text
+Frontend:          http://localhost:3001
+Main backend:      http://localhost:4000
+Template Analyzer: http://localhost:8000
+Judgment service:  http://localhost:8095
+```
 
 ## Useful commands
 
