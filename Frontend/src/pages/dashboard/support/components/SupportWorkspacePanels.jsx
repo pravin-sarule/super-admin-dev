@@ -264,24 +264,33 @@ const StatusBreakdownChart = ({
 }) => {
   const rows = (data || []).filter((item) => item && item.label);
   const total = rows.reduce((sum, item) => sum + Math.max(0, Number(item.value) || 0), 0);
+  // Height tracks the bar count so a 1-row chart doesn't leave a tall empty plot.
+  const chartHeight = Math.min(320, Math.max(116, rows.length * 44 + 30));
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="self-start rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
       <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
       <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
       {total > 0 ? (
-        <div className="mt-4 h-60 w-full">
+        <div className="mt-4 w-full" style={{ height: chartHeight }}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={rows} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 6 }} barCategoryGap={12}>
               <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+              <XAxis
+                type="number"
+                domain={[0, (dataMax) => Math.max(1, dataMax)]}
+                allowDecimals={false}
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={{ stroke: '#e2e8f0' }}
+              />
               <YAxis type="category" dataKey="label" width={88} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
               <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f1f5f9' }} />
-              <Bar dataKey="value" name="Tickets" fill={CHART_BAR} radius={[0, 4, 4, 0]} maxBarSize={18} />
+              <Bar dataKey="value" name="Tickets" fill={CHART_BAR} radius={[0, 4, 4, 0]} maxBarSize={22} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       ) : (
-        <div className="mt-4 flex h-60 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 text-center">
+        <div className="mt-4 flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 text-center">
           <p className="text-sm font-medium text-slate-500">{emptyText}</p>
           <p className="mt-1 text-xs text-slate-400">Data appears here as tickets come in.</p>
         </div>
