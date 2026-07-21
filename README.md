@@ -25,25 +25,21 @@ The repository contains four applications that are developed and deployed indepe
 
 ```text
 React admin dashboard (Frontend)
+        |-- /api --> Main Express API (Backend)
+        |                 |-- PostgreSQL databases
+        |                 |-- Google Cloud Storage / AI services
+        |                 `--> judgement-service
+        |                         |-- PostgreSQL
+        |                         |-- Google Document AI / Storage
+        |                         |-- Elasticsearch
+        |                         `-- Qdrant
         |
-        | /api through the Vite proxy in local development
-        v
-Main Express API (Backend) ---------> PostgreSQL databases
-        |                              Google Cloud Storage
-        |                              Google AI services
-        |
-        +---------------------------> judgement-service
-        |                              |-- PostgreSQL
-        |                              |-- Google Document AI / Storage
-        |                              |-- Elasticsearch
-        |                              `-- Qdrant
-        |
-        `---------------------------> Template Analyzer Agent
-                                       |-- Draft/Auth PostgreSQL
-                                       `-- configured LLM / Document AI provider
+        `-- /analysis --> Template Analyzer Agent
+                              |-- Draft/Auth PostgreSQL
+                              `-- configured LLM / Document AI provider
 ```
 
-The frontend uses `/api` on `localhost`; Vite forwards those requests to the main API. Judgment administration requests are normally routed through the main API, which forwards them to `judgement-service`. Template analysis uses the FastAPI service's `/analysis` routes.
+On `localhost`, Vite forwards `/api` requests to the main API. Judgment requests normally enter through `/api/judgements-admin` and are forwarded to `judgement-service` at `/api/judgements`. The frontend calls the Template Analyzer `/analysis` routes directly.
 
 ## Repository layout
 
@@ -135,7 +131,7 @@ For all endpoints and authorization behavior, see the [Template Analyzer API doc
 
 ### Frontend: `Frontend/.env`
 
-All frontend variables are build-time Vite variables:
+Browser-facing `VITE_*` values are embedded at build time. The development proxy target is read by `vite.config.js` when the dev server starts:
 
 | Variable | Purpose |
 | --- | --- |
@@ -222,7 +218,8 @@ The backend package's default `npm test` is a placeholder and intentionally exit
 | --- | --- | --- |
 | Main API | `/api/*` | JWT and role checks, except explicitly public routes |
 | Main API health | `/api/admin/health` | Public health route |
-| Judgment administration | `/api/judgements/*` | Super-admin JWT or trusted internal key |
+| Main API judgment proxy | `/api/judgements-admin/*` | Super-admin JWT |
+| Judgment service administration | `/api/judgements/*` | Super-admin JWT or trusted internal key |
 | Judgment search API | `/api/judment-api/*` | `x-api-key` or bearer API key |
 | Template Analyzer | `/analysis/*` | Shared JWT with role/ownership checks |
 | Jurinex Voice administration | `/api/admin/jurinex-voice/*` | Admin authentication middleware |

@@ -27,6 +27,7 @@ import AddCourt from './pages/dashboard/content/AddCourt';
 import AddJudge from './pages/dashboard/content/AddJudge';
 import VoiceManagementPage from './features/jurinex-voice/pages/VoiceManagementPage';
 import RoleManagement from './pages/dashboard/RoleManagement';
+import Settings from './pages/dashboard/Settings';
 import './App.css';
 import './index.css';
 
@@ -131,6 +132,8 @@ function App() {
             <Route path="support" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
             <Route path="support/admin/:managerId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
             <Route path="support/:queryId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
+            {/* Settings is available to every authenticated admin role. */}
+            <Route path="settings" element={<Settings />} />
           </Route>
         </Route>
 
