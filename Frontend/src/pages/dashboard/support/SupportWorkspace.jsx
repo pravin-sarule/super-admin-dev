@@ -628,9 +628,24 @@ const SupportWorkspace = () => {
           })),
       };
 
-      await supportWorkspaceApi.bulkAssignTickets(payload);
-      showToast('Bulk assignment completed successfully.', 'success');
+      const result = await supportWorkspaceApi.bulkAssignTickets(payload);
+      const data = result?.data || {};
+      const updated = Number(data.updated_ticket_count || 0);
+      const people = (data.distribution || []).length;
       await Promise.all([loadTeamMembers(), refreshAll()]);
+      if (updated > 0) {
+        showToast(
+          `Assigned ${updated} ticket${updated === 1 ? '' : 's'} to ${people} support user${people === 1 ? '' : 's'}.`,
+          'success'
+        );
+      } else {
+        showToast(
+          payload.reassign_existing
+            ? 'No tickets matched your filters, so nothing was assigned.'
+            : 'No unassigned tickets were available. Turn on "Include already-assigned tickets" to reassign existing ones.',
+          'error'
+        );
+      }
     } catch (error) {
       showToast(
         error.payload?.error?.message || error.payload?.message || 'Failed to run bulk assignment.',
@@ -778,6 +793,7 @@ const SupportWorkspace = () => {
             viewer={workspace.viewer}
             members={teamMembers}
             options={workspace.options}
+            summary={workspace.summary}
             form={assignmentForm}
             loading={assignmentLoading}
             onChange={handleAssignmentFormChange}

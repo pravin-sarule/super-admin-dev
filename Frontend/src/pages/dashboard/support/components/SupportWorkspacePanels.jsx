@@ -3,6 +3,7 @@ import {
   ArrowLeft,
   BarChart3,
   CheckCircle2,
+  ChevronDown,
   CircleHelp,
   Eye,
   Filter,
@@ -2126,10 +2127,40 @@ export const MemberModal = ({
   );
 };
 
+// Module-scoped helpers (kept out of BulkAssignPanel so their identity is
+// stable across renders — a nested component would remount inputs and drop focus).
+const AssignStep = ({ number, icon: Icon, heading, children }) => (
+  <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+    <div className="mb-4 flex items-center gap-3">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+        {number}
+      </span>
+      <Icon className="h-4 w-4 text-slate-400" />
+      <h4 className="text-sm font-semibold text-slate-900">{heading}</h4>
+    </div>
+    {children}
+  </div>
+);
+
+const ChoiceCard = ({ active, onClick, title, desc }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-pressed={active}
+    className={`flex-1 rounded-2xl border px-4 py-3 text-left transition ${
+      active ? 'border-blue-300 bg-blue-50/70 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:bg-slate-50'
+    }`}
+  >
+    <span className={`block text-sm font-semibold ${active ? 'text-blue-800' : 'text-slate-800'}`}>{title}</span>
+    <span className="mt-1 block text-xs leading-5 text-slate-500">{desc}</span>
+  </button>
+);
+
 export const BulkAssignPanel = ({
   viewer,
   members,
   options,
+  summary,
   form,
   loading,
   onChange,
@@ -2140,102 +2171,163 @@ export const BulkAssignPanel = ({
   onRemoveAssignment,
   onSubmit,
 }) => {
-  const totalRequestedTickets = (form.assignments || []).reduce(
-    (sum, assignment) => sum + Math.max(0, Number(assignment.quota || 0)),
-    0
-  );
-  const strategyMeta =
-    assignmentStrategyHelp[form.strategy] || {
-      summary: 'Choose the rule that should decide who gets each ticket.',
-      details: '',
-      example: '',
-    };
-  const statusOptions = (options?.statuses || []).map((status) => ({
-    value: status,
-    label: formatLabel(status),
-    description: `Include tickets that are currently ${formatLabel(status).toLowerCase()}.`,
-  }));
+  const [showAdvanced, setShowAdvanced] = React.useState(false);
+
+  const scopes = (viewer?.available_scopes || []).filter((scope) => scope !== 'archived');
+  const isExactCounts = form.strategy === 'fixed_quota';
+  const reassign = Boolean(form.reassign_existing);
+  const assignments = form.assignments || [];
+  const selectedCount = assignments.filter((entry) => entry.admin_id).length;
+  const totalExact = assignments.reduce((sum, entry) => sum + Math.max(0, Number(entry.quota || 0)), 0);
+
+  const availableCount = summary
+    ? reassign
+      ? summary[form.scope]
+      : summary.unassigned
+    : undefined;
+  const availableLabel = reassign
+    ? `in ${queueLabels[form.scope] || formatLabel(form.scope)}`
+    : 'unassigned right now';
 
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
       <div className="space-y-6 px-6 py-6 lg:px-7">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Assignment Center</p>
-        <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">Bulk Ticket Distribution</h2>
-        <p className="mt-2 text-sm text-slate-500">
-          Quickly assign tickets from your queue to your support users with a simple rule.
-        </p>
-      </div>
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Assignment Center</p>
+          <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">Assign Tickets</h2>
+          <p className="mt-2 text-sm text-slate-500">
+            Hand tickets from your queue to your support users in three quick steps.
+          </p>
+        </div>
 
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          onSubmit();
-        }}
-        className="w-full space-y-5 rounded-3xl border border-slate-200 bg-slate-50/70 p-5"
-      >
-          <div className="rounded-3xl border border-blue-100 bg-blue-50/80 p-5">
-            <p className="text-sm font-semibold text-blue-900">How to assign tickets</p>
-            <div className="mt-3 space-y-2 text-sm leading-6 text-blue-800">
-              <p>1. Choose which tickets should be included from your queue.</p>
-              <p>2. Pick how you want to split them across support users.</p>
-              <p>3. Add the support users who should receive those tickets, then run the assignment.</p>
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            onSubmit();
+          }}
+          className="space-y-4"
+        >
+          <AssignStep number="1" icon={UserRound} heading="Who should get the tickets?">
+            <div className="space-y-3">
+              {assignments.map((assignment, index) => (
+                <div key={`assignment-${index}`} className="flex flex-wrap items-center gap-3">
+                  <select
+                    value={assignment.admin_id}
+                    onChange={(event) => onAssignmentChange(index, 'admin_id', event.target.value)}
+                    className={`${inputClassName} min-w-[16rem] flex-1`}
+                  >
+                    <option value="">Select support user…</option>
+                    {members.map((member) => (
+                      <option key={member.id} value={member.id}>
+                        {member.name} ({member.email})
+                      </option>
+                    ))}
+                  </select>
+                  {isExactCounts ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max="500"
+                        value={assignment.quota ?? 1}
+                        onChange={(event) => onAssignmentChange(index, 'quota', event.target.value)}
+                        className={`${inputClassName} w-24`}
+                      />
+                      <span className="text-xs font-medium text-slate-500">tickets</span>
+                    </div>
+                  ) : null}
+                  {assignments.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => onRemoveAssignment(index)}
+                      className="rounded-full p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                      aria-label="Remove support user"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={onAddAssignment}
+                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                Add another user
+              </button>
             </div>
-          </div>
+          </AssignStep>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">How to split tickets</span>
-              <select
-                value={form.strategy}
-                onChange={(event) => onChange('strategy', event.target.value)}
-                className={inputClassName}
-              >
-                <option value="fixed_quota">Exact Counts</option>
-                <option value="round_robin">Round Robin</option>
-                <option value="balanced_chunks">Balanced Chunks</option>
-                <option value="random">Random</option>
-                <option value="category">Category Owner</option>
-                <option value="priority">Priority Owner</option>
-              </select>
-              <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs leading-5 text-slate-600">
-                <p className="font-semibold text-slate-800">{strategyMeta.summary}</p>
-                {strategyMeta.details ? <p className="mt-2">{strategyMeta.details}</p> : null}
-                {strategyMeta.example ? <p className="mt-2 text-slate-500">{strategyMeta.example}</p> : null}
-              </div>
-            </label>
+          <AssignStep number="2" icon={Ticket} heading="Which tickets should they get?">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <ChoiceCard
+                active={!reassign}
+                onClick={() => onChange('reassign_existing', false)}
+                title="Unassigned only"
+                desc="Hand out tickets that nobody is working on yet."
+              />
+              <ChoiceCard
+                active={reassign}
+                onClick={() => onChange('reassign_existing', true)}
+                title="Reassign existing"
+                desc="Also move tickets that are already assigned to someone."
+              />
+            </div>
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Which tickets to use</span>
-              <select
-                value={form.scope}
-                onChange={(event) => onChange('scope', event.target.value)}
-                className={inputClassName}
-              >
-                {(viewer?.available_scopes || []).filter((scope) => scope !== 'archived').map((scope) => (
-                  <option key={scope} value={scope}>
-                    {queueLabels[scope] || formatLabel(scope)}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-2 text-xs leading-5 text-slate-500">
-                Pick the ticket group you want to distribute from your support-admin queue.
-              </p>
-            </label>
-          </div>
-
-          <div className={`grid gap-4 ${form.strategy === 'fixed_quota' ? 'md:grid-cols-1' : 'md:grid-cols-2'}`}>
-            <CheckboxFieldGroup
-              title="Include ticket status"
-              helperText="Leave all unchecked to include every status in the selected ticket group. Closed tickets stay in the Closed queue only."
-              options={statusOptions}
-              values={form.filters.statuses || []}
-              onToggle={(value) => onChange('filters.statuses', value)}
-            />
-
-            {form.strategy !== 'fixed_quota' ? (
+            <div className="mt-4 flex flex-wrap items-end gap-3">
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Max tickets in this run</span>
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Pull from queue</span>
+                <select
+                  value={form.scope}
+                  onChange={(event) => onChange('scope', event.target.value)}
+                  className={`${inputClassName} min-w-[12rem]`}
+                >
+                  {scopes.map((scope) => (
+                    <option key={scope} value={scope}>
+                      {queueLabels[scope] || formatLabel(scope)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {typeof availableCount === 'number' ? (
+                <span
+                  className={`mb-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                    availableCount === 0
+                      ? 'border-amber-200 bg-amber-50 text-amber-700'
+                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                  }`}
+                >
+                  {availableCount} {availableCount === 1 ? 'ticket' : 'tickets'} {availableLabel}
+                </span>
+              ) : null}
+            </div>
+
+            {!reassign && availableCount === 0 ? (
+              <p className="mt-2 text-xs leading-5 text-amber-700">
+                There are no unassigned tickets to hand out. Switch to “Reassign existing” to move tickets that are already assigned.
+              </p>
+            ) : null}
+          </AssignStep>
+
+          <AssignStep number="3" icon={Shuffle} heading="How should they be split?">
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <ChoiceCard
+                active={!isExactCounts}
+                onClick={() => onChange('strategy', 'round_robin')}
+                title="Split evenly"
+                desc="Share tickets one by one across the selected users."
+              />
+              <ChoiceCard
+                active={isExactCounts}
+                onClick={() => onChange('strategy', 'fixed_quota')}
+                title="Set exact number"
+                desc="Choose how many tickets each user gets (set it in step 1)."
+              />
+            </div>
+            {!isExactCounts ? (
+              <label className="mt-4 block max-w-xs">
+                <span className="mb-2 block text-sm font-semibold text-slate-700">Up to how many tickets in total?</span>
                 <input
                   type="number"
                   min="1"
@@ -2246,144 +2338,56 @@ export const BulkAssignPanel = ({
                 />
               </label>
             ) : null}
-          </div>
+          </AssignStep>
 
-          {form.strategy === 'fixed_quota' ? (
-            <div className="rounded-2xl border border-emerald-100 bg-emerald-50/80 px-4 py-3 text-sm text-emerald-800">
-              Exact split mode will assign <span className="font-semibold">{totalRequestedTickets}</span> tickets in total, based on the counts you enter for each support user below.
-            </div>
-          ) : null}
-
-          {form.strategy === 'balanced_chunks' ? (
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Tickets per turn</span>
-              <input
-                type="number"
-                min="1"
-                max="100"
-                value={form.chunk_size}
-                onChange={(event) => onChange('chunk_size', event.target.value)}
-                className={inputClassName}
-              />
-            </label>
-          ) : null}
-
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-            <input
-              type="checkbox"
-              checked={Boolean(form.reassign_existing)}
-              onChange={(event) => onChange('reassign_existing', event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm font-medium text-slate-700">Also move tickets that are already assigned</span>
-          </label>
-
-          <CheckboxGroup
-            title="Only include these priorities"
-            options={options?.priorities || []}
-            values={form.filters.priorities}
-            onToggle={(value) => onChange('filters.priorities', value)}
-          />
-
-          <CheckboxGroup
-            title="Only include these categories"
-            options={options?.categories || []}
-            values={form.filters.categories}
-            onToggle={(value) => onChange('filters.categories', value)}
-          />
-
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-slate-800">Who should receive tickets</p>
-              <button
-                type="button"
-                onClick={onAddAssignment}
-                className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-white"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add Support User
-              </button>
-            </div>
-
-            {form.assignments.map((assignment, index) => (
-              <div key={`assignment-${index}`} className="rounded-3xl border border-slate-200 bg-white p-4">
-                <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">Support User</span>
-                    <select
-                      value={assignment.admin_id}
-                      onChange={(event) => onAssignmentChange(index, 'admin_id', event.target.value)}
-                      className={inputClassName}
-                    >
-                      <option value="">Select team member</option>
-                      {members.map((member) => (
-                        <option key={member.id} value={member.id}>
-                          {member.name} ({member.email})
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <div className="flex items-end gap-3">
-                    {form.strategy === 'fixed_quota' ? (
-                      <label className="block">
-                        <span className="mb-2 block text-sm font-semibold text-slate-700">Ticket Count</span>
-                        <input
-                          type="number"
-                          min="1"
-                          max="500"
-                          value={assignment.quota ?? 1}
-                          onChange={(event) => onAssignmentChange(index, 'quota', event.target.value)}
-                          className={`${inputClassName} w-28`}
-                        />
-                      </label>
-                    ) : null}
-
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAssignment(index)}
-                      className="mt-auto inline-flex items-center rounded-2xl border border-rose-200 px-4 py-2 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
-                    >
-                      <X className="mr-2 h-4 w-4" />
-                      Remove User
-                    </button>
-                  </div>
-                </div>
-
-                {form.strategy === 'priority' ? (
-                  <div className="mt-4">
-                    <CheckboxGroup
-                      title="This user should receive these priorities"
-                      options={options?.priorities || []}
-                      values={assignment.priorities}
-                      onToggle={(value) => onToggleAssignmentPriority(index, value)}
-                    />
-                  </div>
-                ) : null}
-
-                {form.strategy === 'category' ? (
-                  <div className="mt-4">
-                    <CheckboxGroup
-                      title="This user should receive these categories"
-                      options={options?.categories || []}
-                      values={assignment.categories}
-                      onToggle={(value) => onToggleAssignmentCategory(index, value)}
-                    />
-                  </div>
-                ) : null}
+          <div className="rounded-3xl border border-slate-200/70 bg-white">
+            <button
+              type="button"
+              onClick={() => setShowAdvanced((value) => !value)}
+              className="flex w-full items-center justify-between px-5 py-3.5 text-sm font-semibold text-slate-700"
+            >
+              <span className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-slate-400" />
+                Advanced filters (optional)
+              </span>
+              <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
+            </button>
+            {showAdvanced ? (
+              <div className="space-y-4 border-t border-slate-200/70 px-5 py-4">
+                <CheckboxGroup
+                  title="Only include these priorities"
+                  options={options?.priorities || []}
+                  values={form.filters.priorities}
+                  onToggle={(value) => onChange('filters.priorities', value)}
+                />
+                <CheckboxGroup
+                  title="Only include these categories"
+                  options={options?.categories || []}
+                  values={form.filters.categories}
+                  onToggle={(value) => onChange('filters.categories', value)}
+                />
               </div>
-            ))}
+            ) : null}
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="inline-flex items-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SendHorizontal className="mr-2 h-4 w-4" />}
-            Assign Tickets Now
-          </button>
-      </form>
+          <div className="flex flex-col gap-3 rounded-3xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm text-slate-600">
+              {selectedCount === 0
+                ? 'Select at least one support user above.'
+                : isExactCounts
+                  ? `Ready to assign ${totalExact} ticket${totalExact === 1 ? '' : 's'} across ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`
+                  : `Ready to split up to ${form.limit} ticket${Number(form.limit) === 1 ? '' : 's'} evenly across ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`}
+            </p>
+            <button
+              type="submit"
+              disabled={loading || selectedCount === 0}
+              className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SendHorizontal className="mr-2 h-4 w-4" />}
+              Assign Tickets
+            </button>
+          </div>
+        </form>
       </div>
     </section>
   );
