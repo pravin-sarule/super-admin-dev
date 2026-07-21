@@ -256,10 +256,10 @@ const TicketTrendChart = ({ data }) => (
   </div>
 );
 
-const StatusBreakdownChart = ({ data }) => (
+const StatusBreakdownChart = ({ data, title = 'Status breakdown', subtitle = 'All tickets by current status.' }) => (
   <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-    <h4 className="text-sm font-semibold text-slate-900">Status breakdown</h4>
-    <p className="mt-0.5 text-xs text-slate-500">All tickets by current status.</p>
+    <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+    <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
     <div className="mt-4 h-60 w-full">
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 6 }} barCategoryGap={12}>
@@ -289,18 +289,19 @@ const getBarHeight = (value, maxValue) => {
   return `${Math.max((value / maxValue) * 100, 12)}%`;
 };
 
-const DetailMetricCard = ({ label, value, helper, accent = 'bg-slate-100 text-slate-700' }) => (
-  <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
-    <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-        <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
-        {helper ? <p className="mt-2 text-xs leading-5 text-slate-500">{helper}</p> : null}
+const DetailMetricCard = ({ label, value, helper, accent = 'bg-slate-100 text-slate-700' }) => {
+  const dotColor = (accent || '').split(' ').find((token) => token.startsWith('text-')) || 'text-slate-400';
+  return (
+    <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 shrink-0 rounded-full bg-current ${dotColor}`} />
+        <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.12em] text-slate-500">{label}</p>
       </div>
-      <span className={`rounded-2xl px-3 py-1 text-xs font-semibold ${accent}`}>{value}</span>
+      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
+      {helper ? <p className="mt-1.5 text-xs leading-5 text-slate-500">{helper}</p> : null}
     </div>
-  </div>
-);
+  );
+};
 
 const HorizontalBarChart = ({ title, description, data = [] }) => {
   const normalizedData = data
@@ -312,22 +313,22 @@ const HorizontalBarChart = ({ title, description, data = [] }) => {
   const maxValue = Math.max(...normalizedData.map((item) => item.value), 0);
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5">
+    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-        <BarChart3 className="h-4 w-4 text-blue-600" />
+        <BarChart3 className="h-4 w-4 text-slate-400" />
         {title}
       </div>
-      {description ? <p className="mt-2 text-xs leading-5 text-slate-500">{description}</p> : null}
+      {description ? <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p> : null}
 
-      <div className="mt-5 space-y-4">
+      <div className="mt-4 space-y-3">
         {normalizedData.length > 0 ? (
           normalizedData.map((item) => (
-            <div key={item.label} className="space-y-2">
+            <div key={item.label} className="space-y-1.5">
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span className="font-medium text-slate-700">{item.label}</span>
                 <span className="font-semibold text-slate-950">{item.value}</span>
               </div>
-              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
                   className={`h-full rounded-full ${item.color || 'bg-blue-500'}`}
                   style={{ width: getBarWidth(item.value, maxValue) }}
@@ -337,8 +338,8 @@ const HorizontalBarChart = ({ title, description, data = [] }) => {
             </div>
           ))
         ) : (
-          <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
-            No chart data is available yet.
+          <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
+            No data available yet.
           </div>
         )}
       </div>
@@ -559,15 +560,15 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
         </button>
       ) : null}
 
-      <div className="space-y-6 rounded-[26px] border border-slate-200 bg-slate-50/60 p-5">
+      <div className="space-y-6 rounded-3xl border border-slate-200/70 bg-slate-50/40 p-5">
       <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Support Admin Dashboard</p>
-          <h3 className="mt-2 text-[1.9rem] font-semibold tracking-tight text-slate-950">
+          <h3 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
             {manager.manager_name}
           </h3>
-          <p className="mt-2 text-sm text-slate-500">
-            Real workload view for this support admin. Today's personal solved count is separated from the full team queue totals so the analytics stay accurate.
+          <p className="mt-1 text-sm text-slate-500">
+            Real workload for this support admin. Personal solved-today is separate from the full team queue totals.
           </p>
         </div>
 
@@ -645,14 +646,17 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
           data={personalBreakdown}
         />
 
-        <VerticalBarChart
-          title={reports.length > 0 ? 'Solved Today By Support User' : 'Solved Ticket Snapshot'}
-          description={
+        <StatusBreakdownChart
+          title={reports.length > 0 ? 'Solved today by support user' : 'Solved ticket snapshot'}
+          subtitle={
             reports.length > 0
-              ? 'This dynamic chart changes for each support admin and shows how many tickets each support user closed today.'
-              : 'This dynamic chart shows today\'s real solved workload for this support admin alongside the queue totals around it.'
+              ? 'Tickets each support user closed today.'
+              : "Today's solved workload alongside the queue totals."
           }
-          data={solvedPerformanceData}
+          data={solvedPerformanceData.map((entry) => ({
+            label: entry.label,
+            value: toMetricValue(entry.value),
+          }))}
         />
       </div>
 
