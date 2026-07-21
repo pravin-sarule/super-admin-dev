@@ -15,6 +15,7 @@ The repository contains four applications that are developed and deployed indepe
 
 - [Main capabilities](#main-capabilities)
 - [System architecture](#system-architecture)
+- [Role-based access control](#role-based-access-control-rbac)
 - [Repository layout](#repository-layout)
 - [Prerequisites](#prerequisites)
 - [Configuration](#configuration)
@@ -118,6 +119,56 @@ The frontend blocks routes that are not available to the current administrator r
 ```
 
 PostgreSQL is the source of truth. Google Cloud Storage holds original and generated artifacts, Qdrant supports semantic search, and Elasticsearch supports full-text search.
+
+## Role-based access control (RBAC)
+
+The dashboard defines five administrator roles. Access is enforced at three independent layers, so a role only ever *sees* — and can only ever *reach* — the areas it is entitled to.
+
+### Administrator roles
+
+| Role | Modules it can access | Login landing |
+| --- | --- | --- |
+| `super-admin` | Every module | `/dashboard` |
+| `user-admin` | Dashboard, User Management (incl. per-user and per-firm analytics), Content Management (case type, court, judge), Settings | `/dashboard` |
+| `account-admin` | Dashboard, Subscription Management (incl. plan analytics), Settings | `/dashboard` |
+| `marketing-admin` | AI Chatbot, Demo Bookings, Settings | `/dashboard/demo-bookings` |
+| `support-admin` | Support & Help workspace, Settings | `/dashboard/support` |
+
+Admin, Role, Prompt, System-Prompt, Agent-Prompt, Template, Citation, LLM, and Voice management, plus Judgment upload and search, are **super-admin only**. Settings is available to every authenticated role. A `super-admin` (and the legacy generic `admin`) passes every check.
+
+### Enforcement layers
+
+Hiding a menu item is only cosmetic; the route guard and the API are what actually restrict access. All three layers are kept in sync — when a module is added, its role list must be set in each.
+
+| Layer | Location | Responsibility |
+| --- | --- | --- |
+| Menu visibility | `Frontend/src/pages/dashboard/Sidebar.jsx` (`allMenuItems[].roles`) | Show only the links a role is allowed to use |
+| Route guard | `Frontend/src/App.jsx` (`RequireRole` + `ROLE_HOME`) | Redirect a role away from a page it cannot use, even when the URL is typed directly |
+| API authorization | `Backend/middleware/authMiddleware.js` (`protect` + `authorize([...])`) | The authoritative check — verify the JWT, load the admin, and confirm the role before reading or writing data |
+
+`protect` verifies the JWT and attaches the admin (id, email, normalized role, blocked flag); `authorize(['super-admin', ...])` then rejects any role outside its allow-list with `403`. When a role opens a page it may not use, the route guard redirects it to that role's home defined in `ROLE_HOME` (user-admin → User Management, account-admin → Subscription Management, marketing-admin → Demo Bookings, support-admin → Support).
+
+### Support workspace RBAC
+
+Inside the Support & Help workspace a second, finer-grained model governs ticket access. Support accounts form a three-level hierarchy:
+
+| Hierarchy role | Meaning |
+| --- | --- |
+| `super_admin` | Sees the entire workspace |
+| `support_admin` | Team manager — creates support users, owns a queue, and distributes tickets |
+| `support_user` | Agent — works only the tickets allowed by their queue permissions |
+
+Each support user is granted queue permissions that decide which ticket **scopes** (queue tabs) they can open:
+
+| Permission | Scope it unlocks |
+| --- | --- |
+| `can_view_assigned_to_me` | **Assigned To Me** — tickets whose assignee is the current user |
+| `can_view_all_tickets` | **All Tickets** — the manager's full queue |
+| `can_view_team_tickets` | **My Team** — tickets assigned to teammates |
+| `can_view_unassigned_tickets` | **Unassigned** — tickets waiting for assignment |
+| `can_view_closed_tickets` | **Closed** — finished tickets |
+
+Tickets link to an owner through `assigned_to_admin_id`. Being able to *see* a ticket (via team or full-queue permission) is separate from it being *assigned* to you: **Assigned To Me** counts only tickets whose owner is the logged-in user. Managers hand tickets to support users from the **Assignment Center** (`/api/support-admin/tickets/bulk-assign`) or from an individual ticket. These rules are enforced in `Backend/middleware/support/workspace.middleware.js` and `Backend/controllers/support/workspace.controller.js`.
 
 ## Repository layout
 
