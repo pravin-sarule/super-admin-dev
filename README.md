@@ -11,6 +11,17 @@ The repository contains four applications that are developed and deployed indepe
 | `judgement-service` | Node.js, Express 5 | `http://localhost:8095` | Judgment ingestion, OCR, metadata extraction, vector indexing, and search |
 | `Template Analyzer Agent` | Python 3.11, FastAPI | `http://localhost:8000` | Legal-template analysis, field extraction, and prompt generation |
 
+## Contents
+
+- [Main capabilities](#main-capabilities)
+- [System architecture](#system-architecture)
+- [Repository layout](#repository-layout)
+- [Prerequisites](#prerequisites)
+- [Configuration](#configuration)
+- [Local development](#local-development)
+- [API entry points](#api-entry-points)
+- [Deployment](#deployment)
+
 ## Main capabilities
 
 - Role-based access for super, user, account, marketing, and support administrators
@@ -21,25 +32,92 @@ The repository contains four applications that are developed and deployed indepe
 - Judgment upload, pipeline monitoring, metadata review, semantic/full-text search, and citation analytics
 - Jurinex Voice agent configuration, knowledge bases, call history, scheduling, calendar tools, and diagnostics
 
-## Architecture
+## System architecture
+
+The browser talks to two application APIs. Most administration modules go through the main Express API; template analysis calls the FastAPI service directly.
 
 ```text
-React admin dashboard (Frontend)
-        |-- /api --> Main Express API (Backend)
-        |                 |-- PostgreSQL databases
-        |                 |-- Google Cloud Storage / AI services
-        |                 `--> judgement-service
-        |                         |-- PostgreSQL
-        |                         |-- Google Document AI / Storage
-        |                         |-- Elasticsearch
-        |                         `-- Qdrant
-        |
-        `-- /analysis --> Template Analyzer Agent
-                              |-- Draft/Auth PostgreSQL
-                              `-- configured LLM / Document AI provider
+                       +-----------------------------+
+                       | React Admin Dashboard       |
+                       | Frontend (:3001)            |
+                       +--------------+--------------+
+                                      |
+                         +------------+------------+
+                         |                         |
+                       /api                    /analysis
+                         |                         |
+                +--------v---------+      +--------v-----------+
+                | Main Backend     |      | Template Analyzer  |
+                | Express (:4000)  |      | FastAPI (:8000)    |
+                | Auth + admin APIs|      | Template analysis  |
+                +----+---------+---+      +----------+---------+
+                     |         |                     |
+                     |         | judgment proxy      |
+                     v         v                     v
+            +-----------+  +----------------+  +----------------+
+            | App DBs   |  | Judgment      |  | Draft/Auth DB  |
+            | GCS + AI  |  | service :8095 |  | LLM + Doc AI   |
+            +-----------+  +-------+--------+  +----------------+
+                                     |
+                         +-----------+-----------+
+                         |           |           |
+                         v           v           v
+                    PostgreSQL    Qdrant   Elasticsearch
+                    source data   semantic    full-text
 ```
 
-On `localhost`, Vite forwards `/api` requests to the main API. Judgment requests normally enter through `/api/judgements-admin` and are forwarded to `judgement-service` at `/api/judgements`. The frontend calls the Template Analyzer `/analysis` routes directly.
+On `localhost`, Vite forwards `/api` requests to the main API. Judgment requests enter through `/api/judgements-admin` and are forwarded to `judgement-service` at `/api/judgements`. Template analysis uses the analyzer `/analysis` routes.
+
+### Authenticated admin request
+
+```text
++---------+    +-------+    +-------------+    +-----------------+
+| Browser | -> | Login | -> | JWT created | -> | Protected route |
++---------+    +-------+    +-------------+    +--------+--------+
+                                                        |
+                                                        v
++----------------+    +----------------+    +------------+------+
+| DB or service  | <- | Backend auth   | <- | Dashboard module |
+| dependency     |    | and role check |    | API request      |
++----------------+    +----------------+    +-------------------+
+```
+
+The frontend blocks routes that are not available to the current administrator role. The backend then performs the authoritative JWT and role check before reading or changing data.
+
+### Judgment processing pipeline
+
+```text
++------------+    +--------------+    +-------------+    +------------+
+| PDF upload | -> | GCS original | -> | Split pages | -> | Text / OCR |
++------------+    +--------------+    +-------------+    +------+-----+
+                                                               |
+                                                               v
++-------------------+    +------------------+    +----------------+
+| PostgreSQL record | <- | Extract metadata | <- | Merge page text|
++---------+---------+    +------------------+    +----------------+
+          |
+          v
++--------------------+
+| Chunk and embed    |
++---------+----------+
+          |
+    +-----+------------------+
+    |                        |
+    v                        v
++---------+            +---------------+
+| Qdrant  |            | Elasticsearch |
+| semantic|            | full-text     |
++----+----+            +-------+-------+
+     |                         |
+     +------------+------------+
+                  |
+                  v
+          +-----------------+
+          | Admin search UI |
+          +-----------------+
+```
+
+PostgreSQL is the source of truth. Google Cloud Storage holds original and generated artifacts, Qdrant supports semantic search, and Elasticsearch supports full-text search.
 
 ## Repository layout
 
@@ -147,6 +225,39 @@ A minimal local frontend can run without `Frontend/.env` when the main API is av
 ## Local development
 
 Use a separate terminal for each service.
+
+### Recommended startup order
+
+```text
+                 +--------------------------------+
+                 | Databases, cloud, and search   |
+                 | dependencies are available     |
+                 +---------------+----------------+
+                                 |
+                   +-------------+-------------+
+                   |                           |
+                   v                           v
+       +------------------------+   +------------------------+
+       | 1. Judgment service    |   | 3. Template Analyzer   |
+       | localhost:8095         |   | localhost:8000         |
+       +-----------+------------+   +-----------+------------+
+                   |                            |
+                   v                            |
+       +------------------------+               |
+       | 2. Main Backend        |               |
+       | localhost:4000         |               |
+       +-----------+------------+               |
+                   |                            |
+                   +-------------+--------------+
+                                 |
+                                 v
+                     +------------------------+
+                     | 4. React Frontend      |
+                     | localhost:3001         |
+                     +------------------------+
+```
+
+The frontend can open after the main API starts, but the judgment and template-analysis screens require their corresponding services and external dependencies.
 
 ### 1. Start the judgment service
 
