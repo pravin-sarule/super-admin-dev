@@ -289,16 +289,15 @@ const getBarHeight = (value, maxValue) => {
   return `${Math.max((value / maxValue) * 100, 12)}%`;
 };
 
-const DetailMetricCard = ({ label, value, helper, accent = 'bg-slate-100 text-slate-700' }) => {
+const DetailMetricCard = ({ label, value, accent = 'bg-slate-100 text-slate-700' }) => {
   const dotColor = (accent || '').split(' ').find((token) => token.startsWith('text-')) || 'text-slate-400';
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
-      <div className="flex items-center gap-2">
-        <span className={`h-2 w-2 shrink-0 rounded-full bg-current ${dotColor}`} />
-        <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.12em] text-slate-500">{label}</p>
+    <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center gap-1.5">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${dotColor}`} />
+        <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.1em] text-slate-500">{label}</p>
       </div>
-      <p className="mt-2 text-2xl font-semibold text-slate-950">{value}</p>
-      {helper ? <p className="mt-1.5 text-xs leading-5 text-slate-500">{helper}</p> : null}
+      <p className="mt-1.5 text-2xl font-semibold text-slate-950">{value}</p>
     </div>
   );
 };
@@ -560,47 +559,36 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
         </button>
       ) : null}
 
-      <div className="space-y-6 rounded-3xl border border-slate-200/70 bg-slate-50/40 p-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Support Admin Dashboard</p>
-          <h3 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">
-            {manager.manager_name}
-          </h3>
-          <p className="mt-1 text-sm text-slate-500">
-            Real workload for this support admin. Personal solved-today is separate from the full team queue totals.
-          </p>
-        </div>
-
-        <div className="grid gap-3 rounded-3xl border border-slate-200 bg-white p-4 text-sm text-slate-600 sm:grid-cols-2">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Email</p>
-            <p className="mt-2 font-semibold text-slate-900">{manager.manager_email}</p>
+      <div className="space-y-5">
+      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Support Admin</p>
+            <h3 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">{manager.manager_name}</h3>
+            <p className="mt-1 truncate text-sm text-slate-500">{manager.manager_email} · {teamName}</p>
           </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Team / Group</p>
-            <p className="mt-2 font-semibold text-slate-900">{teamName}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Tickets Assigned By Admin</p>
-            <p className="mt-2 font-semibold text-slate-900">{ticketsAssignedByAdmin}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Support Users Created</p>
-            <p className="mt-2 font-semibold text-slate-900">{supportUsersCreated}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Solved Today By Admin</p>
-            <p className="mt-2 font-semibold text-slate-900">{solvedTickets}</p>
-          </div>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Queue Closed Overall</p>
-            <p className="mt-2 font-semibold text-slate-900">{teamSolvedTickets}</p>
+          <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Assigned by admin</p>
+              <p className="mt-0.5 text-lg font-semibold text-slate-900">{ticketsAssignedByAdmin}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Users created</p>
+              <p className="mt-0.5 text-lg font-semibold text-slate-900">{supportUsersCreated}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Solved today</p>
+              <p className="mt-0.5 text-lg font-semibold text-slate-900">{solvedTickets}</p>
+            </div>
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Queue closed</p>
+              <p className="mt-0.5 text-lg font-semibold text-slate-900">{teamSolvedTickets}</p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <DetailMetricCard
           label="Solved Today By Support Admin"
           value={solvedTickets}
