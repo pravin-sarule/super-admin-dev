@@ -60,7 +60,7 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Dashboard',
       path: '/dashboard',
       icon: LayoutDashboard,
-      roles: ['super-admin', 'user-admin', 'account-admin', 'support-admin']
+      roles: ['super-admin', 'user-admin', 'account-admin']
     },
     {
       name: 'User Management',
@@ -144,7 +144,7 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Voice Management',
       path: '/dashboard/voice-management',
       icon: Mic,
-      roles: ['super-admin', 'support-admin']
+      roles: ['super-admin']
     },
     // {
     //   name: 'Content Management',

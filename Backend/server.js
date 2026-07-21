@@ -158,7 +158,7 @@ console.log('📌 /api/secrets        → Using docDB (docPool) ✨');
 app.use('/api/contents', contentRoutes(docPool));
 
 console.log('📌 /api/secrets        → Using docDB (docPool) ✨');
-app.use('/api/llm', llmRoutes);
+app.use('/api/llm', llmRoutes(pool));
 
 console.log('📌 /api/chunking-methods → Using docDB (docPool) ✨');
 app.use('/api/chunking-methods', chunkingMethodRoutes);

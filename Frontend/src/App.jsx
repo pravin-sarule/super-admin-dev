@@ -30,10 +30,34 @@ import RoleManagement from './pages/dashboard/RoleManagement';
 import './App.css';
 import './index.css';
 
+// Where each role lands by default and gets redirected when it hits a page
+// it isn't allowed to see. Every role's home MUST be a route that role can
+// access, otherwise RequireRole would redirect-loop.
+const ROLE_HOME = {
+  'super-admin': '/dashboard',
+  'user-admin': '/dashboard/users',
+  'account-admin': '/dashboard/subscriptions',
+  'marketing-admin': '/dashboard/demo-bookings',
+  'support-admin': '/dashboard/support',
+};
+
+// Route-level role guard. Hiding a sidebar item is only cosmetic; this blocks
+// direct URL access for roles that aren't allowed on a given route.
+// super-admin (and the legacy generic "admin") always pass, so each route only
+// needs to list the ADDITIONAL non-super roles that may access it.
+const RequireRole = ({ allow, children }) => {
+  const role = localStorage.getItem('userRole');
+  if (role === 'super-admin' || role === 'admin' || allow.includes(role)) {
+    return children;
+  }
+  return <Navigate to={ROLE_HOME[role] || '/dashboard'} replace />;
+};
+
 const DashboardIndex = () => {
   const role = localStorage.getItem('userRole');
-  if (role === 'marketing-admin') {
-    return <Navigate to="/dashboard/demo-bookings" replace />;
+  // Roles without the generic dashboard land on their own home instead.
+  if (role === 'marketing-admin' || role === 'support-admin') {
+    return <Navigate to={ROLE_HOME[role]} replace />;
   }
   return <DashboardContent />;
 };
@@ -82,31 +106,31 @@ function App() {
         <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<DashboardIndex />} />
-            <Route path="users" element={<UserManagement />} />
-            <Route path="users/:userId/analytics" element={<UserAnalytics />} />
-            <Route path="firms/:firmId/analytics" element={<UserAnalytics mode="firm" />} />
-            <Route path="admins" element={<AdminManagement />} />
-            <Route path="content" element={<ContentManagement />} />
-            <Route path="content/case-type" element={<AddCaseType />} />
-            <Route path="content/court" element={<AddCourt />} />
-            <Route path="content/judge" element={<AddJudge />} />
-            <Route path="templates" element={<TemplateManagement />} />
-            <Route path="subscriptions" element={<SubscriptionManagement />} />
-            <Route path="subscriptions/analytics" element={<PlanAnalytics />} />
-            <Route path="prompts" element={<PromptManagement />} />
-            <Route path="agent-prompts" element={<AgentList />} />
-            <Route path="system-prompts" element={<SystemPromptManagement />} />
-            <Route path="llm-management" element={<LLMManagement />} />
-            <Route path="documents" element={<DocumentManagement />} />
-            <Route path="demo-bookings" element={<DemoManagement />} />
-            <Route path="judgements" element={<JudgementManagement />} />
-            <Route path="judgement-search" element={<JudgementSearch />} />
-            <Route path="citation-management" element={<CitationManagement />} />
-            <Route path="voice-management" element={<VoiceManagementPage />} />
-            <Route path="roles" element={<RoleManagement />} />
-            <Route path="support" element={<SupportHelp />} />
-            <Route path="support/admin/:managerId" element={<SupportHelp />} />
-            <Route path="support/:queryId" element={<SupportHelp />} />
+            <Route path="users" element={<RequireRole allow={['user-admin']}><UserManagement /></RequireRole>} />
+            <Route path="users/:userId/analytics" element={<RequireRole allow={['user-admin']}><UserAnalytics /></RequireRole>} />
+            <Route path="firms/:firmId/analytics" element={<RequireRole allow={['user-admin']}><UserAnalytics mode="firm" /></RequireRole>} />
+            <Route path="admins" element={<RequireRole allow={[]}><AdminManagement /></RequireRole>} />
+            <Route path="content" element={<RequireRole allow={['user-admin']}><ContentManagement /></RequireRole>} />
+            <Route path="content/case-type" element={<RequireRole allow={['user-admin']}><AddCaseType /></RequireRole>} />
+            <Route path="content/court" element={<RequireRole allow={['user-admin']}><AddCourt /></RequireRole>} />
+            <Route path="content/judge" element={<RequireRole allow={['user-admin']}><AddJudge /></RequireRole>} />
+            <Route path="templates" element={<RequireRole allow={[]}><TemplateManagement /></RequireRole>} />
+            <Route path="subscriptions" element={<RequireRole allow={['account-admin']}><SubscriptionManagement /></RequireRole>} />
+            <Route path="subscriptions/analytics" element={<RequireRole allow={['account-admin']}><PlanAnalytics /></RequireRole>} />
+            <Route path="prompts" element={<RequireRole allow={[]}><PromptManagement /></RequireRole>} />
+            <Route path="agent-prompts" element={<RequireRole allow={[]}><AgentList /></RequireRole>} />
+            <Route path="system-prompts" element={<RequireRole allow={[]}><SystemPromptManagement /></RequireRole>} />
+            <Route path="llm-management" element={<RequireRole allow={[]}><LLMManagement /></RequireRole>} />
+            <Route path="documents" element={<RequireRole allow={['marketing-admin']}><DocumentManagement /></RequireRole>} />
+            <Route path="demo-bookings" element={<RequireRole allow={['marketing-admin']}><DemoManagement /></RequireRole>} />
+            <Route path="judgements" element={<RequireRole allow={[]}><JudgementManagement /></RequireRole>} />
+            <Route path="judgement-search" element={<RequireRole allow={[]}><JudgementSearch /></RequireRole>} />
+            <Route path="citation-management" element={<RequireRole allow={[]}><CitationManagement /></RequireRole>} />
+            <Route path="voice-management" element={<RequireRole allow={[]}><VoiceManagementPage /></RequireRole>} />
+            <Route path="roles" element={<RequireRole allow={[]}><RoleManagement /></RequireRole>} />
+            <Route path="support" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
+            <Route path="support/admin/:managerId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
+            <Route path="support/:queryId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
           </Route>
         </Route>
 

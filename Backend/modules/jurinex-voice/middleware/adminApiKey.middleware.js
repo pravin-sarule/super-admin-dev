@@ -51,9 +51,11 @@ function adminApiKeyMiddleware(pool) {
             [userId]
           );
           const user = userResult.rows[0];
+          // Voice Management is a super-admin surface only. support-admin /
+          // user-admin must not reach these APIs even with a valid dashboard JWT.
           if (
             user &&
-            ['super-admin', 'user-admin', 'admin', 'support-admin'].includes(user.role)
+            ['super-admin', 'admin'].includes(user.role)
           ) {
             req.user = user;
             req.adminAuth = { method: 'jwt', userId: user.id, email: user.email };
