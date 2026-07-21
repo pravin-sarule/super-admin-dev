@@ -708,13 +708,13 @@ const SupportWorkspace = () => {
       />
 
       <div className="space-y-6">
-        <div className={`${CARD_CLASS_NAME} flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-center lg:justify-between lg:px-7`}>
+        <div className={`${CARD_CLASS_NAME} flex flex-col gap-3 px-6 py-3.5 lg:flex-row lg:items-center lg:justify-between lg:px-7`}>
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Dashboard</p>
-            <h1 className="mt-2 text-[1.75rem] font-semibold tracking-tight text-slate-950">
+            <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
               {workspace.viewer.team_name || 'Support Workspace'}
             </h1>
-            <p className="mt-2 text-sm text-slate-500">
+            <p className="mt-0.5 text-sm text-slate-500">
               Role: {formatLabel(workspace.viewer.hierarchy_role || 'support_user')}
             </p>
           </div>
