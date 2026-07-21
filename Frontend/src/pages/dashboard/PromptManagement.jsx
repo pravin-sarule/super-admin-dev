@@ -3218,6 +3218,7 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import withReactContent from 'sweetalert2-react-content';
 import { API_BASE_URL as API_ROOT, getAuthHeaders } from '../../config';
+import UserPresetPrompts from './UserPresetPrompts';
 
 // Helper function to decode JWT token
 const decodeToken = (token) => {
@@ -3238,6 +3239,8 @@ const decodeToken = (token) => {
 const MySwal = withReactContent(Swal);
 
 const PromptManagement = () => {
+  // 'system' = existing secret-manager prompts, 'presets' = end-user created preset prompts
+  const [activeTab, setActiveTab] = useState('system');
   const [prompts, setPrompts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -4195,6 +4198,38 @@ const PromptManagement = () => {
           </div>
         </div>
 
+        {/* Tabs */}
+        <div className="mb-6 border-b border-gray-200">
+          <nav className="flex space-x-8">
+            <button
+              onClick={() => setActiveTab('system')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'system'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <Code className="w-5 h-5 inline mr-2" />
+              System Prompts
+            </button>
+            <button
+              onClick={() => setActiveTab('presets')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
+                activeTab === 'presets'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              <User className="w-5 h-5 inline mr-2" />
+              User Preset Prompts
+            </button>
+          </nav>
+        </div>
+
+        {activeTab === 'presets' ? (
+          <UserPresetPrompts />
+        ) : (
+          <>
         {/* Action Buttons */}
         {showPromptTable && !showCreateForm && (
           <div className="bg-white rounded-xl shadow-lg p-6 mb-6">
@@ -5721,6 +5756,8 @@ const PromptManagement = () => {
               </div>
             </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </div>
