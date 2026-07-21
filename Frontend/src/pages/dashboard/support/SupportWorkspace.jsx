@@ -672,7 +672,10 @@ const SupportWorkspace = () => {
 
   const shouldShowTicketDetail = Boolean(queryId);
   const handleSectionChange = (nextSection) => {
-    if (shouldShowManagerAnalytics && nextSection !== 'analytics') {
+    // A ticket detail (/support/:queryId) or manager drill-down (/support/admin/:managerId)
+    // is layered over the section content via the URL. Switching tabs must also leave that
+    // sub-route, otherwise setSection changes nothing that is actually visible.
+    if (queryId || (shouldShowManagerAnalytics && nextSection !== 'analytics')) {
       navigate('/dashboard/support');
     }
 
