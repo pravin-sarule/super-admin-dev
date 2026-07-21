@@ -562,18 +562,19 @@ const fetchTeamWorkloads = async (adminIds = []) => {
        COUNT(*)::int AS total_assigned,
        COUNT(*) FILTER (WHERE archived_at IS NULL AND status <> 'closed')::int AS open_assigned,
        COUNT(*) FILTER (WHERE archived_at IS NULL AND status = 'closed')::int AS closed_assigned,
+       -- "Solved" = a ticket in this user's queue that is closed. We do NOT require
+       -- closed_by_admin_id = assignee: a manager/super-admin may click Close on the
+       -- user's behalf, and it should still count as that user's queue being solved.
        COUNT(*) FILTER (
          WHERE archived_at IS NULL
            AND status = 'closed'
            AND closed_at IS NOT NULL
-           AND (closed_by_admin_id = assigned_to_admin_id OR closed_by_admin_id IS NULL)
        )::int AS closed_by_admin_total,
        COUNT(*) FILTER (
          WHERE archived_at IS NULL
            AND status = 'closed'
            AND closed_at IS NOT NULL
            AND DATE(closed_at AT TIME ZONE 'Asia/Kolkata') = DATE(NOW() AT TIME ZONE 'Asia/Kolkata')
-           AND (closed_by_admin_id = assigned_to_admin_id OR closed_by_admin_id IS NULL)
        )::int AS closed_today_by_admin,
        COUNT(*) FILTER (WHERE archived_at IS NOT NULL)::int AS archived_assigned
      FROM support_queries
