@@ -34,9 +34,12 @@ const Settings = () => {
     localStorage.removeItem('userRole');
     localStorage.removeItem('userEmail');
     localStorage.removeItem('userName');
+    localStorage.removeItem('username');
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('userRole');
-    navigate('/login', { replace: true });
+    // navigate + hard reload so App re-reads auth state from storage (matches Header logout).
+    navigate('/login');
+    window.location.reload();
   };
 
   return (
