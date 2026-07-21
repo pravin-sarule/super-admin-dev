@@ -40,6 +40,7 @@ module.exports = (pool) => {
   router.get('/firms/all', protect(pool), authorize(['user-admin','super-admin']), userController.getAllFirms);
   router.get('/firms/:firmId', protect(pool), authorize(['user-admin','super-admin']), userController.getFirmById);
   router.put('/firms/:firmId/approval', protect(pool), authorize(['user-admin','super-admin']), userController.updateFirmApproval);
+  router.post('/firms/:firmId/resend-password-email', protect(pool), authorize(['user-admin','super-admin']), userController.resendFirmPasswordEmail);
   router.delete('/firms/:firmId', protect(pool), authorize(['user-admin','super-admin']), userController.deleteFirm);
   router.get('/firms/:firmId/certificate', protect(pool), authorize(['user-admin','super-admin']), userController.getFirmCertificate);
 

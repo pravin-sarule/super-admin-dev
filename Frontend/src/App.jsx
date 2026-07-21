@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'; // Removed useNavigate
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './components/auth/LoginPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingPage from './pages/LandingPage';
@@ -29,6 +29,14 @@ import VoiceManagementPage from './features/jurinex-voice/pages/VoiceManagementP
 import RoleManagement from './pages/dashboard/RoleManagement';
 import './App.css';
 import './index.css';
+
+const DashboardIndex = () => {
+  const role = localStorage.getItem('userRole');
+  if (role === 'marketing-admin') {
+    return <Navigate to="/dashboard/demo-bookings" replace />;
+  }
+  return <DashboardContent />;
+};
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(() => {
@@ -73,7 +81,7 @@ function App() {
         {/* Protected routes */}
         <Route element={<ProtectedRoute isAuthenticated={isAuthenticated} />}>
           <Route path="/dashboard" element={<DashboardLayout />}>
-            <Route index element={<DashboardContent />} /> {/* Default dashboard content */}
+            <Route index element={<DashboardIndex />} />
             <Route path="users" element={<UserManagement />} />
             <Route path="users/:userId/analytics" element={<UserAnalytics />} />
             <Route path="firms/:firmId/analytics" element={<UserAnalytics mode="firm" />} />

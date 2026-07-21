@@ -42,6 +42,7 @@ const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
 const promptRoleRoutes = require('./routes/promptRoleRoutes');
+const userPresetPromptRoutes = require('./routes/userPresetPromptRoutes');
 const appRolesRoutes = require('./routes/appRolesRoutes');
 const agentPromptRoutes = require('./routes/agentPromptRoutes');
 const llmUsageRoutes = require('./routes/llmUsageRoutes');
@@ -100,6 +101,9 @@ app.use('/api/system-prompts', systemPromptRoutes(pool));
 
 console.log('📌 /api/prompt-roles → Using docDB (docPool) for data, Main DB (pool) for auth');
 app.use('/api/prompt-roles', promptRoleRoutes(pool));
+
+console.log('📌 /api/user-preset-prompts → Using docDB (docPool) for prompts, Main DB (pool) for auth + user lookup');
+app.use('/api/user-preset-prompts', userPresetPromptRoutes(pool));
 
 console.log('📌 /api/app-roles → Using Main DB (pool) — Jurinex application roles');
 app.use('/api/app-roles', appRolesRoutes(pool));

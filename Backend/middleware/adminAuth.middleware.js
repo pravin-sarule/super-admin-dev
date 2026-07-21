@@ -48,7 +48,8 @@ function adminAuthMiddleware(pool) {
                     [userId]
                 );
                 const user = userResult.rows[0];
-                if (user && (user.role === 'super-admin' || user.role === 'user-admin' || user.role === 'admin')) {
+                const allowedRoles = ['super-admin', 'user-admin', 'account-admin', 'support-admin', 'marketing-admin', 'admin'];
+                if (user && allowedRoles.includes(user.role)) {
                     req.user = user;
                     return next();
                 }

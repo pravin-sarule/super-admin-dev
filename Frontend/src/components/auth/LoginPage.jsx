@@ -286,7 +286,8 @@ const LoginPage = ({ setAuthStatus }) => {
       setSuccess('Login successful! Redirecting to dashboard...');
       setAuthStatus(true);
 
-      setTimeout(() => navigate('/dashboard'), 1000);
+      const landingPath = role === 'marketing-admin' ? '/dashboard/demo-bookings' : '/dashboard';
+      setTimeout(() => navigate(landingPath), 1000);
     } catch (err) {
       console.error('Login Error:', err.response?.data || err.message);
       setError(err.response?.data?.message || 'Login failed. Please try again.');

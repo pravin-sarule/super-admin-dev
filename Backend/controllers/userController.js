@@ -393,25 +393,50 @@ module.exports = (pool) => {
     }
   };
 
-  // 📌 TOGGLE block/unblock user
+  // 📌 TOGGLE enable/disable user
+  // enabled=true  → is_blocked=false, is_active=true
+  // enabled=false → is_blocked=true,  is_active=false
   const toggleBlockUser = async (req, res) => {
     const { userId } = req.params;
     try {
-      const user = await pool.query('SELECT is_blocked FROM users WHERE id = $1', [userId]);
+      const user = await pool.query(
+        'SELECT is_blocked, is_active FROM users WHERE id = $1',
+        [userId]
+      );
       if (user.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
-      const newStatus = !user.rows[0].is_blocked;
-      await pool.query(
-        'UPDATE users SET is_blocked = $1, updated_at = NOW() WHERE id = $2',
-        [newStatus, userId]
+      // Prefer explicit body.enabled when provided; otherwise toggle current state
+      let enabled;
+      if (typeof req.body?.enabled === 'boolean') {
+        enabled = req.body.enabled;
+      } else if (req.body?.enabled === 'true' || req.body?.enabled === 'false') {
+        enabled = req.body.enabled === 'true';
+      } else {
+        const currentlyEnabled = !user.rows[0].is_blocked && user.rows[0].is_active !== false;
+        enabled = !currentlyEnabled;
+      }
+
+      const isBlocked = !enabled;
+      const isActive = enabled;
+
+      const result = await pool.query(
+        `UPDATE users
+         SET is_blocked = $1, is_active = $2, updated_at = NOW()
+         WHERE id = $3
+         RETURNING id, email, username, is_blocked, is_active`,
+        [isBlocked, isActive, userId]
       );
 
-      res.status(200).json({ 
-        message: `User ${newStatus ? 'blocked' : 'unblocked'} successfully`,
-        is_blocked: newStatus
+      res.status(200).json({
+        message: `User ${enabled ? 'enabled' : 'disabled'} successfully`,
+        enabled,
+        is_enabled: enabled,
+        is_blocked: isBlocked,
+        is_active: isActive,
+        user: result.rows[0]
       });
     } catch (err) {
-      console.error('Error updating block status:', err);
+      console.error('Error updating enable/disable status:', err);
       res.status(500).json({ error: 'Failed to update user status' });
     }
   };
@@ -474,27 +499,41 @@ module.exports = (pool) => {
     }
   };
 
-  // 📌 UNBLOCK specific user
+  // 📌 ENABLE specific user (legacy unblock route)
   const unblockUser = async (req, res) => {
     const { userId } = req.params;
 
     try {
-      const user = await pool.query('SELECT is_blocked FROM users WHERE id = $1', [userId]);
+      const user = await pool.query(
+        'SELECT is_blocked, is_active FROM users WHERE id = $1',
+        [userId]
+      );
       if (user.rows.length === 0)
         return res.status(404).json({ error: 'User not found' });
 
-      if (!user.rows[0].is_blocked)
-        return res.status(400).json({ message: 'User is already unblocked' });
+      const currentlyEnabled = !user.rows[0].is_blocked && user.rows[0].is_active !== false;
+      if (currentlyEnabled)
+        return res.status(400).json({ message: 'User is already enabled' });
 
-      await pool.query(
-        'UPDATE users SET is_blocked = false, updated_at = NOW() WHERE id = $1', 
+      const result = await pool.query(
+        `UPDATE users
+         SET is_blocked = false, is_active = true, updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, email, username, is_blocked, is_active`,
         [userId]
       );
-      
-      res.status(200).json({ message: 'User unblocked successfully' });
+
+      res.status(200).json({
+        message: 'User enabled successfully',
+        enabled: true,
+        is_enabled: true,
+        is_blocked: false,
+        is_active: true,
+        user: result.rows[0]
+      });
     } catch (err) {
-      console.error('Error unblocking user:', err);
-      res.status(500).json({ error: 'Failed to unblock user' });
+      console.error('Error enabling user:', err);
+      res.status(500).json({ error: 'Failed to enable user' });
     }
   };
 
@@ -530,7 +569,8 @@ module.exports = (pool) => {
           u.google_uid,
           u.firebase_uid,
           u.profile_image,
-          u.is_blocked, 
+          u.is_blocked,
+          u.is_active,
           u.role, 
           u.created_at, 
           u.updated_at,
@@ -545,7 +585,7 @@ module.exports = (pool) => {
           LIMIT 1
         ) us ON true
         ORDER BY 
-          CASE WHEN u.is_blocked THEN 1 ELSE 0 END,
+          CASE WHEN u.is_blocked OR u.is_active = false THEN 1 ELSE 0 END,
           us.login_time DESC NULLS LAST,
           u.created_at DESC
       `);
@@ -766,75 +806,62 @@ module.exports = (pool) => {
         RETURNING *
       `, [approval_status, firmId]);
 
-      // If approved, generate certificate and send email
+      // If approved, activate admin user and send set-password email
       if (approval_status === 'APPROVED') {
-        try {
-          const { generateCertificate } = require('../services/certificateService');
-          const { getFirmApprovalEmailTemplate } = require('../utils/emailTemplates');
-          const sendEmail = require('../utils/sendEmail');
+        const recipientEmail = (firm.admin_email || firm.email || '').trim();
+        let emailSent = false;
+        let emailError = null;
 
-          // Generate UUID first (will be used as certificate ID from database)
-          // This UUID will be displayed on the certificate
-          const { v4: uuidv4 } = require('uuid');
-          const certificateUuid = uuidv4();
-
-          // Generate certificate with UUID
-          console.log('Generating certificate for firm:', firm.firm_name);
-          const certificateData = await generateCertificate(firm, certificateUuid);
-
-          // Save certificate to database with the UUID
-          const certificateResult = await pool.query(`
-            INSERT INTO firm_certificates (
-              id,
-              firm_id, 
-              certificate_path, 
-              issue_date, 
-              expiry_date, 
-              is_active
-            ) VALUES ($1, $2, $3, $4, $5, $6)
-            RETURNING *
-          `, [
-            certificateUuid,
-            firmId,
-            certificateData.certificatePath,
-            certificateData.issueDate,
-            certificateData.expiryDate,
-            true
-          ]);
-
-          console.log('Certificate saved to database with UUID:', certificateResult.rows[0].id);
-
-          // Send approval email with certificate link (using signed URL)
-          const emailHtml = getFirmApprovalEmailTemplate(firm, certificateData.signedUrl);
-          
-          await sendEmail({
-            email: firm.email,
-            subject: 'Firm Registration Approved - Jurinex Legal AI Assistant',
-            html: emailHtml,
-            text: `Congratulations! Your firm "${firm.firm_name}" has been officially approved. You can now access our AI services. Download your certificate (valid for 24 hours): ${certificateData.signedUrl}`
-          });
-
-          console.log('Approval email sent to:', firm.email);
-
-            return res.status(200).json({ 
-            message: `Firm approved successfully. Certificate generated and email sent.`,
-            firm: updateResult.rows[0],
-            certificate: {
-              id: certificateResult.rows[0].id,
-              signedUrl: certificateData.signedUrl,
-              urlExpiresAt: certificateData.urlExpiresAt
-            }
-          });
-
-        } catch (certError) {
-          console.error('Error generating certificate or sending email:', certError);
-          // Still return success for approval, but log the error
-          return res.status(200).json({ 
-            message: `Firm approved successfully, but certificate generation failed. Please try again.`,
-            firm: updateResult.rows[0],
-            error: certError.message
-          });
+        // Activate linked admin user so they can log in after setting password
+        if (firm.admin_user_id) {
+          try {
+            await pool.query(
+              `UPDATE users
+               SET approval_status = 'APPROVED', is_active = true
+               WHERE id = $1`,
+              [firm.admin_user_id]
+            );
+          } catch (userActivateError) {
+            console.error('Error activating firm admin user:', userActivateError);
+          }
         }
+
+        if (!recipientEmail) {
+          emailError = 'No firm or admin email found to send approval email';
+          console.error(emailError);
+        } else {
+          try {
+            const { getFirmApprovalEmailTemplate } = require('../utils/emailTemplates');
+            const sendEmail = require('../utils/sendEmail');
+            const emailFirmData = { ...firm, email: recipientEmail };
+            const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://ailearn.co.in';
+            const setPasswordUrl = `${frontendUrl}/set-password?email=${encodeURIComponent(recipientEmail)}`;
+            const emailHtml = getFirmApprovalEmailTemplate(emailFirmData);
+
+            await sendEmail({
+              email: recipientEmail,
+              subject: 'Firm Registration Approved - Set Your Password',
+              html: emailHtml,
+              text: `Congratulations! Your firm "${firm.firm_name}" has been officially approved. Set your login password: ${setPasswordUrl}`
+            });
+
+            emailSent = true;
+            console.log('Approval email sent to:', recipientEmail);
+          } catch (sendErr) {
+            emailError = sendErr.message;
+            console.error('Error sending firm approval email:', sendErr);
+          }
+        }
+
+        return res.status(200).json({
+          message: emailSent
+            ? 'Firm approved successfully. Set-password email sent.'
+            : 'Firm approved successfully, but set-password email failed.',
+          firm: updateResult.rows[0],
+          emailSent,
+          recipientEmail: recipientEmail || null,
+          ...(emailError ? { emailError } : {})
+        });
       }
 
       res.status(200).json({ 
@@ -869,6 +896,75 @@ module.exports = (pool) => {
     } catch (err) {
       console.error('Error deleting firm:', err);
       res.status(500).json({ error: 'Failed to delete firm' });
+    }
+  };
+
+  // 📌 Resend set-password email for an approved firm
+  const resendFirmPasswordEmail = async (req, res) => {
+    const { firmId } = req.params;
+
+    try {
+      const firmResult = await pool.query(`
+        SELECT f.*, u.email as admin_email, u.username as admin_username
+        FROM firms f
+        LEFT JOIN users u ON f.admin_user_id = u.id
+        WHERE f.id = $1
+      `, [firmId]);
+
+      if (firmResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Firm not found' });
+      }
+
+      const firm = firmResult.rows[0];
+      const recipientEmail = (firm.admin_email || firm.email || '').trim();
+
+      if (!recipientEmail) {
+        return res.status(400).json({
+          error: 'No firm or admin email found',
+          emailSent: false
+        });
+      }
+
+      if (firm.admin_user_id) {
+        try {
+          await pool.query(
+            `UPDATE users
+             SET approval_status = 'APPROVED', is_active = true
+             WHERE id = $1`,
+            [firm.admin_user_id]
+          );
+        } catch (userActivateError) {
+          console.error('Error activating firm admin user:', userActivateError);
+        }
+      }
+
+      const { getFirmApprovalEmailTemplate } = require('../utils/emailTemplates');
+      const sendEmail = require('../utils/sendEmail');
+      const emailFirmData = { ...firm, email: recipientEmail };
+      const frontendUrl = process.env.FRONTEND_URL || process.env.CLIENT_URL || 'https://ailearn.co.in';
+      const setPasswordUrl = `${frontendUrl}/set-password?email=${encodeURIComponent(recipientEmail)}`;
+
+      await sendEmail({
+        email: recipientEmail,
+        subject: 'Set Your Login Password - Jurinex Legal AI Assistant',
+        html: getFirmApprovalEmailTemplate(emailFirmData),
+        text: `Your firm "${firm.firm_name}" is approved. Set your login password: ${setPasswordUrl}`
+      });
+
+      console.log('Resent set-password email to:', recipientEmail);
+
+      return res.status(200).json({
+        message: 'Set-password email sent successfully',
+        emailSent: true,
+        recipientEmail
+      });
+    } catch (err) {
+      console.error('Error resending firm password email:', err);
+      return res.status(500).json({
+        error: 'Failed to send set-password email',
+        emailSent: false,
+        emailError: err.message
+      });
     }
   };
 
@@ -943,6 +1039,7 @@ module.exports = (pool) => {
     getFirmById,
     updateFirmApproval,
     deleteFirm,
+    resendFirmPasswordEmail,
     getFirmCertificate
   };
 };

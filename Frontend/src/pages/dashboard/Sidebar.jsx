@@ -37,7 +37,9 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
         ? 'User Admin'
         : userRole === 'account-admin'
           ? 'Account Admin'
-          : 'Super Admin';
+          : userRole === 'marketing-admin'
+            ? 'Marketing Admin'
+            : 'Super Admin';
   const initials = username
     .split(/\s+/)
     .filter(Boolean)
@@ -118,13 +120,13 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'AI Chatbot',
       path: '/dashboard/documents',
       icon: FileCheck,
-      roles: ['super-admin']
+      roles: ['super-admin', 'marketing-admin']
     },
     {
       name: 'Demo Bookings',
       path: '/dashboard/demo-bookings',
       icon: CalendarCheck,
-      roles: ['super-admin']
+      roles: ['super-admin', 'marketing-admin']
     },
     {
       name: 'Judgement Upload',
@@ -189,7 +191,7 @@ const Sidebar = ({ isOpen, userRole, toggleSidebar }) => {
       name: 'Settings',
       path: '/dashboard/settings',
       icon: Settings,
-      roles: ['super-admin', 'user-admin', 'account-admin', 'support-admin']
+      roles: ['super-admin', 'user-admin', 'account-admin', 'support-admin', 'marketing-admin']
     }
   ];
 

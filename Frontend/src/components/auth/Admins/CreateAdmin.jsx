@@ -602,6 +602,7 @@ const CreateAdmin = ({ onAdminCreated, onCancel }) => {
               <option value="user-admin">User Admin</option>
               <option value="support-admin">Support Admin</option>
               <option value="account-admin">Account Admin</option>
+              <option value="marketing-admin">Marketing Admin</option>
             </select>
           </div>
           <p className="mt-1 text-xs text-gray-500">
