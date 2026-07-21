@@ -745,16 +745,20 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
-        <HorizontalBarChart
+        <DonutChart
           title="Team Queue Snapshot"
-          description="This chart shows the full support-admin queue totals, separate from the support admin's own personal workload."
+          description="The full support-admin queue, split across ticket states."
           data={teamQueueBreakdown}
         />
 
-        <HorizontalBarChart
+        <StatusBreakdownChart
           title="Support User Load"
-          description="See how many tickets each support user created by this support admin is carrying right now."
-          data={supportUserLoad}
+          subtitle="Tickets each support user is carrying right now."
+          emptyText="No support users are carrying tickets yet."
+          data={supportUserLoad.map((entry) => ({
+            label: entry.label,
+            value: toMetricValue(entry.value),
+          }))}
         />
       </div>
 
