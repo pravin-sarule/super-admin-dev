@@ -35,6 +35,9 @@ import {
   Line,
   BarChart,
   Bar,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -204,10 +207,10 @@ const ChartTooltip = ({ active, payload, label }) => {
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
-      <p className="mb-1 font-semibold text-slate-700">{label}</p>
+      {label ? <p className="mb-1 font-semibold text-slate-700">{label}</p> : null}
       {payload.map((item) => (
         <p key={item.dataKey} className="flex items-center gap-1.5 text-slate-600">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color || item.fill }} />
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color || item.fill || (item.payload && item.payload.fill) }} />
           {item.name}: <span className="ml-0.5 font-semibold text-slate-900">{item.value}</span>
         </p>
       ))}
@@ -265,7 +268,7 @@ const StatusBreakdownChart = ({
   const rows = (data || []).filter((item) => item && item.label);
   const total = rows.reduce((sum, item) => sum + Math.max(0, Number(item.value) || 0), 0);
   // Height tracks the bar count so a 1-row chart doesn't leave a tall empty plot.
-  const chartHeight = Math.min(320, Math.max(116, rows.length * 44 + 30));
+  const chartHeight = Math.min(320, Math.max(140, rows.length * 44 + 30));
   return (
     <div className="self-start rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
       <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
@@ -293,6 +296,73 @@ const StatusBreakdownChart = ({
         <div className="mt-4 flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 text-center">
           <p className="text-sm font-medium text-slate-500">{emptyText}</p>
           <p className="mt-1 text-xs text-slate-400">Data appears here as tickets come in.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const DONUT_COLORS = ['#10b981', '#f59e0b', '#3b82f6', '#8b5cf6', '#64748b'];
+
+const DonutChart = ({ title, description, data = [] }) => {
+  const rows = (data || [])
+    .map((item) => ({ label: item.label, value: toMetricValue(item.value) }))
+    .filter((item) => item.label);
+  const total = rows.reduce((sum, item) => sum + item.value, 0);
+  const activeSlices = rows.filter((item) => item.value > 0).length;
+  return (
+    <div className="self-start rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+        <BarChart3 className="h-4 w-4 text-slate-400" />
+        {title}
+      </div>
+      {description ? <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p> : null}
+      {total > 0 ? (
+        <div className="mt-4 flex flex-col items-center gap-5 sm:flex-row">
+          <div className="relative h-40 w-40 shrink-0">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={rows}
+                  dataKey="value"
+                  nameKey="label"
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={48}
+                  outerRadius={72}
+                  paddingAngle={activeSlices > 1 ? 2 : 0}
+                  stroke="none"
+                >
+                  {rows.map((entry, index) => (
+                    <Cell key={entry.label} fill={DONUT_COLORS[index % DONUT_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<ChartTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-xl font-semibold text-slate-950">{total}</span>
+              <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Tickets</span>
+            </div>
+          </div>
+          <ul className="w-full flex-1 space-y-1.5">
+            {rows.map((entry, index) => (
+              <li key={entry.label} className="flex items-center justify-between gap-3 text-sm">
+                <span className="flex min-w-0 items-center gap-2 text-slate-600">
+                  <span
+                    className="h-2.5 w-2.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: DONUT_COLORS[index % DONUT_COLORS.length] }}
+                  />
+                  <span className="truncate">{entry.label}</span>
+                </span>
+                <span className="shrink-0 font-semibold text-slate-900">{entry.value}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : (
+        <div className="mt-4 flex h-40 flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 text-center">
+          <p className="text-sm font-medium text-slate-500">No data to show yet.</p>
         </div>
       )}
     </div>
@@ -653,9 +723,9 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        <HorizontalBarChart
+        <DonutChart
           title="Support Admin Personal Breakdown"
-          description="This chart shows the real personal workload of this support admin, separate from the broader team queue."
+          description="How this support admin's tickets are distributed across states."
           data={personalBreakdown}
         />
 
