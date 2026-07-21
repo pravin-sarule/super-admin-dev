@@ -30,6 +30,18 @@ import {
 } from 'lucide-react';
 
 import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+} from 'recharts';
+
+import {
   CARD_CLASS_NAME,
   defaultPriorityBadgeStyles,
   formatDate,
@@ -171,15 +183,93 @@ export const PriorityBadge = ({ priority, priorityMap = {} }) => {
 };
 
 const SummaryCard = ({ icon: Icon, label, value, accent }) => (
-  <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+  <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">{label}</p>
-        <p className="mt-3 text-3xl font-semibold text-slate-950">{value}</p>
+        <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.12em] text-slate-500">{label}</p>
+        <p className="mt-1.5 text-2xl font-semibold text-slate-950">{value}</p>
       </div>
-      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${accent}`}>
-        <Icon className="h-5 w-5" />
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${accent}`}>
+        <Icon className="h-4 w-4" />
       </div>
+    </div>
+  </div>
+);
+
+const CHART_NEW = '#2563eb';
+const CHART_SOLVED = '#059669';
+const CHART_BAR = '#2563eb';
+
+const ChartTooltip = ({ active, payload, label }) => {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="mb-1 font-semibold text-slate-700">{label}</p>
+      {payload.map((item) => (
+        <p key={item.dataKey} className="flex items-center gap-1.5 text-slate-600">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color || item.fill }} />
+          {item.name}: <span className="ml-0.5 font-semibold text-slate-900">{item.value}</span>
+        </p>
+      ))}
+    </div>
+  );
+};
+
+const ChartLegendDot = ({ color, label }) => (
+  <span className="flex items-center gap-1.5">
+    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+    {label}
+  </span>
+);
+
+const TicketTrendChart = ({ data }) => (
+  <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <h4 className="text-sm font-semibold text-slate-900">Ticket trend</h4>
+        <p className="mt-0.5 text-xs text-slate-500">New vs. solved tickets per day.</p>
+      </div>
+      <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
+        <ChartLegendDot color={CHART_NEW} label="New" />
+        <ChartLegendDot color={CHART_SOLVED} label="Solved" />
+      </div>
+    </div>
+    <div className="mt-4 h-60 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 11, fill: '#94a3b8' }}
+            tickLine={false}
+            axisLine={{ stroke: '#e2e8f0' }}
+            interval="preserveStartEnd"
+            minTickGap={20}
+          />
+          <YAxis allowDecimals={false} width={44} tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={false} />
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#cbd5e1', strokeDasharray: '3 3' }} />
+          <Line type="monotone" dataKey="created" name="New" stroke={CHART_NEW} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+          <Line type="monotone" dataKey="solved" name="Solved" stroke={CHART_SOLVED} strokeWidth={2} dot={false} activeDot={{ r: 4 }} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
+
+const StatusBreakdownChart = ({ data }) => (
+  <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <h4 className="text-sm font-semibold text-slate-900">Status breakdown</h4>
+    <p className="mt-0.5 text-xs text-slate-500">All tickets by current status.</p>
+    <div className="mt-4 h-60 w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} layout="vertical" margin={{ top: 4, right: 16, bottom: 0, left: 6 }} barCategoryGap={12}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" horizontal={false} />
+          <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} />
+          <YAxis type="category" dataKey="label" width={88} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+          <Tooltip content={<ChartTooltip />} cursor={{ fill: '#f1f5f9' }} />
+          <Bar dataKey="value" name="Tickets" fill={CHART_BAR} radius={[0, 4, 4, 0]} maxBarSize={18} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   </div>
 );
@@ -1273,11 +1363,9 @@ export const AnalyticsPanel = ({
         <div className="space-y-6 px-6 py-6 lg:px-7">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Analytics</p>
-            <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">
-              Super Admin Monitoring
-            </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Track every support admin, their created support users, and the ticket load delegated through the hierarchy.
+            <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Super Admin Monitoring</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Support admins, their created users, and ticket load across the hierarchy.
             </p>
           </div>
 
@@ -1288,33 +1376,29 @@ export const AnalyticsPanel = ({
             <SummaryCard icon={CheckCircle2} label="Delegated Tickets" value={overview.delegated_ticket_count ?? 0} accent="bg-emerald-50 text-emerald-700" />
           </div>
 
-          <div className="rounded-[26px] border border-slate-200 bg-slate-50/70 p-5">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Universal Ticket Analytics</p>
-              <h3 className="mt-2 text-xl font-semibold text-slate-950">All Support Tickets Overview</h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Live totals from the complete support ticket system, including day-by-day incoming tickets and day-by-day solved tickets.
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                Show trend for
-              </span>
-              {[7, 14, 30].map((days) => (
-                <button
-                  key={days}
-                  type="button"
-                  onClick={() => setTrendDays(days)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                    trendDays === days
-                      ? 'border-blue-200 bg-blue-50 text-blue-700'
-                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                  }`}
-                >
-                  {days} days
-                </button>
-              ))}
+          <div className="rounded-3xl border border-slate-200/70 bg-slate-50/50 p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-950">All Support Tickets</h3>
+                <p className="mt-0.5 text-sm text-slate-500">Live totals across the platform.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Trend</span>
+                {[7, 14, 30].map((days) => (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setTrendDays(days)}
+                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                      trendDays === days
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {days} days
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
@@ -1350,65 +1434,21 @@ export const AnalyticsPanel = ({
               />
             </div>
 
-            <div className="mt-5 grid gap-4 xl:grid-cols-[1fr_1fr]">
-              <VerticalBarChart
-                title="Daily Support Tickets"
-                description="Day-by-day count of new support tickets created across the full platform."
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
+              <TicketTrendChart
                 data={filteredDailyTrends.map((entry) => ({
                   label: entry.label,
-                  value: entry.created_count,
-                  color: 'bg-blue-500',
-                  helper: `${entry.created_count} new tickets created on ${entry.label}.`,
+                  created: toMetricValue(entry.created_count),
+                  solved: toMetricValue(entry.solved_count),
                 }))}
               />
-
-              <VerticalBarChart
-                title="Daily Solved Tickets"
-                description="Day-by-day count of support tickets solved and closed across the full platform."
-                data={filteredDailyTrends.map((entry) => ({
-                  label: entry.label,
-                  value: entry.solved_count,
-                  color: 'bg-emerald-500',
-                  helper: `${entry.solved_count} tickets solved on ${entry.label}.`,
-                }))}
-              />
-            </div>
-
-            <div className="mt-5">
-              <HorizontalBarChart
-                title="Universal Status Breakdown"
-                description="Overall support ticket totals by status, so super admin can track the full queue health in one place."
+              <StatusBreakdownChart
                 data={[
-                  {
-                    label: 'Open',
-                    value: universal.open_tickets,
-                    color: 'bg-cyan-500',
-                    helper: 'New tickets that are still open.',
-                  },
-                  {
-                    label: 'Pending',
-                    value: universal.pending_tickets,
-                    color: 'bg-amber-500',
-                    helper: 'Tickets currently waiting on follow-up or action.',
-                  },
-                  {
-                    label: 'In Progress',
-                    value: universal.in_progress_tickets,
-                    color: 'bg-blue-500',
-                    helper: 'Tickets actively being worked on.',
-                  },
-                  {
-                    label: 'Resolved',
-                    value: universal.resolved_tickets,
-                    color: 'bg-violet-500',
-                    helper: 'Tickets marked resolved but not yet fully closed.',
-                  },
-                  {
-                    label: 'Closed',
-                    value: universal.closed_tickets,
-                    color: 'bg-emerald-500',
-                    helper: 'Tickets fully solved and closed.',
-                  },
+                  { label: 'Open', value: toMetricValue(universal.open_tickets) },
+                  { label: 'Pending', value: toMetricValue(universal.pending_tickets) },
+                  { label: 'In Progress', value: toMetricValue(universal.in_progress_tickets) },
+                  { label: 'Resolved', value: toMetricValue(universal.resolved_tickets) },
+                  { label: 'Closed', value: toMetricValue(universal.closed_tickets) },
                 ]}
               />
             </div>
