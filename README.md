@@ -25,11 +25,13 @@ The repository contains four applications that are developed and deployed indepe
 
 ## Main capabilities
 
-- Role-based access for super, user, account, marketing, and support administrators
+- Role-based access for super, user, account, marketing, and support administrators, enforced across the sidebar, routes, and APIs (see [Role-based access control](#role-based-access-control-rbac))
+- Per-admin account settings page with session sign-out
 - User, administrator, role, subscription, add-on, and plan analytics management
 - LLM, system prompt, agent prompt, preset prompt, and chatbot configuration
 - Legal template, court, judge, case-type, and document management
-- Support ticket workspace and demo-booking management
+- Support ticket workspace with a support-team hierarchy, per-user queue permissions, queue-based ticket assignment (Assignment Center), and analytics dashboards (super-admin monitoring, per-manager drill-down)
+- Demo-booking management
 - Judgment upload, pipeline monitoring, metadata review, semantic/full-text search, and citation analytics
 - Jurinex Voice agent configuration, knowledge bases, call history, scheduling, calendar tools, and diagnostics
 
@@ -169,6 +171,8 @@ Each support user is granted queue permissions that decide which ticket **scopes
 | `can_view_closed_tickets` | **Closed** — finished tickets |
 
 Tickets link to an owner through `assigned_to_admin_id`. Being able to *see* a ticket (via team or full-queue permission) is separate from it being *assigned* to you: **Assigned To Me** counts only tickets whose owner is the logged-in user. Managers hand tickets to support users from the **Assignment Center** (`/api/support-admin/tickets/bulk-assign`) or from an individual ticket. These rules are enforced in `Backend/middleware/support/workspace.middleware.js` and `Backend/controllers/support/workspace.controller.js`.
+
+The workspace also surfaces analytics derived from the same queue data — a super-admin monitoring view across every support admin and a per-manager drill-down — visible only to roles that can reach the workspace.
 
 ## Repository layout
 
