@@ -1835,6 +1835,24 @@ const CheckboxFieldGroup = ({ title, helperText, options = [], values = [], onTo
   </div>
 );
 
+// Hoisted to module scope: if this lived inside MemberModal it would be a new
+// component identity on every render, remounting the inputs and dropping focus
+// after each keystroke.
+const SectionCard = ({ icon: Icon, heading, note, children }) => (
+  <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+    <div className="mb-4 flex items-start gap-3">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <h4 className="text-sm font-semibold text-slate-900">{heading}</h4>
+        {note ? <p className="mt-1 text-xs leading-5 text-slate-500">{note}</p> : null}
+      </div>
+    </div>
+    {children}
+  </section>
+);
+
 export const MemberModal = ({
   open,
   mode,
@@ -1853,23 +1871,50 @@ export const MemberModal = ({
   if (!open) return null;
 
   const title = mode === 'create' ? 'Create Support User' : 'Edit Support User';
+  const isCreate = mode === 'create';
+
+  const labelClassName = 'mb-2 block text-sm font-semibold text-slate-700';
+  const helperClassName = 'mt-2 text-xs leading-5 text-slate-500';
+  const requiredMark = <span className="text-rose-500">*</span>;
+  const pillClassName =
+    'inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold transition';
+
+  const defaultQueueLabel = form.default_queue
+    ? queueLabels[form.default_queue] || formatLabel(form.default_queue)
+    : '—';
 
   return (
     <div className={modalBackdropClassName}>
       <div className="flex min-h-full items-center justify-center py-4">
-        <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[30px] bg-white shadow-2xl">
-          <div className="flex items-center justify-between border-b border-slate-200 bg-white px-6 py-5">
-            <div>
+        <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-slate-200/70 bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+            <div className="min-w-0">
               <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Team</p>
               <h3 className="mt-2 text-2xl font-semibold text-slate-950">{title}</h3>
               <p className="mt-2 text-sm text-slate-500">
                 Create a support user under your team. This user can only work on tickets that belong to your support queue.
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-600">
+                  <Ticket className="h-3.5 w-3.5 text-slate-400" />
+                  {defaultQueueLabel}
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-medium ${
+                    form.is_blocked
+                      ? 'border-slate-200 bg-slate-100 text-slate-600'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  }`}
+                >
+                  <span className={`h-1.5 w-1.5 rounded-full ${form.is_blocked ? 'bg-slate-400' : 'bg-emerald-500'}`} />
+                  {form.is_blocked ? 'Blocked' : 'Active'}
+                </span>
+              </div>
             </div>
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
+              className="shrink-0 rounded-full p-2 text-slate-500 transition hover:bg-slate-100 hover:text-slate-700"
             >
               <X className="h-5 w-5" />
             </button>
@@ -1882,135 +1927,182 @@ export const MemberModal = ({
             }}
             className="flex min-h-0 flex-1 flex-col"
           >
-            <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-6">
-              <div className="rounded-3xl border border-blue-100 bg-blue-50/80 p-5">
-                <p className="text-sm font-semibold text-blue-900">How this works</p>
-                <div className="mt-3 space-y-2 text-sm leading-6 text-blue-800">
-                  <p>1. Create the support user with name, email, and password.</p>
-                  <p>2. Choose which tickets they are allowed to see inside your queue.</p>
-                  <p>3. After saving, assign tickets from the ticket page or the Assignment Center.</p>
+            <div className="min-h-0 flex-1 space-y-5 overflow-y-auto bg-slate-50/50 px-6 py-6">
+              <SectionCard icon={UserRound} heading="Account details">
+                <div className="grid gap-5 md:grid-cols-2">
+                  <label className="block">
+                    <span className={labelClassName}>Name {isCreate ? requiredMark : null}</span>
+                    <input
+                      value={form.name}
+                      onChange={(event) => onChange('name', event.target.value)}
+                      className={inputClassName}
+                      placeholder="Support user name"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className={labelClassName}>Email {requiredMark}</span>
+                    <input
+                      type="email"
+                      value={form.email}
+                      onChange={(event) => onChange('email', event.target.value)}
+                      className={inputClassName}
+                      placeholder="name@company.com"
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className={labelClassName}>
+                      Password{' '}
+                      {isCreate ? requiredMark : <span className="font-normal text-slate-400">(optional)</span>}
+                    </span>
+                    <input
+                      type="password"
+                      value={form.password}
+                      onChange={(event) => onChange('password', event.target.value)}
+                      className={inputClassName}
+                      placeholder={isCreate ? 'Create a password' : 'Leave blank to keep current password'}
+                    />
+                  </label>
+
+                  <label className="block">
+                    <span className={labelClassName}>Team / Group Name</span>
+                    <input
+                      value={form.team_name || ''}
+                      onChange={(event) => onChange('team_name', event.target.value)}
+                      className={inputClassName}
+                      placeholder={
+                        form.hierarchy_role === 'support_admin'
+                          ? 'Example: Pending Team'
+                          : 'Same as parent team or subgroup name'
+                      }
+                    />
+                    <p className={helperClassName}>
+                      Used as the group name for analytics, filters, and queue management.
+                    </p>
+                  </label>
+
+                  <label className="block md:col-span-2">
+                    <span className={labelClassName}>Default Queue</span>
+                    <select
+                      value={form.default_queue}
+                      onChange={(event) => onChange('default_queue', event.target.value)}
+                      className={`${inputClassName} md:max-w-sm`}
+                    >
+                      {queueOptions.map((queue) => (
+                        <option key={queue} value={queue}>
+                          {queueLabels[queue] || formatLabel(queue)}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={helperClassName}>
+                      {form.hierarchy_role === 'support_admin'
+                        ? 'Support admins usually start on All Tickets because they manage the full team queue.'
+                        : 'The first screen this account sees after login.'}
+                    </p>
+                  </label>
                 </div>
-              </div>
+              </SectionCard>
 
-              <div className="grid gap-5 md:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Name</span>
-              <input
-                value={form.name}
-                onChange={(event) => onChange('name', event.target.value)}
-                className={inputClassName}
-                placeholder="Support user name"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Email</span>
-              <input
-                type="email"
-                value={form.email}
-                onChange={(event) => onChange('email', event.target.value)}
-                className={inputClassName}
-                placeholder="name@company.com"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Team / Group Name</span>
-              <input
-                value={form.team_name || ''}
-                onChange={(event) => onChange('team_name', event.target.value)}
-                className={inputClassName}
-                placeholder={form.hierarchy_role === 'support_admin' ? 'Example: Pending Team' : 'Same as parent team or subgroup name'}
-              />
-              <p className="mt-2 text-xs leading-5 text-slate-500">
-                Use this as the group name for analytics, filters, and queue management.
-              </p>
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">
-                Password {mode === 'edit' ? '(optional)' : ''}
-              </span>
-              <input
-                type="password"
-                value={form.password}
-                onChange={(event) => onChange('password', event.target.value)}
-                className={inputClassName}
-                placeholder={mode === 'edit' ? 'Leave blank to keep current password' : 'Create a password'}
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">Default Queue</span>
-              <select
-                value={form.default_queue}
-                onChange={(event) => onChange('default_queue', event.target.value)}
-                className={inputClassName}
+              <SectionCard
+                icon={Ticket}
+                heading="Ticket scope"
+                note="Applies only inside your support-admin queue. Does not grant access to other admins' tickets."
               >
-                {queueOptions.map((queue) => (
-                  <option key={queue} value={queue}>
-                    {queueLabels[queue] || formatLabel(queue)}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-2 text-xs leading-5 text-slate-500">
-                {form.hierarchy_role === 'support_admin'
-                  ? 'Support admins usually should start on All Tickets because they manage the full team queue.'
-                  : 'This is the first screen this account will see after login.'}
-              </p>
-            </label>
-          </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {Object.entries(queuePermissionMeta).map(([key, meta]) => {
+                    const selected = Boolean(form.permissions[key]);
+                    return (
+                      <label
+                        key={key}
+                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                          selected ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-white hover:bg-slate-50'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => onTogglePermission(key)}
+                          className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span className="min-w-0">
+                          <span className="block text-sm font-medium text-slate-700">{meta.label}</span>
+                          <span className="mt-1 block text-xs leading-5 text-slate-500">{meta.description}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </SectionCard>
 
-          <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
-            <p className="text-sm font-semibold text-slate-800">What this user can see</p>
-            <p className="mt-1 text-xs leading-5 text-slate-500">
-              These permissions apply only inside your support-admin queue. They do not give access to other support admins' tickets.
-            </p>
-            <div className="mt-4 grid gap-3 md:grid-cols-2">
-              {Object.entries(queuePermissionMeta).map(([key, meta]) => (
-                <label key={key} className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <SectionCard icon={Filter} heading="Priorities & categories">
+                <div className="grid gap-5 md:grid-cols-2">
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-slate-700">Priorities this user can work on</p>
+                    <div className="flex flex-wrap gap-2">
+                      {priorityOptions.map((option) => {
+                        const selected = form.allowed_priorities.includes(option.value);
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => onTogglePriority(option.value)}
+                            className={`${pillClassName} ${
+                              selected
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {selected ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="mb-3 text-sm font-semibold text-slate-700">Categories this user can work on</p>
+                    <div className="flex flex-wrap gap-2">
+                      {categoryOptions.map((option) => {
+                        const selected = form.allowed_categories.includes(option.value);
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            aria-pressed={selected}
+                            onClick={() => onToggleCategory(option.value)}
+                            className={`${pillClassName} ${
+                              selected
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {selected ? <CheckCircle2 className="h-3.5 w-3.5" /> : null}
+                            {option.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </SectionCard>
+
+              <SectionCard icon={Settings2} heading="Access control">
+                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 transition hover:bg-slate-50">
                   <input
                     type="checkbox"
-                    checked={Boolean(form.permissions[key])}
-                    onChange={() => onTogglePermission(key)}
-                    className="mt-1 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    checked={Boolean(form.is_blocked)}
+                    onChange={(event) => onChange('is_blocked', event.target.checked)}
+                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
-                  <span>
-                    <span className="block text-sm font-medium text-slate-700">{meta.label}</span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-500">{meta.description}</span>
-                  </span>
+                  <span className="text-sm font-medium text-slate-700">Block this user from logging in</span>
                 </label>
-              ))}
-            </div>
-          </div>
-
-          <CheckboxGroup
-            title="Priorities this user can work on"
-            options={priorityOptions}
-            values={form.allowed_priorities}
-            onToggle={onTogglePriority}
-          />
-
-          <CheckboxGroup
-            title="Categories this user can work on"
-            options={categoryOptions}
-            values={form.allowed_categories}
-            onToggle={onToggleCategory}
-          />
-
-          <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-            <input
-              type="checkbox"
-              checked={Boolean(form.is_blocked)}
-              onChange={(event) => onChange('is_blocked', event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-            />
-            <span className="text-sm font-medium text-slate-700">Block this user from logging in</span>
-          </label>
-
+              </SectionCard>
             </div>
 
-            <div className="flex shrink-0 justify-end gap-3 border-t border-slate-200 bg-white px-6 py-5">
+            <div className="flex shrink-0 items-center justify-end gap-3 border-t border-slate-200 bg-white px-6 py-5">
               <button
                 type="button"
                 onClick={onClose}
@@ -2024,7 +2116,7 @@ export const MemberModal = ({
                 className="inline-flex items-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-                {mode === 'create' ? 'Create User' : 'Save Changes'}
+                {isCreate ? 'Create User' : 'Save Changes'}
               </button>
             </div>
           </form>
