@@ -710,25 +710,23 @@ const SupportWorkspace = () => {
         onSubmit={handleSaveMember}
       />
 
-      <div className="space-y-5">
+      <div className="space-y-3">
         <div className={`${CARD_CLASS_NAME} overflow-hidden`}>
-          <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-            <div className="flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                <CircleHelp className="h-5 w-5" />
-              </div>
-              <div>
-                <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-                  {workspace.viewer.team_name || 'Support Workspace'}
-                </h1>
-                <p className="mt-0.5 text-sm text-slate-500">
-                  {formatLabel(workspace.viewer.hierarchy_role || 'support_user')} · Support & Help
-                </p>
-              </div>
+          <div className="flex items-center gap-2.5 px-4 pt-2.5 sm:px-5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+              <CircleHelp className="h-4 w-4" />
+            </div>
+            <div className="min-w-0">
+              <h1 className="truncate text-base font-semibold tracking-tight text-slate-900">
+                {workspace.viewer.team_name || 'Support Workspace'}
+              </h1>
+              <p className="truncate text-xs text-slate-500">
+                {formatLabel(workspace.viewer.hierarchy_role || 'support_user')} · Support & Help
+              </p>
             </div>
           </div>
 
-          <div className="px-5 sm:px-6">
+          <div className="mt-1.5 px-4 sm:px-5">
             <SectionTabs
               section={section}
               onChange={handleSectionChange}

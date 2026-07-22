@@ -855,7 +855,7 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
   ];
 
   return (
-    <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200" aria-label="Support sections">
+    <nav className="flex flex-wrap items-center gap-0.5 border-b border-slate-200" aria-label="Support sections">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = section === tab.value;
@@ -864,13 +864,13 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
             key={tab.value}
             type="button"
             onClick={() => onChange(tab.value)}
-            className={`-mb-px inline-flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors ${
+            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
               active
                 ? 'border-blue-600 text-blue-600'
                 : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
             }`}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className="h-3.5 w-3.5" />
             {tab.label}
           </button>
         );
