@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LoaderCircle } from 'lucide-react';
+import { CircleHelp, LoaderCircle } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 
 import { supportWorkspaceApi } from '../../../services/supportWorkspaceApi';
@@ -710,23 +710,31 @@ const SupportWorkspace = () => {
         onSubmit={handleSaveMember}
       />
 
-      <div className="space-y-6">
-        <div className={`${CARD_CLASS_NAME} flex flex-col gap-3 px-6 py-3.5 lg:flex-row lg:items-center lg:justify-between lg:px-7`}>
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Dashboard</p>
-            <h1 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
-              {workspace.viewer.team_name || 'Support Workspace'}
-            </h1>
-            <p className="mt-0.5 text-sm text-slate-500">
-              Role: {formatLabel(workspace.viewer.hierarchy_role || 'support_user')}
-            </p>
+      <div className="space-y-5">
+        <div className={`${CARD_CLASS_NAME} overflow-hidden`}>
+          <div className="flex flex-col gap-4 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                <CircleHelp className="h-5 w-5" />
+              </div>
+              <div>
+                <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+                  {workspace.viewer.team_name || 'Support Workspace'}
+                </h1>
+                <p className="mt-0.5 text-sm text-slate-500">
+                  {formatLabel(workspace.viewer.hierarchy_role || 'support_user')} · Support & Help
+                </p>
+              </div>
+            </div>
           </div>
 
-          <SectionTabs
-            section={section}
-            onChange={handleSectionChange}
-            canManageTeam={workspace.viewer.can_manage_assignments}
-          />
+          <div className="px-5 sm:px-6">
+            <SectionTabs
+              section={section}
+              onChange={handleSectionChange}
+              canManageTeam={workspace.viewer.can_manage_assignments}
+            />
+          </div>
         </div>
 
         {shouldShowTicketDetail ? (

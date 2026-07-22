@@ -4,7 +4,7 @@ import { createDebugLogger } from '../../../utils/debugLogger';
 const supportWorkspaceLogger = createDebugLogger('SupportWorkspace');
 
 export const CARD_CLASS_NAME =
-  'rounded-[28px] border border-slate-200/70 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.08)]';
+  'rounded-xl border border-slate-200 bg-white shadow-sm';
 
 export const statusBadgeStyles = {
   open: 'bg-cyan-50 text-cyan-700 border-cyan-200',

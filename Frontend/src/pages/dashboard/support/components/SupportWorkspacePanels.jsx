@@ -12,6 +12,7 @@ import {
   Mail,
   MessageSquare,
   Paperclip,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
@@ -53,7 +54,7 @@ import {
 } from '../supportWorkspaceUtils';
 
 const inputClassName =
-  'w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100';
+  'w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/25';
 
 const modalBackdropClassName =
   'fixed inset-0 z-50 overflow-y-auto bg-slate-950/35 p-4 backdrop-blur-sm';
@@ -134,6 +135,19 @@ const getHierarchyLabel = (value) =>
     support_user: 'Support User',
   }[value] || formatLabel(value));
 
+const getInitials = (name = '') => {
+  const parts = String(name).trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+};
+
+const roleBadgeClassName = (role) => {
+  if (role === 'support_admin') return 'bg-violet-50 text-violet-700 ring-1 ring-inset ring-violet-200/80';
+  if (role === 'super_admin') return 'bg-blue-50 text-blue-700 ring-1 ring-inset ring-blue-200/80';
+  return 'bg-sky-50 text-sky-700 ring-1 ring-inset ring-sky-200/80';
+};
+
 export const NotificationToast = ({ toast, onClose }) => {
   if (!toast?.isVisible) return null;
 
@@ -146,7 +160,7 @@ export const NotificationToast = ({ toast, onClose }) => {
 
   return (
     <div className="fixed right-4 top-4 z-[80]">
-      <div className={`flex max-w-sm items-start gap-3 rounded-2xl border px-4 py-3 shadow-xl ${styles}`}>
+      <div className={`flex max-w-sm items-start gap-3 rounded-lg border px-4 py-3 shadow-xl ${styles}`}>
         <div className="mt-0.5">
           <CheckCircle2 className="h-5 w-5" />
         </div>
@@ -186,13 +200,13 @@ export const PriorityBadge = ({ priority, priorityMap = {} }) => {
 };
 
 const SummaryCard = ({ icon: Icon, label, value, accent }) => (
-  <div className="rounded-2xl border border-slate-200/70 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+  <div className="rounded-xl border border-slate-200 bg-white p-4">
     <div className="flex items-center justify-between gap-3">
       <div className="min-w-0">
-        <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.12em] text-slate-500">{label}</p>
-        <p className="mt-1.5 text-2xl font-semibold text-slate-950">{value}</p>
+        <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
+        <p className="mt-1.5 text-2xl font-semibold tabular-nums text-slate-900">{value}</p>
       </div>
-      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${accent}`}>
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${accent}`}>
         <Icon className="h-4 w-4" />
       </div>
     </div>
@@ -226,7 +240,7 @@ const ChartLegendDot = ({ color, label }) => (
 );
 
 const TicketTrendChart = ({ data }) => (
-  <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+  <div className="rounded-lg border border-slate-200/70 bg-white p-5 ">
     <div className="flex items-start justify-between gap-3">
       <div>
         <h4 className="text-sm font-semibold text-slate-900">Ticket trend</h4>
@@ -270,7 +284,7 @@ const StatusBreakdownChart = ({
   // Height tracks the bar count so a 1-row chart doesn't leave a tall empty plot.
   const chartHeight = Math.min(320, Math.max(140, rows.length * 44 + 30));
   return (
-    <div className="self-start rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="self-start rounded-lg border border-slate-200/70 bg-white p-5 ">
       <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
       <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
       {total > 0 ? (
@@ -311,7 +325,7 @@ const DonutChart = ({ title, description, data = [] }) => {
   const total = rows.reduce((sum, item) => sum + item.value, 0);
   const activeSlices = rows.filter((item) => item.value > 0).length;
   return (
-    <div className="self-start rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="self-start rounded-lg border border-slate-200/70 bg-white p-5 ">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
         <BarChart3 className="h-4 w-4 text-slate-400" />
         {title}
@@ -387,7 +401,7 @@ const getBarHeight = (value, maxValue) => {
 const DetailMetricCard = ({ label, value, accent = 'bg-slate-100 text-slate-700' }) => {
   const dotColor = (accent || '').split(' ').find((token) => token.startsWith('text-')) || 'text-slate-400';
   return (
-    <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="rounded-xl border border-slate-200/70 bg-white px-4 py-3.5 ">
       <div className="flex items-center gap-1.5">
         <span className={`h-1.5 w-1.5 shrink-0 rounded-full bg-current ${dotColor}`} />
         <p className="text-[11px] font-semibold uppercase leading-tight tracking-[0.1em] text-slate-500">{label}</p>
@@ -407,7 +421,7 @@ const HorizontalBarChart = ({ title, description, data = [] }) => {
   const maxValue = Math.max(...normalizedData.map((item) => item.value), 0);
 
   return (
-    <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+    <div className="rounded-lg border border-slate-200/70 bg-white p-5 ">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
         <BarChart3 className="h-4 w-4 text-slate-400" />
         {title}
@@ -450,7 +464,7 @@ const VerticalBarChart = ({ title, description, data = [] }) => {
   const maxValue = Math.max(...normalizedData.map((item) => item.value), 0);
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-5">
+    <div className="rounded-xl border border-slate-200 bg-white p-5">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
         <TrendingUp className="h-4 w-4 text-violet-600" />
         {title}
@@ -459,12 +473,12 @@ const VerticalBarChart = ({ title, description, data = [] }) => {
 
       {normalizedData.length > 0 ? (
         <>
-          <div className="mt-5 rounded-[26px] border border-slate-200 bg-gradient-to-br from-violet-50 via-white to-blue-50 px-4 py-5">
+          <div className="mt-5 rounded-xl border border-slate-200 bg-gradient-to-br from-violet-50 via-white to-blue-50 px-4 py-5">
             <div className="flex h-64 items-end gap-3">
               {normalizedData.map((item) => (
                 <div key={item.label} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-3">
                   <span className="text-sm font-semibold text-slate-900">{item.value}</span>
-                  <div className="flex h-48 w-full items-end justify-center rounded-2xl bg-white/70 px-2 py-2">
+                  <div className="flex h-48 w-full items-end justify-center rounded-lg bg-white/70 px-2 py-2">
                     <div
                       className={`w-full max-w-16 rounded-t-2xl transition-all duration-500 ${item.color || 'bg-violet-500'}`}
                       style={{ height: getBarHeight(item.value, maxValue) }}
@@ -479,7 +493,7 @@ const VerticalBarChart = ({ title, description, data = [] }) => {
           </div>
         </>
       ) : (
-        <div className="mt-5 rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
+        <div className="mt-5 rounded-lg border border-dashed border-slate-200 bg-slate-50/70 px-4 py-6 text-sm text-slate-500">
           No performance shape is available yet.
         </div>
       )}
@@ -647,7 +661,7 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
         <button
           type="button"
           onClick={onBack}
-          className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
         >
           <ArrowLeft className="mr-2 h-4 w-4" />
           Back to Support Admin Analytics
@@ -655,7 +669,7 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
       ) : null}
 
       <div className="space-y-5">
-      <div className="rounded-2xl border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.05)]">
+      <div className="rounded-lg border border-slate-200/70 bg-white p-5 ">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="min-w-0">
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Support Admin</p>
@@ -762,7 +776,7 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
         />
       </div>
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-5">
+      <div className="rounded-xl border border-slate-200 bg-white p-5">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
             <Users className="h-4 w-4 text-blue-600" />
             Support User Detail
@@ -831,14 +845,14 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
 
 export const SectionTabs = ({ section, onChange, canManageTeam }) => {
   const tabs = [
-    { value: 'analytics', label: 'Analytics', icon: Shield },
-    { value: 'tickets', label: 'Tickets', icon: CircleHelp },
+    { value: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { value: 'tickets', label: 'Tickets', icon: Ticket },
     { value: 'team', label: 'Team Members', icon: Users },
     ...(canManageTeam ? [{ value: 'assignments', label: 'Assignment Center', icon: Shuffle }] : []),
   ];
 
   return (
-    <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 p-1">
+    <nav className="flex flex-wrap items-center gap-1 border-b border-slate-200" aria-label="Support sections">
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = section === tab.value;
@@ -847,8 +861,10 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
             key={tab.value}
             type="button"
             onClick={() => onChange(tab.value)}
-            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-              active ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            className={`-mb-px inline-flex items-center gap-2 border-b-2 px-3.5 py-2.5 text-sm font-medium transition-colors ${
+              active
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
             }`}
           >
             <Icon className="h-4 w-4" />
@@ -856,7 +872,7 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
           </button>
         );
       })}
-    </div>
+    </nav>
   );
 };
 
@@ -930,22 +946,19 @@ export const TicketListPanel = ({
 
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-      <div className="space-y-6 px-6 py-6 lg:px-7">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+      <div className="space-y-5 px-5 py-5 sm:px-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Workspace</p>
-            <h1 className="mt-2 text-[1.95rem] font-semibold tracking-tight text-slate-950">
-              Support Tickets
-            </h1>
-            <p className="mt-2 text-sm text-slate-500">
-              Manage ticket queues, assignments, and status flow with support-team RBAC.
+            <h2 className="text-lg font-semibold text-slate-900">Support Tickets</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Manage queues, assignments, and ticket status with team RBAC.
             </p>
           </div>
 
           <button
             type="button"
             onClick={onRefresh}
-            className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
             <RefreshCw className="mr-2 h-4 w-4" />
             Refresh
@@ -964,7 +977,7 @@ export const TicketListPanel = ({
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           {scopes.map((scope) => {
             const active = filters.scope === scope;
             return (
@@ -972,14 +985,14 @@ export const TicketListPanel = ({
                 key={scope}
                 type="button"
                 onClick={() => onScopeChange(scope)}
-                className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold transition ${
+                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
                   active
                     ? 'border-blue-200 bg-blue-50 text-blue-700'
                     : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 }`}
               >
                 {queueLabels[scope] || formatLabel(scope)}
-                <span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-blue-100' : 'bg-slate-100'}`}>
+                <span className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums ${active ? 'bg-blue-100' : 'bg-slate-100'}`}>
                   {summary?.[scope] ?? 0}
                 </span>
               </button>
@@ -1039,26 +1052,26 @@ export const TicketListPanel = ({
           </select>
         </div>
 
-        <div className="overflow-hidden rounded-[26px] border border-slate-200">
+        <div className="overflow-hidden rounded-xl border border-slate-200">
           <div className="overflow-x-auto">
-            <table className="min-w-full border-collapse">
-              <thead className="bg-slate-50/90">
-                <tr className="text-left">
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ticket</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Subject</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Requester</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Assignee</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Status</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Priority</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Updated</th>
-                  <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Action</th>
+            <table className="min-w-full divide-y divide-slate-200">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Ticket</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Subject</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Requester</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Assignee</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Priority</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Updated</th>
+                  <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
+              <tbody className="divide-y divide-slate-100 bg-white">
                 {loading ? (
                   <tr>
                     <td colSpan="8" className="px-6 py-16 text-center">
-                      <div className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+                      <div className="inline-flex items-center rounded-lg bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
                         <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                         Loading support tickets...
                       </div>
@@ -1068,55 +1081,55 @@ export const TicketListPanel = ({
 
                 {!loading && tickets.length > 0
                   ? tickets.map((ticket) => (
-                      <tr key={ticket.id} className="transition hover:bg-slate-50/80">
-                        <td className="px-4 py-4 align-top text-sm font-semibold text-slate-700">
+                      <tr key={ticket.id} className="transition-colors hover:bg-slate-50/80">
+                        <td className="px-4 py-3.5 text-sm font-semibold text-slate-700">
                           <div>{ticket.ticket_number}</div>
-                          <div className="mt-1 text-xs font-medium text-slate-400">
+                          <div className="mt-0.5 text-xs font-medium text-slate-400">
                             {formatLabel(ticket.category)}
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-800">
+                        <td className="px-4 py-3.5 text-sm text-slate-800">
                           <div className="max-w-[22rem]">
                             <p className="font-semibold text-slate-900">{ticket.subject}</p>
-                            <p className="mt-1 line-clamp-2 text-xs leading-6 text-slate-500">
+                            <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500">
                               {ticket.message || 'No message provided.'}
                             </p>
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                        <td className="px-4 py-3.5 text-sm text-slate-700">
                           <div className="max-w-[14rem]">
                             <p className="font-medium text-slate-900">{ticket.user_name || 'Unknown requester'}</p>
-                            <p className="mt-1 text-xs text-slate-500">{ticket.user_email || 'No email'}</p>
+                            <p className="mt-0.5 text-xs text-slate-500">{ticket.user_email || 'No email'}</p>
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
+                        <td className="px-4 py-3.5 text-sm text-slate-700">
                           {ticket.assigned_to ? (
                             <div className="max-w-[14rem]">
                               <p className="font-medium text-slate-900">{ticket.assigned_to.name}</p>
-                              <p className="mt-1 text-xs text-slate-500">{ticket.assigned_to.email}</p>
+                              <p className="mt-0.5 text-xs text-slate-500">{ticket.assigned_to.email}</p>
                             </div>
                           ) : (
-                            <span className="inline-flex items-center rounded-full border border-dashed border-slate-300 px-3 py-1 text-xs font-semibold text-slate-500">
+                            <span className="inline-flex items-center rounded-md border border-dashed border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500">
                               Unassigned
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-4 align-top text-sm">
+                        <td className="px-4 py-3.5 text-sm">
                           <StatusBadge status={ticket.status} />
                         </td>
-                        <td className="px-4 py-4 align-top text-sm">
+                        <td className="px-4 py-3.5 text-sm">
                           <PriorityBadge priority={ticket.priority} priorityMap={priorityMap} />
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-600">
+                        <td className="px-4 py-3.5 text-sm tabular-nums text-slate-600">
                           {formatDate(ticket.updated_at)}
                         </td>
-                        <td className="px-4 py-4 align-top text-sm">
+                        <td className="px-4 py-3.5 text-right text-sm">
                           <button
                             type="button"
                             onClick={() => onOpenTicket(ticket.id)}
-                            className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
                           >
-                            <Eye className="mr-2 h-4 w-4" />
+                            <Eye className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
                             Open
                           </button>
                         </td>
@@ -1128,7 +1141,7 @@ export const TicketListPanel = ({
                   <tr>
                     <td colSpan="8" className="px-6 py-20 text-center">
                       <div className="mx-auto flex max-w-sm flex-col items-center">
-                        <div className="rounded-2xl bg-slate-100 p-4 text-slate-500">
+                        <div className="rounded-lg bg-slate-100 p-4 text-slate-500">
                           <Filter className="h-7 w-7" />
                         </div>
                         <p className="mt-5 text-lg font-medium text-slate-700">No tickets matched this queue</p>
@@ -1172,12 +1185,12 @@ export const TicketDetailPanel = ({
               <button
                 type="button"
                 onClick={onBack}
-                className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
               >
                 <ArrowLeft className="mr-2 h-4 w-4" />
                 Back to Tickets
               </button>
-              <h1 className="mt-4 text-[1.9rem] font-semibold tracking-tight text-slate-950">
+              <h1 className="mt-3 text-xl font-semibold tracking-tight text-slate-900">
                 {ticket.subject}
               </h1>
               <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -1190,7 +1203,7 @@ export const TicketDetailPanel = ({
               </div>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
               <p>Created: {formatDate(ticket.created_at, true)}</p>
               <p className="mt-2">Updated: {formatDate(ticket.updated_at, true)}</p>
               <p className="mt-2">Category: {formatLabel(ticket.category)}</p>
@@ -1198,7 +1211,7 @@ export const TicketDetailPanel = ({
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                 <UserRound className="h-4 w-4" />
                 Requester
@@ -1207,7 +1220,7 @@ export const TicketDetailPanel = ({
               <p className="mt-2 text-sm text-slate-500">{ticket.user_email || 'No email available'}</p>
             </div>
 
-            <div className="rounded-3xl border border-slate-200 bg-slate-50/70 p-5">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 p-5">
               <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
                 <UserCog className="h-4 w-4" />
                 Assignee
@@ -1219,17 +1232,17 @@ export const TicketDetailPanel = ({
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               <MessageSquare className="h-4 w-4" />
               Customer Message
             </div>
-            <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-5 text-sm leading-7 text-slate-700">
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/70 p-5 text-sm leading-7 text-slate-700">
               {ticket.message || 'No message provided.'}
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               <Paperclip className="h-4 w-4" />
               Attachments
@@ -1239,7 +1252,7 @@ export const TicketDetailPanel = ({
                 {ticket.attachments.map((attachment, index) => (
                   <div
                     key={attachment.id || `${attachment.file_name}-${index}`}
-                    className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4 lg:flex-row lg:items-center lg:justify-between"
+                    className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50/70 p-4 lg:flex-row lg:items-center lg:justify-between"
                   >
                     <div>
                       <p className="font-semibold text-slate-900">{attachment.file_name}</p>
@@ -1248,7 +1261,7 @@ export const TicketDetailPanel = ({
                     <button
                       type="button"
                       onClick={() => onAttachmentOpen(ticket.id, index)}
-                      className="inline-flex items-center rounded-2xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
+                      className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-100"
                     >
                       <Eye className="mr-2 h-4 w-4" />
                       Open
@@ -1261,7 +1274,7 @@ export const TicketDetailPanel = ({
             )}
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6">
+          <div className="rounded-xl border border-slate-200 bg-white p-6">
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
               <Settings2 className="h-4 w-4" />
               Internal Notes
@@ -1269,7 +1282,7 @@ export const TicketDetailPanel = ({
             {ticket.internal_notes?.length > 0 ? (
               <div className="mt-4 space-y-3">
                 {ticket.internal_notes.map((note) => (
-                  <div key={note.id} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                  <div key={note.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                     <p className="text-sm leading-7 text-slate-700">{note.note}</p>
                     <p className="mt-2 text-xs text-slate-500">
                       {note.author_name || 'Support admin'} • {formatDate(note.created_at, true)}
@@ -1288,7 +1301,7 @@ export const TicketDetailPanel = ({
             event.preventDefault();
             onSave();
           }}
-          className="rounded-3xl border border-slate-200 bg-white p-6"
+          className="rounded-xl border border-slate-200 bg-white p-6"
         >
           <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Update Ticket</p>
 
@@ -1383,14 +1396,14 @@ export const TicketDetailPanel = ({
             <button
               type="button"
               onClick={onBack}
-              className="flex-1 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+              className="flex-1 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
-              className="inline-flex flex-1 items-center justify-center rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+              className="inline-flex flex-1 items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save Update
@@ -1437,12 +1450,12 @@ export const AnalyticsPanel = ({
             <button
               type="button"
               onClick={onBackToManagerList}
-              className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
               Back to Support Admin Analytics
             </button>
-            <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-16 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-16 text-center text-sm text-slate-500">
               The selected support admin analytics could not be found.
             </div>
           </div>
@@ -1452,12 +1465,11 @@ export const AnalyticsPanel = ({
 
     return (
       <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-        <div className="space-y-6 px-6 py-6 lg:px-7">
+        <div className="space-y-5 px-5 py-5 sm:px-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Analytics</p>
-            <h2 className="mt-1 text-xl font-semibold tracking-tight text-slate-950">Super Admin Monitoring</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Support Analytics</h2>
             <p className="mt-1 text-sm text-slate-500">
-              Support admins, their created users, and ticket load across the hierarchy.
+              Monitor support admins, users, and ticket load across the hierarchy.
             </p>
           </div>
 
@@ -1468,7 +1480,7 @@ export const AnalyticsPanel = ({
             <SummaryCard icon={CheckCircle2} label="Delegated Tickets" value={overview.delegated_ticket_count ?? 0} accent="bg-emerald-50 text-emerald-700" />
           </div>
 
-          <div className="rounded-3xl border border-slate-200/70 bg-slate-50/50 p-5">
+          <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h3 className="text-lg font-semibold text-slate-950">All Support Tickets</h3>
@@ -1546,7 +1558,7 @@ export const AnalyticsPanel = ({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[26px] border border-slate-200">
+          <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
               <table className="min-w-full border-collapse">
                 <thead className="bg-slate-50/90">
@@ -1599,7 +1611,7 @@ export const AnalyticsPanel = ({
                         <button
                           type="button"
                           onClick={() => onOpenManagerDashboard?.(manager.manager_admin_id)}
-                          className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                          className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
                           Open Full Dashboard
                         </button>
@@ -1626,14 +1638,11 @@ export const AnalyticsPanel = ({
   if (analytics?.type === 'support_admin') {
     return (
       <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-        <div className="space-y-6 px-6 py-6 lg:px-7">
+        <div className="space-y-5 px-5 py-5 sm:px-6">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Team Analytics</p>
-            <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">
-              Support Admin Team Dashboard
-            </h2>
-            <p className="mt-2 text-sm text-slate-500">
-              Monitor the support users you created and the tickets currently flowing through your queue.
+            <h2 className="text-lg font-semibold text-slate-900">Team Analytics</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              Monitor support users you created and tickets flowing through your queue.
             </p>
           </div>
 
@@ -1644,7 +1653,7 @@ export const AnalyticsPanel = ({
             <SummaryCard icon={CheckCircle2} label="Delegated By Me" value={overview.assigned_ticket_count ?? 0} accent="bg-emerald-50 text-emerald-700" />
           </div>
 
-          <div className="rounded-[26px] border border-slate-200 bg-slate-50/60 p-5">
+          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Current Team Lead</p>
@@ -1660,7 +1669,7 @@ export const AnalyticsPanel = ({
             </div>
           </div>
 
-          <div className="overflow-hidden rounded-[26px] border border-slate-200">
+          <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
               <table className="min-w-full border-collapse">
                 <thead className="bg-slate-50/90">
@@ -1718,14 +1727,11 @@ export const AnalyticsPanel = ({
 
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-      <div className="space-y-6 px-6 py-6 lg:px-7">
+      <div className="space-y-5 px-5 py-5 sm:px-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Personal Analytics</p>
-          <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">
-            Support User Dashboard
-          </h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Track your own workload inside the support admin queue you report to.
+          <h2 className="text-lg font-semibold text-slate-900">My Analytics</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Track your workload inside the support queue you report to.
           </p>
         </div>
 
@@ -1736,7 +1742,7 @@ export const AnalyticsPanel = ({
           <SummaryCard icon={Users} label="Team Unassigned" value={overview.team_unassigned_ticket_pool ?? 0} accent="bg-slate-100 text-slate-700" />
         </div>
 
-        <div className="rounded-[26px] border border-slate-200 bg-slate-50/60 p-5">
+        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reporting Line</p>
           <p className="mt-2 text-lg font-semibold text-slate-950">
             {analytics.manager?.manager_name || 'Support Admin'}
@@ -1744,7 +1750,7 @@ export const AnalyticsPanel = ({
           <p className="mt-1 text-sm text-slate-500">{analytics.manager?.manager_email || 'No manager email available'}</p>
         </div>
 
-        <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+        <div className="rounded-xl border border-slate-200 bg-white p-5">
           <p className="text-sm font-semibold text-slate-800">Visible Support Users In Your Team</p>
           <div className="mt-4 flex flex-wrap gap-2">
             {personalMembers.map((member) => (
@@ -1764,19 +1770,23 @@ export const AnalyticsPanel = ({
 
 export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
   <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-    <div className="space-y-6 px-6 py-6 lg:px-7">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="space-y-5 px-5 py-5 sm:px-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            {viewer?.is_super_admin ? 'Support Hierarchy' : 'Support Team'}
-          </p>
-          <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">
-            {viewer?.is_super_admin ? 'Support Admins & Support Users' : 'Support Users & Queue RBAC'}
-          </h2>
-          <p className="mt-2 text-sm text-slate-500">
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">
+              {viewer?.is_super_admin ? 'Support Hierarchy' : 'Support Team'}
+            </h2>
+            {!loading ? (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                {members.length}
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 max-w-2xl text-sm text-slate-500">
             {viewer?.is_super_admin
-              ? 'Review the full support hierarchy, including managers and their support users.'
-              : 'Manage support users, their queue permissions, and their live workloads.'}
+              ? 'Review support admins, their users, queue access, and current workload.'
+              : 'Manage support users, queue permissions, and live ticket workloads.'}
           </p>
         </div>
 
@@ -1784,7 +1794,7 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
           <button
             type="button"
             onClick={onCreate}
-            className="inline-flex items-center rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+            className="inline-flex shrink-0 items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-700"
           >
             <UserPlus className="mr-2 h-4 w-4" />
             Add Support User
@@ -1792,24 +1802,36 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
         ) : null}
       </div>
 
-      <div className="overflow-hidden rounded-[26px] border border-slate-200">
+      <div className="overflow-hidden rounded-xl border border-slate-200">
         <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse">
-            <thead className="bg-slate-50/90">
-              <tr className="text-left">
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">User</th>
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Role</th>
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Queue Access</th>
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Workload</th>
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Status</th>
-                <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Action</th>
+          <table className="min-w-full divide-y divide-slate-200">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  User
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Role
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Queue Access
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Workload
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Action
+                </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-200 bg-white">
+            <tbody className="divide-y divide-slate-100 bg-white">
               {loading ? (
                 <tr>
                   <td colSpan="6" className="px-6 py-16 text-center">
-                    <div className="inline-flex items-center rounded-full bg-slate-100 px-4 py-2 text-sm font-medium text-slate-600">
+                    <div className="inline-flex items-center rounded-lg bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
                       <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
                       Loading support team...
                     </div>
@@ -1817,65 +1839,98 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
                 </tr>
               ) : null}
 
-                {!loading && members.length > 0
-                  ? members.map((member) => {
+              {!loading && members.length > 0
+                ? members.map((member) => {
                     const enabledPermissions = Object.entries(member.permissions || {})
                       .filter(([key, enabled]) => Boolean(enabled) && queuePermissionMeta[key])
                       .map(([key]) => queuePermissionMeta[key].chipLabel)
                       .filter(Boolean);
+                    const total = Number(member.workload?.total_assigned || 0);
+                    const open = Number(member.workload?.open_assigned || 0);
+                    const closed = Number(member.workload?.closed_assigned || 0);
+                    const openRatio = total > 0 ? Math.min(100, Math.round((open / total) * 100)) : 0;
 
                     return (
-                      <tr key={member.id} className="transition hover:bg-slate-50/80">
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div>
-                            <p className="font-semibold text-slate-900">{member.name}</p>
-                            <p className="mt-1 text-xs text-slate-500">{member.email}</p>
+                      <tr key={member.id} className="transition-colors hover:bg-slate-50/80">
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                                member.hierarchy_role === 'support_admin'
+                                  ? 'bg-violet-100 text-violet-700'
+                                  : 'bg-blue-100 text-blue-700'
+                              }`}
+                            >
+                              {getInitials(member.name)}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">{member.name}</p>
+                              <p className="mt-0.5 truncate text-sm text-slate-500">{member.email}</p>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            member.hierarchy_role === 'support_admin'
-                              ? 'bg-violet-50 text-violet-700'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex rounded-md px-2 py-1 text-xs font-medium ${roleBadgeClassName(
+                              member.hierarchy_role
+                            )}`}
+                          >
                             {getHierarchyLabel(member.hierarchy_role)}
                           </span>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div className="flex max-w-[18rem] flex-wrap gap-2">
+                        <td className="px-4 py-3.5">
+                          <div className="flex max-w-xs flex-wrap gap-1.5">
                             {enabledPermissions.length > 0 ? (
                               enabledPermissions.map((label) => (
-                                <span key={label} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+                                <span
+                                  key={label}
+                                  className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600"
+                                >
                                   {label}
                                 </span>
                               ))
                             ) : (
-                              <span className="text-xs text-slate-500">No queue access enabled</span>
+                              <span className="text-xs text-slate-400">No queue access</span>
                             )}
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <div className="space-y-1 text-xs">
-                            <p>Total: {member.workload.total_assigned}</p>
-                            <p>Open: {member.workload.open_assigned}</p>
-                            <p>Closed: {member.workload.closed_assigned}</p>
+                        <td className="px-4 py-3.5">
+                          <div className="min-w-[9.5rem]">
+                            <div className="flex items-baseline justify-between gap-2 text-xs">
+                              <span className="font-medium tabular-nums text-slate-800">{open} open</span>
+                              <span className="tabular-nums text-slate-400">{total} total</span>
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                              <div
+                                className="h-full rounded-full bg-blue-500 transition-all"
+                                style={{ width: `${openRatio}%` }}
+                              />
+                            </div>
+                            <p className="mt-1 text-xs tabular-nums text-slate-400">{closed} closed</p>
                           </div>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm text-slate-700">
-                          <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                            member.is_blocked ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
-                          }`}>
+                        <td className="px-4 py-3.5">
+                          <span
+                            className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+                              member.is_blocked ? 'text-rose-600' : 'text-emerald-600'
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                member.is_blocked ? 'bg-rose-500' : 'bg-emerald-500'
+                              }`}
+                            />
                             {member.is_blocked ? 'Blocked' : 'Active'}
                           </span>
                         </td>
-                        <td className="px-4 py-4 align-top text-sm">
+                        <td className="px-4 py-3.5 text-right">
                           {viewer?.can_edit_team_members ? (
                             <button
                               type="button"
                               onClick={() => onEdit(member)}
-                              className="inline-flex items-center rounded-2xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
                             >
-                              <Shield className="mr-2 h-4 w-4" />
+                              <Pencil className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
                               Edit
                             </button>
                           ) : (
@@ -1889,13 +1944,13 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
 
               {!loading && members.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="px-6 py-20 text-center">
+                  <td colSpan="6" className="px-6 py-16 text-center">
                     <div className="mx-auto flex max-w-sm flex-col items-center">
-                      <div className="rounded-2xl bg-slate-100 p-4 text-slate-500">
-                        <Users className="h-7 w-7" />
+                      <div className="rounded-xl bg-slate-100 p-3 text-slate-500">
+                        <Users className="h-6 w-6" />
                       </div>
-                      <p className="mt-5 text-lg font-medium text-slate-700">No support users yet</p>
-                      <p className="mt-2 text-sm text-slate-500">
+                      <p className="mt-4 text-base font-medium text-slate-800">No support users yet</p>
+                      <p className="mt-1.5 text-sm text-slate-500">
                         Create the first support user to start assigning tickets from your queue.
                       </p>
                     </div>
@@ -1945,7 +2000,7 @@ const CheckboxFieldGroup = ({ title, helperText, options = [], values = [], onTo
         return (
           <label
             key={option.value}
-            className={`flex items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+            className={`flex items-start gap-3 rounded-lg border px-4 py-3 transition ${
               selected ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-white'
             }`}
           >
@@ -1972,9 +2027,9 @@ const CheckboxFieldGroup = ({ title, helperText, options = [], values = [], onTo
 // component identity on every render, remounting the inputs and dropping focus
 // after each keystroke.
 const SectionCard = ({ icon: Icon, heading, note, children }) => (
-  <section className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+  <section className="rounded-xl border border-slate-200/70 bg-white p-5 ">
     <div className="mb-4 flex items-start gap-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-slate-100 text-slate-500">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500">
         <Icon className="h-4 w-4" />
       </span>
       <div className="min-w-0">
@@ -2019,13 +2074,12 @@ export const MemberModal = ({
   return (
     <div className={modalBackdropClassName}>
       <div className="flex min-h-full items-center justify-center py-4">
-        <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-slate-200/70 bg-white shadow-2xl">
+        <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Support Team</p>
-              <h3 className="mt-2 text-2xl font-semibold text-slate-950">{title}</h3>
-              <p className="mt-2 text-sm text-slate-500">
-                Create a support user under your team. This user can only work on tickets that belong to your support queue.
+              <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Create a support user under your team. They can only work on tickets in your queue.
               </p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 font-medium text-slate-600">
@@ -2148,7 +2202,7 @@ export const MemberModal = ({
                     return (
                       <label
                         key={key}
-                        className={`flex cursor-pointer items-start gap-3 rounded-2xl border px-4 py-3 transition ${
+                        className={`flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition ${
                           selected ? 'border-blue-200 bg-blue-50/70' : 'border-slate-200 bg-white hover:bg-slate-50'
                         }`}
                       >
@@ -2223,7 +2277,7 @@ export const MemberModal = ({
               </SectionCard>
 
               <SectionCard icon={Settings2} heading="Access control">
-                <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 transition hover:bg-slate-50">
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/70 px-4 py-3 transition hover:bg-slate-50">
                   <input
                     type="checkbox"
                     checked={Boolean(form.is_blocked)}
@@ -2239,14 +2293,14 @@ export const MemberModal = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex items-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
+                className="inline-flex items-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
               >
                 {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
                 {isCreate ? 'Create User' : 'Save Changes'}
@@ -2262,7 +2316,7 @@ export const MemberModal = ({
 // Module-scoped helpers (kept out of BulkAssignPanel so their identity is
 // stable across renders — a nested component would remount inputs and drop focus).
 const AssignStep = ({ number, icon: Icon, heading, children }) => (
-  <div className="rounded-3xl border border-slate-200/70 bg-white p-5 shadow-[0_10px_30px_rgba(15,23,42,0.04)]">
+  <div className="rounded-xl border border-slate-200/70 bg-white p-5 ">
     <div className="mb-4 flex items-center gap-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
         {number}
@@ -2279,7 +2333,7 @@ const ChoiceCard = ({ active, onClick, title, desc }) => (
     type="button"
     onClick={onClick}
     aria-pressed={active}
-    className={`flex-1 rounded-2xl border px-4 py-3 text-left transition ${
+    className={`flex-1 rounded-lg border px-4 py-3 text-left transition ${
       active ? 'border-blue-300 bg-blue-50/70 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:bg-slate-50'
     }`}
   >
@@ -2323,12 +2377,11 @@ export const BulkAssignPanel = ({
 
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-      <div className="space-y-6 px-6 py-6 lg:px-7">
+      <div className="space-y-5 px-5 py-5 sm:px-6">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">Assignment Center</p>
-          <h2 className="mt-2 text-[1.8rem] font-semibold tracking-tight text-slate-950">Assign Tickets</h2>
-          <p className="mt-2 text-sm text-slate-500">
-            Hand tickets from your queue to your support users in three quick steps.
+          <h2 className="text-lg font-semibold text-slate-900">Assignment Center</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Distribute tickets from your queue to support users in a few steps.
           </p>
         </div>
 
@@ -2472,7 +2525,7 @@ export const BulkAssignPanel = ({
             ) : null}
           </AssignStep>
 
-          <div className="rounded-3xl border border-slate-200/70 bg-white">
+          <div className="rounded-xl border border-slate-200/70 bg-white">
             <button
               type="button"
               onClick={() => setShowAdvanced((value) => !value)}
@@ -2502,7 +2555,7 @@ export const BulkAssignPanel = ({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-3 rounded-3xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-slate-600">
               {selectedCount === 0
                 ? 'Select at least one support user above.'
@@ -2513,7 +2566,7 @@ export const BulkAssignPanel = ({
             <button
               type="submit"
               disabled={loading || selectedCount === 0}
-              className="inline-flex items-center justify-center rounded-2xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SendHorizontal className="mr-2 h-4 w-4" />}
               Assign Tickets
