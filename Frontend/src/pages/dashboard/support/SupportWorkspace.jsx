@@ -411,6 +411,22 @@ const SupportWorkspace = () => {
   };
 
   const openMemberModal = (mode, member = null) => {
+    // Support admins must not edit their own account (accidental "block login").
+    // Support Admin rows are view-only in this panel — edit support users only.
+    if (
+      member &&
+      (Number(member.id) === Number(workspace.viewer.admin_id) ||
+        member.hierarchy_role === 'support_admin')
+    ) {
+      showToast(
+        Number(member.id) === Number(workspace.viewer.admin_id)
+          ? 'You cannot edit your own support account from here.'
+          : 'Support Admin accounts cannot be edited from Team Members.',
+        'warning'
+      );
+      return;
+    }
+
     const hierarchyRole = member?.hierarchy_role || 'support_user';
     const baseForm = member
       ? {
@@ -710,23 +726,23 @@ const SupportWorkspace = () => {
         onSubmit={handleSaveMember}
       />
 
-      <div className="space-y-3">
-        <div className={`${CARD_CLASS_NAME} overflow-hidden`}>
-          <div className="flex items-center gap-2.5 px-4 pt-2.5 sm:px-5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
-              <CircleHelp className="h-4 w-4" />
+      <div className="-mt-2 space-y-3 lg:-mt-4">
+        <div className={`${CARD_CLASS_NAME} px-3 py-1 sm:px-4`}>
+          <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                <CircleHelp className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0 leading-none">
+                <h1 className="truncate text-sm font-semibold text-slate-900">
+                  {workspace.viewer.team_name || 'Support Workspace'}
+                </h1>
+                <p className="mt-0.5 truncate text-[11px] leading-tight text-slate-500">
+                  {formatLabel(workspace.viewer.hierarchy_role || 'support_user')} · Support & Help
+                </p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-tight text-slate-900">
-                {workspace.viewer.team_name || 'Support Workspace'}
-              </h1>
-              <p className="truncate text-xs text-slate-500">
-                {formatLabel(workspace.viewer.hierarchy_role || 'support_user')} · Support & Help
-              </p>
-            </div>
-          </div>
 
-          <div className="mt-1.5 px-4 sm:px-5">
             <SectionTabs
               section={section}
               onChange={handleSectionChange}

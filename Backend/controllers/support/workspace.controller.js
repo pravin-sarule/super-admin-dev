@@ -1735,6 +1735,16 @@ module.exports = (pool) => {
         });
       }
 
+      // Prevent self-edit so a support admin cannot accidentally block their own login.
+      if (adminId === access.adminId) {
+        return sendError(res, {
+          code: 'FORBIDDEN',
+          message: 'You cannot edit your own support account from Team Members.',
+          statusCode: 403,
+          requestId: req.requestId,
+        });
+      }
+
       const adminResult = await pool.query(
         `SELECT id, name, email, is_blocked
          FROM super_admins
@@ -1756,6 +1766,16 @@ module.exports = (pool) => {
       let profile = await SupportAdminProfile.findOne({
         where: { admin_id: adminId },
       });
+
+      // Team Members panel only edits support users — not Support Admin accounts.
+      if (profile && isMemberManager(profile.toJSON(), adminId)) {
+        return sendError(res, {
+          code: 'FORBIDDEN',
+          message: 'Support Admin accounts cannot be edited from Team Members.',
+          statusCode: 403,
+          requestId: req.requestId,
+        });
+      }
 
       if (!profile) {
         const shouldCreateManagerProfile = access.isSuperAdmin;

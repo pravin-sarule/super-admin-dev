@@ -855,7 +855,10 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
   ];
 
   return (
-    <nav className="flex flex-wrap items-center gap-0.5 border-b border-slate-200" aria-label="Support sections">
+    <nav
+      className="inline-flex flex-wrap items-center gap-0.5 rounded-lg border border-slate-200 bg-slate-50 p-0.5"
+      aria-label="Support sections"
+    >
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const active = section === tab.value;
@@ -864,10 +867,10 @@ export const SectionTabs = ({ section, onChange, canManageTeam }) => {
             key={tab.value}
             type="button"
             onClick={() => onChange(tab.value)}
-            className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors ${
+            className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold transition-colors sm:text-sm ${
               active
-                ? 'border-blue-600 text-blue-600'
-                : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-700'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'text-slate-500 hover:bg-white hover:text-slate-700'
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
@@ -2133,18 +2136,40 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
                           </span>
                         </td>
                         <td className="px-4 py-3.5 text-right">
-                          {viewer?.can_edit_team_members ? (
-                            <button
-                              type="button"
-                              onClick={() => onEdit(member)}
-                              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                            >
-                              <Pencil className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
-                              Edit
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400">Read only</span>
-                          )}
+                          {(() => {
+                            const isSelf = Number(member.id) === Number(viewer?.admin_id);
+                            const isSupportAdmin = member.hierarchy_role === 'support_admin';
+                            const canEdit =
+                              Boolean(viewer?.can_edit_team_members) && !isSelf && !isSupportAdmin;
+
+                            if (canEdit) {
+                              return (
+                                <button
+                                  type="button"
+                                  onClick={() => onEdit(member)}
+                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                                >
+                                  <Pencil className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
+                                  Edit
+                                </button>
+                              );
+                            }
+
+                            return (
+                              <span
+                                className="text-xs text-slate-400"
+                                title={
+                                  isSelf
+                                    ? 'You cannot edit your own account here'
+                                    : isSupportAdmin
+                                      ? 'Support Admin accounts cannot be edited here'
+                                      : 'Read only'
+                                }
+                              >
+                                {isSelf ? 'You' : isSupportAdmin ? 'View only' : 'Read only'}
+                              </span>
+                            );
+                          })()}
                         </td>
                       </tr>
                     );
