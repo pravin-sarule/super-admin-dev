@@ -199,14 +199,15 @@ export const PriorityBadge = ({ priority, priorityMap = {} }) => {
   );
 };
 
-const SummaryCard = ({ icon: Icon, label, value, accent }) => (
-  <div className="rounded-xl border border-slate-200 bg-white p-4">
-    <div className="flex items-center justify-between gap-3">
+const SummaryCard = ({ icon: Icon, label, value, accent, hint }) => (
+  <div className="rounded-xl border border-slate-200 bg-white p-4 transition hover:border-slate-300">
+    <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
         <p className="text-xs font-medium uppercase tracking-wider text-slate-500">{label}</p>
-        <p className="mt-1.5 text-2xl font-semibold tabular-nums text-slate-900">{value}</p>
+        <p className="mt-1.5 text-2xl font-semibold tabular-nums tracking-tight text-slate-900">{value}</p>
+        {hint ? <p className="mt-1 text-xs text-slate-400">{hint}</p> : null}
       </div>
-      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${accent}`}>
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${accent}`}>
         <Icon className="h-4 w-4" />
       </div>
     </div>
@@ -240,18 +241,18 @@ const ChartLegendDot = ({ color, label }) => (
 );
 
 const TicketTrendChart = ({ data }) => (
-  <div className="rounded-lg border border-slate-200/70 bg-white p-5 ">
-    <div className="flex items-start justify-between gap-3">
+  <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+    <div className="flex flex-wrap items-start justify-between gap-3">
       <div>
         <h4 className="text-sm font-semibold text-slate-900">Ticket trend</h4>
-        <p className="mt-0.5 text-xs text-slate-500">New vs. solved tickets per day.</p>
+        <p className="mt-0.5 text-xs text-slate-500">New vs. solved tickets per day</p>
       </div>
       <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
         <ChartLegendDot color={CHART_NEW} label="New" />
         <ChartLegendDot color={CHART_SOLVED} label="Solved" />
       </div>
     </div>
-    <div className="mt-4 h-60 w-full">
+    <div className="mt-4 h-56 w-full sm:h-60">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="#eef2f6" vertical={false} />
@@ -284,7 +285,7 @@ const StatusBreakdownChart = ({
   // Height tracks the bar count so a 1-row chart doesn't leave a tall empty plot.
   const chartHeight = Math.min(320, Math.max(140, rows.length * 44 + 30));
   return (
-    <div className="self-start rounded-lg border border-slate-200/70 bg-white p-5 ">
+    <div className="self-start rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
       <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
       {total > 0 ? (
@@ -325,7 +326,7 @@ const DonutChart = ({ title, description, data = [] }) => {
   const total = rows.reduce((sum, item) => sum + item.value, 0);
   const activeSlices = rows.filter((item) => item.value > 0).length;
   return (
-    <div className="self-start rounded-lg border border-slate-200/70 bg-white p-5 ">
+    <div className="self-start rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
         <BarChart3 className="h-4 w-4 text-slate-400" />
         {title}
@@ -785,7 +786,7 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
             Detailed breakdown of every support user created by this support admin, including solved-today and remaining tickets.
           </p>
 
-          <div className="mt-5 overflow-hidden rounded-[24px] border border-slate-200">
+          <div className="mt-5 overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
               <table className="min-w-full border-collapse">
                 <thead className="bg-slate-50/90">
@@ -1446,16 +1447,16 @@ export const AnalyticsPanel = ({
         />
       ) : (
         <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
-          <div className="space-y-6 px-6 py-6 lg:px-7">
+          <div className="space-y-5 px-5 py-5 sm:px-6">
             <button
               type="button"
               onClick={onBackToManagerList}
-              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Support Admin Analytics
+              Back to analytics
             </button>
-            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/70 px-6 py-16 text-center text-sm text-slate-500">
+            <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-sm text-slate-500">
               The selected support admin analytics could not be found.
             </div>
           </div>
@@ -1466,162 +1467,212 @@ export const AnalyticsPanel = ({
     return (
       <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
         <div className="space-y-5 px-5 py-5 sm:px-6">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-900">Support Analytics</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Monitor support admins, users, and ticket load across the hierarchy.
-            </p>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-slate-900">Support Analytics</h2>
+                <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                  {managers.length} admin{managers.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-slate-500">
+                Monitor support admins, users, and ticket load across the hierarchy.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-400">Trend</span>
+              <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+              {[7, 14, 30].map((days) => {
+                const active = trendDays === days;
+                return (
+                  <button
+                    key={days}
+                    type="button"
+                    onClick={() => setTrendDays(days)}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition ${
+                      active
+                        ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                        : 'text-slate-500 hover:text-slate-700'
+                    }`}
+                  >
+                    {days}d
+                  </button>
+                );
+              })}
+            </div>
+            </div>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard icon={Shield} label="Support Admins" value={overview.support_admin_count ?? 0} accent="bg-violet-50 text-violet-700" />
             <SummaryCard icon={Users} label="Support Users" value={overview.support_user_count ?? 0} accent="bg-blue-50 text-blue-700" />
             <SummaryCard icon={Ticket} label="Managed Ticket Pool" value={overview.managed_ticket_pool ?? 0} accent="bg-amber-50 text-amber-700" />
             <SummaryCard icon={CheckCircle2} label="Delegated Tickets" value={overview.delegated_ticket_count ?? 0} accent="bg-emerald-50 text-emerald-700" />
           </div>
 
-          <div className="rounded-xl border border-slate-200/70 bg-slate-50/50 p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="rounded-xl border border-slate-200 bg-white">
+            <div className="flex flex-col gap-2 border-b border-slate-100 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
               <div>
-                <h3 className="text-lg font-semibold text-slate-950">All Support Tickets</h3>
-                <p className="mt-0.5 text-sm text-slate-500">Live totals across the platform.</p>
+                <h3 className="text-sm font-semibold text-slate-900">All Support Tickets</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Live totals across the platform</p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Trend</span>
-                {[7, 14, 30].map((days) => (
-                  <button
-                    key={days}
-                    type="button"
-                    onClick={() => setTrendDays(days)}
-                    className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      trendDays === days
-                        ? 'border-blue-200 bg-blue-50 text-blue-700'
-                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    {days} days
-                  </button>
-                ))}
+              <div className="flex flex-wrap gap-1.5">
+                <span className="inline-flex rounded-md bg-slate-50 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600 ring-1 ring-slate-200">
+                  {universal.total_tickets ?? 0} total
+                </span>
+                <span className="inline-flex rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium tabular-nums text-emerald-700 ring-1 ring-emerald-100">
+                  {universal.closed_tickets ?? 0} solved
+                </span>
+                <span className="inline-flex rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium tabular-nums text-amber-700 ring-1 ring-amber-100">
+                  {universal.unassigned_tickets ?? 0} unassigned
+                </span>
               </div>
             </div>
 
-            <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-              <SummaryCard
-                icon={Ticket}
-                label="Total Support Tickets"
-                value={universal.total_tickets ?? 0}
-                accent="bg-blue-50 text-blue-700"
-              />
-              <SummaryCard
-                icon={CircleHelp}
-                label="Pending Tickets"
-                value={universal.pending_tickets ?? 0}
-                accent="bg-amber-50 text-amber-700"
-              />
-              <SummaryCard
-                icon={RefreshCw}
-                label="In Progress"
-                value={universal.in_progress_tickets ?? 0}
-                accent="bg-cyan-50 text-cyan-700"
-              />
-              <SummaryCard
-                icon={CheckCircle2}
-                label="Solved Tickets"
-                value={universal.closed_tickets ?? 0}
-                accent="bg-emerald-50 text-emerald-700"
-              />
-              <SummaryCard
-                icon={UserCog}
-                label="Unassigned Tickets"
-                value={universal.unassigned_tickets ?? 0}
-                accent="bg-slate-100 text-slate-700"
-              />
-            </div>
+            <div className="space-y-4 p-4 sm:p-5">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                <SummaryCard
+                  icon={Ticket}
+                  label="Total Tickets"
+                  value={universal.total_tickets ?? 0}
+                  accent="bg-blue-50 text-blue-700"
+                />
+                <SummaryCard
+                  icon={CircleHelp}
+                  label="Pending"
+                  value={universal.pending_tickets ?? 0}
+                  accent="bg-amber-50 text-amber-700"
+                />
+                <SummaryCard
+                  icon={RefreshCw}
+                  label="In Progress"
+                  value={universal.in_progress_tickets ?? 0}
+                  accent="bg-cyan-50 text-cyan-700"
+                />
+                <SummaryCard
+                  icon={CheckCircle2}
+                  label="Solved"
+                  value={universal.closed_tickets ?? 0}
+                  accent="bg-emerald-50 text-emerald-700"
+                />
+                <SummaryCard
+                  icon={UserCog}
+                  label="Unassigned"
+                  value={universal.unassigned_tickets ?? 0}
+                  accent="bg-slate-100 text-slate-700"
+                />
+              </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-[1.6fr_1fr]">
-              <TicketTrendChart
-                data={filteredDailyTrends.map((entry) => ({
-                  label: entry.label,
-                  created: toMetricValue(entry.created_count),
-                  solved: toMetricValue(entry.solved_count),
-                }))}
-              />
-              <StatusBreakdownChart
-                data={[
-                  { label: 'Open', value: toMetricValue(universal.open_tickets) },
-                  { label: 'Pending', value: toMetricValue(universal.pending_tickets) },
-                  { label: 'In Progress', value: toMetricValue(universal.in_progress_tickets) },
-                  { label: 'Resolved', value: toMetricValue(universal.resolved_tickets) },
-                  { label: 'Closed', value: toMetricValue(universal.closed_tickets) },
-                ]}
-              />
+              <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
+                <TicketTrendChart
+                  data={filteredDailyTrends.map((entry) => ({
+                    label: entry.label,
+                    created: toMetricValue(entry.created_count),
+                    solved: toMetricValue(entry.solved_count),
+                  }))}
+                />
+                <StatusBreakdownChart
+                  data={[
+                    { label: 'Open', value: toMetricValue(universal.open_tickets) },
+                    { label: 'Pending', value: toMetricValue(universal.pending_tickets) },
+                    { label: 'In Progress', value: toMetricValue(universal.in_progress_tickets) },
+                    { label: 'Resolved', value: toMetricValue(universal.resolved_tickets) },
+                    { label: 'Closed', value: toMetricValue(universal.closed_tickets) },
+                  ]}
+                />
+              </div>
             </div>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3 sm:px-5">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">Support Admins</h3>
+                <p className="mt-0.5 text-xs text-slate-500">Queue ownership and team performance by admin</p>
+              </div>
+            </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse">
-                <thead className="bg-slate-50/90">
-                  <tr className="text-left">
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Support Admin</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Support Users Created</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Ticket Pool</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Open</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Team Solved</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Unassigned</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned By Admin</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Dashboard</th>
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Support Admin</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Users</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Pool</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Open</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Solved</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Unassigned</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Assigned</th>
+                    <th className="px-4 py-3 text-right text-xs font-semibold uppercase tracking-wider text-slate-500">Action</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
-                  {(analytics.managers || []).map((manager) => (
-                    <tr key={manager.manager_admin_id} className="transition hover:bg-slate-50/80">
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        <button
-                          type="button"
-                          onClick={() => onOpenManagerDashboard?.(manager.manager_admin_id)}
-                          className="text-left font-semibold text-slate-900 transition hover:text-blue-700"
-                        >
-                          {manager.manager_name}
-                        </button>
-                        <p className="mt-1 text-xs text-slate-500">{manager.manager_email}</p>
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        <div className="space-y-1 text-xs">
-                          <p>Total: {manager.support_user_count ?? 0}</p>
-                          <p>Active: {manager.active_support_user_count ?? 0}</p>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm font-semibold text-slate-900">
-                        {manager.pool_metrics?.total_tickets ?? 0}
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        {manager.pool_metrics?.open_tickets ?? 0}
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        {manager.pool_metrics?.closed_tickets ?? 0}
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        {manager.pool_metrics?.unassigned_tickets ?? 0}
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        {manager.assigned_ticket_count ?? 0}
-                      </td>
-                      <td className="px-4 py-4 align-top text-sm">
-                        <button
-                          type="button"
-                          onClick={() => onOpenManagerDashboard?.(manager.manager_admin_id)}
-                          className="inline-flex items-center rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                        >
-                          Open Full Dashboard
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {(analytics.managers || []).map((manager) => {
+                    const poolTotal = Number(manager.pool_metrics?.total_tickets || 0);
+                    const poolOpen = Number(manager.pool_metrics?.open_tickets || 0);
+                    const openRatio = poolTotal > 0 ? Math.min(100, Math.round((poolOpen / poolTotal) * 100)) : 0;
+
+                    return (
+                      <tr key={manager.manager_admin_id} className="transition-colors hover:bg-slate-50/80">
+                        <td className="px-4 py-3.5">
+                          <div className="flex items-center gap-3">
+                            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">
+                              {getInitials(manager.manager_name)}
+                            </div>
+                            <div className="min-w-0">
+                              <button
+                                type="button"
+                                onClick={() => onOpenManagerDashboard?.(manager.manager_admin_id)}
+                                className="truncate text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700"
+                              >
+                                {manager.manager_name}
+                              </button>
+                              <p className="mt-0.5 truncate text-xs text-slate-500">{manager.manager_email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-sm text-slate-700">
+                          <p className="font-medium tabular-nums text-slate-900">{manager.support_user_count ?? 0}</p>
+                          <p className="mt-0.5 text-xs tabular-nums text-slate-400">
+                            {manager.active_support_user_count ?? 0} active
+                          </p>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          <div className="min-w-[7rem]">
+                            <p className="text-sm font-semibold tabular-nums text-slate-900">{poolTotal}</p>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                              <div className="h-full rounded-full bg-blue-500" style={{ width: `${openRatio}%` }} />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">
+                          {manager.pool_metrics?.open_tickets ?? 0}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">
+                          {manager.pool_metrics?.closed_tickets ?? 0}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">
+                          {manager.pool_metrics?.unassigned_tickets ?? 0}
+                        </td>
+                        <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">
+                          {manager.assigned_ticket_count ?? 0}
+                        </td>
+                        <td className="px-4 py-3.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => onOpenManagerDashboard?.(manager.manager_admin_id)}
+                            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                          >
+                            <Eye className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
+                            Open
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
                   {(analytics.managers || []).length === 0 ? (
                     <tr>
-                      <td colSpan="8" className="px-6 py-20 text-center text-sm text-slate-500">
+                      <td colSpan="8" className="px-6 py-16 text-center text-sm text-slate-500">
                         No support admin analytics are available yet.
                       </td>
                     </tr>
@@ -1646,60 +1697,81 @@ export const AnalyticsPanel = ({
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <SummaryCard icon={Users} label="Support Users" value={overview.support_user_count ?? 0} accent="bg-blue-50 text-blue-700" />
             <SummaryCard icon={Ticket} label="Managed Ticket Pool" value={overview.managed_ticket_pool ?? 0} accent="bg-amber-50 text-amber-700" />
             <SummaryCard icon={UserRound} label="Unassigned In Team" value={overview.unassigned_ticket_pool ?? 0} accent="bg-slate-100 text-slate-700" />
             <SummaryCard icon={CheckCircle2} label="Delegated By Me" value={overview.assigned_ticket_count ?? 0} accent="bg-emerald-50 text-emerald-700" />
           </div>
 
-          <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">
+                {getInitials(analytics.manager?.manager_name || 'SA')}
+              </div>
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Current Team Lead</p>
-                <p className="mt-2 text-lg font-semibold text-slate-950">
+                <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Team lead</p>
+                <p className="text-sm font-semibold text-slate-900">
                   {analytics.manager?.manager_name || 'Support Admin'}
                 </p>
-                <p className="mt-1 text-sm text-slate-500">{analytics.manager?.manager_email || viewer?.team_name}</p>
+                <p className="text-xs text-slate-500">{analytics.manager?.manager_email || viewer?.team_name}</p>
               </div>
-              <div className="grid gap-2 text-sm text-slate-600 sm:grid-cols-2">
-                <p>Open team pool: <span className="font-semibold text-slate-900">{overview.open_ticket_pool ?? 0}</span></p>
-                <p>Closed team pool: <span className="font-semibold text-slate-900">{overview.closed_ticket_pool ?? 0}</span></p>
-              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="inline-flex rounded-md bg-white px-2.5 py-1 font-medium tabular-nums text-slate-700 ring-1 ring-slate-200">
+                Open: {overview.open_ticket_pool ?? 0}
+              </span>
+              <span className="inline-flex rounded-md bg-white px-2.5 py-1 font-medium tabular-nums text-slate-700 ring-1 ring-slate-200">
+                Closed: {overview.closed_ticket_pool ?? 0}
+              </span>
             </div>
           </div>
 
           <div className="overflow-hidden rounded-xl border border-slate-200">
             <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse">
-                <thead className="bg-slate-50/90">
-                  <tr className="text-left">
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Support User</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Status</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Assigned</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Open</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Closed</th>
-                    <th className="px-4 py-4 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Default Queue</th>
+              <table className="min-w-full divide-y divide-slate-200">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Support User</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Assigned</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Open</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Closed</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-500">Default Queue</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-200 bg-white">
+                <tbody className="divide-y divide-slate-100 bg-white">
                   {(analytics.team_members || []).map((member) => (
-                    <tr key={member.id} className="transition hover:bg-slate-50/80">
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        <p className="font-semibold text-slate-900">{member.name}</p>
-                        <p className="mt-1 text-xs text-slate-500">{member.email}</p>
+                    <tr key={member.id} className="transition-colors hover:bg-slate-50/80">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">
+                            {getInitials(member.name)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-semibold text-slate-900">{member.name}</p>
+                            <p className="mt-0.5 truncate text-xs text-slate-500">{member.email}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
-                        <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ${
-                          member.is_blocked ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
-                        }`}>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-flex items-center gap-1.5 text-sm font-medium ${
+                            member.is_blocked ? 'text-rose-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                              member.is_blocked ? 'bg-rose-500' : 'bg-emerald-500'
+                            }`}
+                          />
                           {member.is_blocked ? 'Blocked' : 'Active'}
                         </span>
                       </td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">{member.workload?.total_assigned ?? 0}</td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">{member.workload?.open_assigned ?? 0}</td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">{member.workload?.closed_assigned ?? 0}</td>
-                      <td className="px-4 py-4 align-top text-sm text-slate-700">
+                      <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">{member.workload?.total_assigned ?? 0}</td>
+                      <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">{member.workload?.open_assigned ?? 0}</td>
+                      <td className="px-4 py-3.5 text-sm tabular-nums text-slate-700">{member.workload?.closed_assigned ?? 0}</td>
+                      <td className="px-4 py-3.5 text-sm text-slate-700">
                         {queueLabels[member.default_queue] || formatLabel(member.default_queue)}
                       </td>
                     </tr>
@@ -1707,7 +1779,7 @@ export const AnalyticsPanel = ({
 
                   {(analytics.team_members || []).length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="px-6 py-20 text-center text-sm text-slate-500">
+                      <td colSpan="6" className="px-6 py-16 text-center text-sm text-slate-500">
                         No support users have been created for this team yet.
                       </td>
                     </tr>
@@ -1735,26 +1807,39 @@ export const AnalyticsPanel = ({
           </p>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard icon={Ticket} label="Assigned To Me" value={overview.assigned_ticket_count ?? 0} accent="bg-blue-50 text-blue-700" />
           <SummaryCard icon={CircleHelp} label="Open Tickets" value={overview.open_ticket_pool ?? 0} accent="bg-amber-50 text-amber-700" />
           <SummaryCard icon={CheckCircle2} label="Closed Tickets" value={overview.closed_ticket_pool ?? 0} accent="bg-emerald-50 text-emerald-700" />
           <SummaryCard icon={Users} label="Team Unassigned" value={overview.team_unassigned_ticket_pool ?? 0} accent="bg-slate-100 text-slate-700" />
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-5">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Reporting Line</p>
-          <p className="mt-2 text-lg font-semibold text-slate-950">
-            {analytics.manager?.manager_name || 'Support Admin'}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">{analytics.manager?.manager_email || 'No manager email available'}</p>
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">
+              {getInitials(analytics.manager?.manager_name || 'SA')}
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Reports to</p>
+              <p className="text-sm font-semibold text-slate-900">
+                {analytics.manager?.manager_name || 'Support Admin'}
+              </p>
+              <p className="text-xs text-slate-500">{analytics.manager?.manager_email || 'No manager email available'}</p>
+            </div>
+          </div>
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-5">
-          <p className="text-sm font-semibold text-slate-800">Visible Support Users In Your Team</p>
-          <div className="mt-4 flex flex-wrap gap-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+          <p className="text-sm font-semibold text-slate-800">Visible teammates</p>
+          <div className="mt-3 flex flex-wrap gap-2">
             {personalMembers.map((member) => (
-              <span key={member.id} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700">
+              <span
+                key={member.id}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-700"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
+                  {getInitials(member.name)}
+                </span>
                 {member.name}
               </span>
             ))}
