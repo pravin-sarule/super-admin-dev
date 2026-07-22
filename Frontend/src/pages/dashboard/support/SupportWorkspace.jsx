@@ -780,6 +780,7 @@ const SupportWorkspace = () => {
             tickets={workspace.tickets}
             loading={workspaceLoading}
             filters={filters}
+            pagination={workspace.pagination}
             options={workspace.options}
             priorityMap={priorityMap}
             onScopeChange={(scope) => handleFilterChange('scope', scope)}

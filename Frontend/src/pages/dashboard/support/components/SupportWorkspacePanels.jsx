@@ -4,6 +4,8 @@ import {
   BarChart3,
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   CircleHelp,
   Eye,
   Filter,
@@ -179,7 +181,7 @@ export const NotificationToast = ({ toast, onClose }) => {
 
 export const StatusBadge = ({ status }) => (
   <span
-    className={`inline-flex min-w-24 items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold ${
+    className={`inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${
       statusBadgeStyles[status] || 'border-slate-200 bg-slate-100 text-slate-600'
     }`}
   >
@@ -193,7 +195,7 @@ export const PriorityBadge = ({ priority, priorityMap = {} }) => {
     option?.color || defaultPriorityBadgeStyles[priority] || 'border-slate-200 bg-slate-100 text-slate-600';
 
   return (
-    <span className={`inline-flex min-w-24 items-center justify-center rounded-full border px-3 py-1 text-xs font-semibold ${colorClass}`}>
+    <span className={`inline-flex items-center justify-center rounded-full border px-2.5 py-1 text-xs font-semibold ${colorClass}`}>
       {option?.label || formatLabel(priority)}
     </span>
   );
@@ -883,6 +885,7 @@ export const TicketListPanel = ({
   tickets,
   loading,
   filters,
+  pagination = {},
   options,
   priorityMap,
   onScopeChange,
@@ -945,12 +948,33 @@ export const TicketListPanel = ({
       : []),
   ].slice(0, 4);
 
+  const page = Math.max(1, Number(pagination.page || filters.page || 1));
+  const pageSize = Math.max(1, Number(pagination.pageSize || filters.pageSize || 25));
+  const total = Math.max(0, Number(pagination.total ?? tickets.length ?? 0));
+  const totalPages = Math.max(1, Number(pagination.totalPages || Math.ceil(total / pageSize) || 1));
+  const rangeStart = total === 0 ? 0 : (page - 1) * pageSize + 1;
+  const rangeEnd = total === 0 ? 0 : Math.min(page * pageSize, total);
+
+  const pageNumbers = (() => {
+    if (totalPages <= 5) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const pages = new Set([1, totalPages, page - 1, page, page + 1].filter((value) => value >= 1 && value <= totalPages));
+    return Array.from(pages).sort((a, b) => a - b);
+  })();
+
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
       <div className="space-y-5 px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">Support Tickets</h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Support Tickets</h2>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600">
+                {total}
+              </span>
+            </div>
             <p className="mt-1 text-sm text-slate-500">
               Manage queues, assignments, and ticket status with team RBAC.
             </p>
@@ -961,12 +985,12 @@ export const TicketListPanel = ({
             onClick={onRefresh}
             className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
           >
-            <RefreshCw className="mr-2 h-4 w-4" />
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </button>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           {summaryCards.map((card) => (
             <SummaryCard
               key={card.key}
@@ -978,82 +1002,88 @@ export const TicketListPanel = ({
           ))}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {scopes.map((scope) => {
-            const active = filters.scope === scope;
-            return (
-              <button
-                key={scope}
-                type="button"
-                onClick={() => onScopeChange(scope)}
-                className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
-                  active
-                    ? 'border-blue-200 bg-blue-50 text-blue-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
-                }`}
+        <div className="rounded-xl border border-slate-200 bg-white">
+          <div className="space-y-3 border-b border-slate-100 px-4 py-3.5 sm:px-5">
+            <div className="flex flex-wrap items-center gap-2">
+              {scopes.map((scope) => {
+                const active = filters.scope === scope;
+                return (
+                  <button
+                    key={scope}
+                    type="button"
+                    onClick={() => onScopeChange(scope)}
+                    className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium transition ${
+                      active
+                        ? 'border-blue-200 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    {queueLabels[scope] || formatLabel(scope)}
+                    <span
+                      className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums ${
+                        active ? 'bg-blue-100' : 'bg-slate-100'
+                      }`}
+                    >
+                      {summary?.[scope] ?? 0}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-2.5 xl:grid-cols-[1.35fr_repeat(3,minmax(0,0.55fr))]">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={filters.search}
+                  onChange={(event) => onFilterChange('search', event.target.value)}
+                  placeholder="Search ticket number, subject, requester, category..."
+                  className={`${inputClassName} pl-10`}
+                />
+              </label>
+
+              <select
+                value={filters.status}
+                onChange={(event) => onFilterChange('status', event.target.value)}
+                className={inputClassName}
               >
-                {queueLabels[scope] || formatLabel(scope)}
-                <span className={`rounded-md px-1.5 py-0.5 text-xs tabular-nums ${active ? 'bg-blue-100' : 'bg-slate-100'}`}>
-                  {summary?.[scope] ?? 0}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                <option value="all">All Status</option>
+                {(options?.statuses || []).map((status) => (
+                  <option key={status} value={status}>
+                    {formatLabel(status)}
+                  </option>
+                ))}
+              </select>
 
-        <div className="grid gap-3 xl:grid-cols-[1.25fr_repeat(3,minmax(0,0.5fr))]">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-            <input
-              type="text"
-              value={filters.search}
-              onChange={(event) => onFilterChange('search', event.target.value)}
-              placeholder="Search ticket number, subject, requester, category..."
-              className={`${inputClassName} pl-11`}
-            />
-          </label>
+              <select
+                value={filters.priority}
+                onChange={(event) => onFilterChange('priority', event.target.value)}
+                className={inputClassName}
+              >
+                <option value="all">All Priority</option>
+                {(options?.priorities || []).map((priority) => (
+                  <option key={priority.value} value={priority.value}>
+                    {priority.label}
+                  </option>
+                ))}
+              </select>
 
-          <select
-            value={filters.status}
-            onChange={(event) => onFilterChange('status', event.target.value)}
-            className={inputClassName}
-          >
-            <option value="all">All Status</option>
-            {(options?.statuses || []).map((status) => (
-              <option key={status} value={status}>
-                {formatLabel(status)}
-              </option>
-            ))}
-          </select>
+              <select
+                value={filters.category}
+                onChange={(event) => onFilterChange('category', event.target.value)}
+                className={inputClassName}
+              >
+                <option value="all">All Category</option>
+                {(options?.categories || []).map((category) => (
+                  <option key={category.value} value={category.value}>
+                    {category.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
-          <select
-            value={filters.priority}
-            onChange={(event) => onFilterChange('priority', event.target.value)}
-            className={inputClassName}
-          >
-            <option value="all">All Priority</option>
-            {(options?.priorities || []).map((priority) => (
-              <option key={priority.value} value={priority.value}>
-                {priority.label}
-              </option>
-            ))}
-          </select>
-
-          <select
-            value={filters.category}
-            onChange={(event) => onFilterChange('category', event.target.value)}
-            className={inputClassName}
-          >
-            <option value="all">All Category</option>
-            {(options?.categories || []).map((category) => (
-              <option key={category.value} value={category.value}>
-                {category.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="overflow-hidden rounded-xl border border-slate-200">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-slate-200">
               <thead className="bg-slate-50">
@@ -1083,31 +1113,45 @@ export const TicketListPanel = ({
                 {!loading && tickets.length > 0
                   ? tickets.map((ticket) => (
                       <tr key={ticket.id} className="transition-colors hover:bg-slate-50/80">
-                        <td className="px-4 py-3.5 text-sm font-semibold text-slate-700">
-                          <div>{ticket.ticket_number}</div>
-                          <div className="mt-0.5 text-xs font-medium text-slate-400">
+                        <td className="px-4 py-3.5">
+                          <p className="text-sm font-semibold tabular-nums text-slate-800">{ticket.ticket_number}</p>
+                          <p className="mt-0.5 text-xs font-medium text-slate-400">
                             {formatLabel(ticket.category)}
-                          </div>
+                          </p>
                         </td>
-                        <td className="px-4 py-3.5 text-sm text-slate-800">
+                        <td className="px-4 py-3.5">
                           <div className="max-w-[22rem]">
-                            <p className="font-semibold text-slate-900">{ticket.subject}</p>
+                            <p className="text-sm font-semibold text-slate-900">{ticket.subject}</p>
                             <p className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-500">
                               {ticket.message || 'No message provided.'}
                             </p>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5 text-sm text-slate-700">
-                          <div className="max-w-[14rem]">
-                            <p className="font-medium text-slate-900">{ticket.user_name || 'Unknown requester'}</p>
-                            <p className="mt-0.5 text-xs text-slate-500">{ticket.user_email || 'No email'}</p>
+                        <td className="px-4 py-3.5">
+                          <div className="flex max-w-[14rem] items-center gap-2.5">
+                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-600">
+                              {getInitials(ticket.user_name || 'U')}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-slate-900">
+                                {ticket.user_name || 'Unknown requester'}
+                              </p>
+                              <p className="mt-0.5 truncate text-xs text-slate-500">
+                                {ticket.user_email || 'No email'}
+                              </p>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3.5 text-sm text-slate-700">
+                        <td className="px-4 py-3.5">
                           {ticket.assigned_to ? (
-                            <div className="max-w-[14rem]">
-                              <p className="font-medium text-slate-900">{ticket.assigned_to.name}</p>
-                              <p className="mt-0.5 text-xs text-slate-500">{ticket.assigned_to.email}</p>
+                            <div className="flex max-w-[14rem] items-center gap-2.5">
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
+                                {getInitials(ticket.assigned_to.name)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-900">{ticket.assigned_to.name}</p>
+                                <p className="mt-0.5 truncate text-xs text-slate-500">{ticket.assigned_to.email}</p>
+                              </div>
                             </div>
                           ) : (
                             <span className="inline-flex items-center rounded-md border border-dashed border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-500">
@@ -1115,16 +1159,16 @@ export const TicketListPanel = ({
                             </span>
                           )}
                         </td>
-                        <td className="px-4 py-3.5 text-sm">
+                        <td className="px-4 py-3.5">
                           <StatusBadge status={ticket.status} />
                         </td>
-                        <td className="px-4 py-3.5 text-sm">
+                        <td className="px-4 py-3.5">
                           <PriorityBadge priority={ticket.priority} priorityMap={priorityMap} />
                         </td>
                         <td className="px-4 py-3.5 text-sm tabular-nums text-slate-600">
                           {formatDate(ticket.updated_at)}
                         </td>
-                        <td className="px-4 py-3.5 text-right text-sm">
+                        <td className="px-4 py-3.5 text-right">
                           <button
                             type="button"
                             onClick={() => onOpenTicket(ticket.id)}
@@ -1140,13 +1184,13 @@ export const TicketListPanel = ({
 
                 {!loading && tickets.length === 0 ? (
                   <tr>
-                    <td colSpan="8" className="px-6 py-20 text-center">
+                    <td colSpan="8" className="px-6 py-16 text-center">
                       <div className="mx-auto flex max-w-sm flex-col items-center">
-                        <div className="rounded-lg bg-slate-100 p-4 text-slate-500">
-                          <Filter className="h-7 w-7" />
+                        <div className="rounded-xl bg-slate-100 p-3 text-slate-500">
+                          <Filter className="h-6 w-6" />
                         </div>
-                        <p className="mt-5 text-lg font-medium text-slate-700">No tickets matched this queue</p>
-                        <p className="mt-2 text-sm text-slate-500">
+                        <p className="mt-4 text-base font-medium text-slate-800">No tickets matched this queue</p>
+                        <p className="mt-1.5 text-sm text-slate-500">
                           Try a different scope or relax the filters to see more tickets.
                         </p>
                       </div>
@@ -1155,6 +1199,86 @@ export const TicketListPanel = ({
                 ) : null}
               </tbody>
             </table>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-slate-200 bg-slate-50/60 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600">
+              <p>
+                {total === 0
+                  ? 'No tickets to display'
+                  : (
+                    <>
+                      Showing <span className="font-semibold tabular-nums text-slate-800">{rangeStart}</span>
+                      {'–'}
+                      <span className="font-semibold tabular-nums text-slate-800">{rangeEnd}</span>
+                      {' of '}
+                      <span className="font-semibold tabular-nums text-slate-800">{total}</span>
+                    </>
+                  )}
+              </p>
+              <label className="inline-flex items-center gap-2 text-xs text-slate-500">
+                Rows
+                <select
+                  value={pageSize}
+                  onChange={(event) => onFilterChange('pageSize', Number(event.target.value))}
+                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-medium text-slate-700 shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                >
+                  {[10, 25, 50, 100].map((size) => (
+                    <option key={size} value={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => onFilterChange('page', Math.max(1, page - 1))}
+                disabled={page <= 1 || loading}
+                className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                Prev
+              </button>
+
+              {pageNumbers.map((pageNumber, index) => {
+                const previous = pageNumbers[index - 1];
+                const showEllipsis = previous != null && pageNumber - previous > 1;
+                const active = pageNumber === page;
+
+                return (
+                  <React.Fragment key={pageNumber}>
+                    {showEllipsis ? (
+                      <span className="px-1 text-sm text-slate-400">…</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => onFilterChange('page', pageNumber)}
+                      disabled={loading}
+                      className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-sm font-medium tabular-nums transition ${
+                        active
+                          ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {pageNumber}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
+
+              <button
+                type="button"
+                onClick={() => onFilterChange('page', Math.min(totalPages, page + 1))}
+                disabled={page >= totalPages || loading}
+                className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Next
+                <ChevronRight className="ml-1 h-4 w-4" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
