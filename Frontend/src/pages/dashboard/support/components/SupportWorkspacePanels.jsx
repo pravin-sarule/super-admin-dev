@@ -2315,16 +2315,18 @@ export const MemberModal = ({
 
 // Module-scoped helpers (kept out of BulkAssignPanel so their identity is
 // stable across renders — a nested component would remount inputs and drop focus).
-const AssignStep = ({ number, icon: Icon, heading, children }) => (
-  <div className="rounded-xl border border-slate-200/70 bg-white p-5 ">
-    <div className="mb-4 flex items-center gap-3">
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+const AssignStep = ({ number, heading, hint, children }) => (
+  <div className="rounded-xl border border-slate-200 bg-white">
+    <div className="flex items-start gap-3 border-b border-slate-100 bg-slate-50/70 px-4 py-3 sm:px-5">
+      <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-xs font-semibold text-white">
         {number}
       </span>
-      <Icon className="h-4 w-4 text-slate-400" />
-      <h4 className="text-sm font-semibold text-slate-900">{heading}</h4>
+      <div className="min-w-0">
+        <h4 className="text-sm font-semibold text-slate-900">{heading}</h4>
+        {hint ? <p className="mt-0.5 text-xs text-slate-500">{hint}</p> : null}
+      </div>
     </div>
-    {children}
+    <div className="px-4 py-4 sm:px-5">{children}</div>
   </div>
 );
 
@@ -2333,12 +2335,23 @@ const ChoiceCard = ({ active, onClick, title, desc }) => (
     type="button"
     onClick={onClick}
     aria-pressed={active}
-    className={`flex-1 rounded-lg border px-4 py-3 text-left transition ${
-      active ? 'border-blue-300 bg-blue-50/70 ring-1 ring-blue-200' : 'border-slate-200 bg-white hover:bg-slate-50'
+    className={`group flex flex-1 items-start gap-3 rounded-xl border px-4 py-3.5 text-left transition ${
+      active
+        ? 'border-blue-500 bg-blue-50/60 shadow-sm'
+        : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
     }`}
   >
-    <span className={`block text-sm font-semibold ${active ? 'text-blue-800' : 'text-slate-800'}`}>{title}</span>
-    <span className="mt-1 block text-xs leading-5 text-slate-500">{desc}</span>
+    <span
+      className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition ${
+        active ? 'border-blue-600 bg-blue-600' : 'border-slate-300 bg-white group-hover:border-slate-400'
+      }`}
+    >
+      {active ? <span className="h-1.5 w-1.5 rounded-full bg-white" /> : null}
+    </span>
+    <span className="min-w-0">
+      <span className={`block text-sm font-semibold ${active ? 'text-blue-800' : 'text-slate-800'}`}>{title}</span>
+      <span className="mt-0.5 block text-xs leading-5 text-slate-500">{desc}</span>
+    </span>
   </button>
 );
 
@@ -2365,6 +2378,8 @@ export const BulkAssignPanel = ({
   const assignments = form.assignments || [];
   const selectedCount = assignments.filter((entry) => entry.admin_id).length;
   const totalExact = assignments.reduce((sum, entry) => sum + Math.max(0, Number(entry.quota || 0)), 0);
+  const supportUsers = (members || []).filter((member) => member.hierarchy_role === 'support_user');
+  const memberOptions = supportUsers.length > 0 ? supportUsers : members || [];
 
   const availableCount = summary
     ? reassign
@@ -2373,16 +2388,54 @@ export const BulkAssignPanel = ({
     : undefined;
   const availableLabel = reassign
     ? `in ${queueLabels[form.scope] || formatLabel(form.scope)}`
-    : 'unassigned right now';
+    : 'unassigned';
+
+  const summaryText =
+    selectedCount === 0
+      ? 'Select at least one support user to continue.'
+      : isExactCounts
+        ? `Assign ${totalExact} ticket${totalExact === 1 ? '' : 's'} to ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`
+        : `Split up to ${form.limit} ticket${Number(form.limit) === 1 ? '' : 's'} across ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`;
 
   return (
     <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
       <div className="space-y-5 px-5 py-5 sm:px-6">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Assignment Center</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Distribute tickets from your queue to support users in a few steps.
-          </p>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-slate-900">Assignment Center</h2>
+              {typeof availableCount === 'number' ? (
+                <span
+                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums ${
+                    availableCount === 0 ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'
+                  }`}
+                >
+                  {availableCount} {availableLabel}
+                </span>
+              ) : null}
+            </div>
+            <p className="mt-1 text-sm text-slate-500">
+              Distribute tickets from your queue to support users in three clear steps.
+            </p>
+          </div>
+
+          <div className="hidden items-center gap-1.5 sm:flex">
+            {[
+              { n: 1, label: 'Users' },
+              { n: 2, label: 'Tickets' },
+              { n: 3, label: 'Split' },
+            ].map((step, index) => (
+              <React.Fragment key={step.n}>
+                {index > 0 ? <span className="mx-1 h-px w-4 bg-slate-200" /> : null}
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
+                  <span className="flex h-4 w-4 items-center justify-center rounded bg-blue-600 text-[10px] font-semibold text-white">
+                    {step.n}
+                  </span>
+                  {step.label}
+                </span>
+              </React.Fragment>
+            ))}
+          </div>
         </div>
 
         <form
@@ -2392,51 +2445,77 @@ export const BulkAssignPanel = ({
           }}
           className="space-y-4"
         >
-          <AssignStep number="1" icon={UserRound} heading="Who should get the tickets?">
-            <div className="space-y-3">
-              {assignments.map((assignment, index) => (
-                <div key={`assignment-${index}`} className="flex flex-wrap items-center gap-3">
-                  <select
-                    value={assignment.admin_id}
-                    onChange={(event) => onAssignmentChange(index, 'admin_id', event.target.value)}
-                    className={`${inputClassName} min-w-[16rem] flex-1`}
+          <AssignStep
+            number="1"
+            heading="Who should get the tickets?"
+            hint="Choose one or more support users from your team."
+          >
+            <div className="space-y-2.5">
+              {assignments.map((assignment, index) => {
+                const selectedMember = memberOptions.find(
+                  (member) => String(member.id) === String(assignment.admin_id)
+                );
+
+                return (
+                  <div
+                    key={`assignment-${index}`}
+                    className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-slate-50/40 p-3 sm:flex-row sm:items-center"
                   >
-                    <option value="">Select support user…</option>
-                    {members.map((member) => (
-                      <option key={member.id} value={member.id}>
-                        {member.name} ({member.email})
-                      </option>
-                    ))}
-                  </select>
-                  {isExactCounts ? (
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="1"
-                        max="500"
-                        value={assignment.quota ?? 1}
-                        onChange={(event) => onAssignmentChange(index, 'quota', event.target.value)}
-                        className={`${inputClassName} w-24`}
-                      />
-                      <span className="text-xs font-medium text-slate-500">tickets</span>
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <div
+                        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+                          selectedMember ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-500'
+                        }`}
+                      >
+                        {selectedMember ? getInitials(selectedMember.name) : index + 1}
+                      </div>
+                      <select
+                        value={assignment.admin_id}
+                        onChange={(event) => onAssignmentChange(index, 'admin_id', event.target.value)}
+                        className={`${inputClassName} min-w-0 flex-1 bg-white`}
+                      >
+                        <option value="">Select support user…</option>
+                        {memberOptions.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name} ({member.email})
+                          </option>
+                        ))}
+                      </select>
                     </div>
-                  ) : null}
-                  {assignments.length > 1 ? (
-                    <button
-                      type="button"
-                      onClick={() => onRemoveAssignment(index)}
-                      className="rounded-full p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
-                      aria-label="Remove support user"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  ) : null}
-                </div>
-              ))}
+
+                    {isExactCounts ? (
+                      <div className="flex items-center gap-2 sm:pl-2">
+                        <input
+                          type="number"
+                          min="1"
+                          max="500"
+                          value={assignment.quota ?? 1}
+                          onChange={(event) => onAssignmentChange(index, 'quota', event.target.value)}
+                          className={`${inputClassName} w-20 bg-white text-center`}
+                          aria-label="Ticket quota"
+                        />
+                        <span className="text-xs font-medium text-slate-500">tickets</span>
+                      </div>
+                    ) : null}
+
+                    {assignments.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => onRemoveAssignment(index)}
+                        className="inline-flex h-9 w-9 shrink-0 items-center justify-center self-end rounded-lg border border-slate-200 bg-white text-slate-400 transition hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 sm:self-auto"
+                        aria-label="Remove support user"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+
               <button
                 type="button"
                 onClick={onAddAssignment}
-                className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-blue-300 hover:bg-blue-50/50 hover:text-blue-700"
               >
                 <Plus className="h-3.5 w-3.5" />
                 Add another user
@@ -2444,8 +2523,12 @@ export const BulkAssignPanel = ({
             </div>
           </AssignStep>
 
-          <AssignStep number="2" icon={Ticket} heading="Which tickets should they get?">
-            <div className="flex flex-col gap-2 sm:flex-row">
+          <AssignStep
+            number="2"
+            heading="Which tickets should they get?"
+            hint="Pick the source queue and whether to include already-assigned tickets."
+          >
+            <div className="grid gap-2.5 sm:grid-cols-2">
               <ChoiceCard
                 active={!reassign}
                 onClick={() => onChange('reassign_existing', false)}
@@ -2460,13 +2543,15 @@ export const BulkAssignPanel = ({
               />
             </div>
 
-            <div className="mt-4 flex flex-wrap items-end gap-3">
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Pull from queue</span>
+            <div className="mt-4 grid gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="block min-w-0">
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Pull from queue
+                </span>
                 <select
                   value={form.scope}
                   onChange={(event) => onChange('scope', event.target.value)}
-                  className={`${inputClassName} min-w-[12rem]`}
+                  className={`${inputClassName} bg-white`}
                 >
                   {scopes.map((scope) => (
                     <option key={scope} value={scope}>
@@ -2475,28 +2560,39 @@ export const BulkAssignPanel = ({
                   ))}
                 </select>
               </label>
+
               {typeof availableCount === 'number' ? (
-                <span
-                  className={`mb-1 inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium ${
+                <div
+                  className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium tabular-nums ${
                     availableCount === 0
-                      ? 'border-amber-200 bg-amber-50 text-amber-700'
-                      : 'border-slate-200 bg-slate-50 text-slate-600'
+                      ? 'border-amber-200 bg-amber-50 text-amber-800'
+                      : 'border-emerald-200 bg-emerald-50 text-emerald-800'
                   }`}
                 >
-                  {availableCount} {availableCount === 1 ? 'ticket' : 'tickets'} {availableLabel}
-                </span>
+                  <Ticket className="h-4 w-4 shrink-0 opacity-70" />
+                  <span>
+                    {availableCount} {availableCount === 1 ? 'ticket' : 'tickets'} {availableLabel}
+                  </span>
+                </div>
               ) : null}
             </div>
 
             {!reassign && availableCount === 0 ? (
-              <p className="mt-2 text-xs leading-5 text-amber-700">
-                There are no unassigned tickets to hand out. Switch to “Reassign existing” to move tickets that are already assigned.
-              </p>
+              <div className="mt-3 flex gap-2.5 rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-3 text-sm text-amber-800">
+                <CircleHelp className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <p className="leading-5">
+                  No unassigned tickets are available. Switch to <span className="font-semibold">Reassign existing</span> to move tickets that already have an assignee.
+                </p>
+              </div>
             ) : null}
           </AssignStep>
 
-          <AssignStep number="3" icon={Shuffle} heading="How should they be split?">
-            <div className="flex flex-col gap-2 sm:flex-row">
+          <AssignStep
+            number="3"
+            heading="How should they be split?"
+            hint="Choose an even split or set an exact count per user."
+          >
+            <div className="grid gap-2.5 sm:grid-cols-2">
               <ChoiceCard
                 active={!isExactCounts}
                 onClick={() => onChange('strategy', 'round_robin')}
@@ -2507,12 +2603,15 @@ export const BulkAssignPanel = ({
                 active={isExactCounts}
                 onClick={() => onChange('strategy', 'fixed_quota')}
                 title="Set exact number"
-                desc="Choose how many tickets each user gets (set it in step 1)."
+                desc="Choose how many tickets each user gets in step 1."
               />
             </div>
+
             {!isExactCounts ? (
               <label className="mt-4 block max-w-xs">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">Up to how many tickets in total?</span>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  Max tickets to assign
+                </span>
                 <input
                   type="number"
                   min="1"
@@ -2522,23 +2621,31 @@ export const BulkAssignPanel = ({
                   className={inputClassName}
                 />
               </label>
-            ) : null}
+            ) : (
+              <p className="mt-3 text-xs text-slate-500">
+                Set each user’s ticket count in step 1. Combined total:{' '}
+                <span className="font-semibold tabular-nums text-slate-700">{totalExact}</span>
+              </p>
+            )}
           </AssignStep>
 
-          <div className="rounded-xl border border-slate-200/70 bg-white">
+          <div className="overflow-hidden rounded-xl border border-slate-200">
             <button
               type="button"
               onClick={() => setShowAdvanced((value) => !value)}
-              className="flex w-full items-center justify-between px-5 py-3.5 text-sm font-semibold text-slate-700"
+              className="flex w-full items-center justify-between bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:px-5"
             >
-              <span className="flex items-center gap-2">
+              <span className="inline-flex items-center gap-2">
                 <Filter className="h-4 w-4 text-slate-400" />
-                Advanced filters (optional)
+                Advanced filters
+                <span className="rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                  Optional
+                </span>
               </span>
               <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${showAdvanced ? 'rotate-180' : ''}`} />
             </button>
             {showAdvanced ? (
-              <div className="space-y-4 border-t border-slate-200/70 px-5 py-4">
+              <div className="space-y-4 border-t border-slate-200 bg-slate-50/40 px-4 py-4 sm:px-5">
                 <CheckboxGroup
                   title="Only include these priorities"
                   options={options?.priorities || []}
@@ -2555,18 +2662,25 @@ export const BulkAssignPanel = ({
             ) : null}
           </div>
 
-          <div className="flex flex-col gap-3 rounded-xl border border-slate-200/70 bg-slate-50/70 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm text-slate-600">
-              {selectedCount === 0
-                ? 'Select at least one support user above.'
-                : isExactCounts
-                  ? `Ready to assign ${totalExact} ticket${totalExact === 1 ? '' : 's'} across ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`
-                  : `Ready to split up to ${form.limit} ticket${Number(form.limit) === 1 ? '' : 's'} evenly across ${selectedCount} user${selectedCount === 1 ? '' : 's'}.`}
-            </p>
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-slate-800">{summaryText}</p>
+              <div className="mt-1.5 flex flex-wrap gap-1.5">
+                <span className="inline-flex rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                  {reassign ? 'Reassign' : 'Unassigned only'}
+                </span>
+                <span className="inline-flex rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                  {queueLabels[form.scope] || formatLabel(form.scope)}
+                </span>
+                <span className="inline-flex rounded-md bg-white px-2 py-0.5 text-xs font-medium text-slate-600 ring-1 ring-slate-200">
+                  {isExactCounts ? 'Exact counts' : 'Even split'}
+                </span>
+              </div>
+            </div>
             <button
               type="submit"
               disabled={loading || selectedCount === 0}
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex shrink-0 items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {loading ? <LoaderCircle className="mr-2 h-4 w-4 animate-spin" /> : <SendHorizontal className="mr-2 h-4 w-4" />}
               Assign Tickets
