@@ -846,6 +846,205 @@ const SupportAdminDetailDashboard = ({ manager, members = [], onBack }) => {
   );
 };
 
+const SupportUserDetailDashboard = ({ member, manager = null, onBack }) => {
+  if (!member) return null;
+
+  const workload = {
+    total_assigned: toMetricValue(member.workload?.total_assigned),
+    open_assigned: toMetricValue(member.workload?.open_assigned),
+    closed_assigned: toMetricValue(member.workload?.closed_assigned),
+    closed_by_admin_total: toMetricValue(member.workload?.closed_by_admin_total),
+    closed_today_by_admin: toMetricValue(member.workload?.closed_today_by_admin),
+  };
+
+  const personalBreakdown = [
+    {
+      label: 'Solved Today',
+      value: workload.closed_today_by_admin,
+      color: 'bg-emerald-500',
+      helper: 'Tickets this support user closed today.',
+    },
+    {
+      label: 'Still Open',
+      value: workload.open_assigned,
+      color: 'bg-amber-500',
+      helper: 'Tickets still assigned to this support user and not closed yet.',
+    },
+    {
+      label: 'Closed Overall',
+      value: workload.closed_by_admin_total || workload.closed_assigned,
+      color: 'bg-slate-500',
+      helper: 'All tickets this support user has closed in tracked data.',
+    },
+  ];
+
+  const loadSnapshot = [
+    {
+      label: 'Assigned',
+      value: workload.total_assigned,
+      color: 'bg-blue-500',
+      helper: 'Total tickets currently or historically assigned to this user in workload tracking.',
+    },
+    {
+      label: 'Open',
+      value: workload.open_assigned,
+      color: 'bg-amber-500',
+      helper: 'Active tickets still with this support user.',
+    },
+    {
+      label: 'Closed',
+      value: workload.closed_assigned,
+      color: 'bg-emerald-500',
+      helper: 'Closed tickets that remain attributed to this support user.',
+    },
+    {
+      label: 'Solved Today',
+      value: workload.closed_today_by_admin,
+      color: 'bg-violet-500',
+      helper: 'Tickets closed by this support user today.',
+    },
+  ];
+
+  return (
+    <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
+      <div className="space-y-6 px-6 py-6 lg:px-7">
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to analytics
+          </button>
+        ) : null}
+
+        <div className="space-y-5">
+          <div className="rounded-lg border border-slate-200/70 bg-white p-5">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-semibold text-blue-700">
+                  {getInitials(member.name)}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Support User
+                  </p>
+                  <h3 className="mt-1 truncate text-xl font-semibold tracking-tight text-slate-950">
+                    {member.name}
+                  </h3>
+                  <p className="mt-1 truncate text-sm text-slate-500">
+                    {member.email}
+                    {member.team_name ? ` · ${member.team_name}` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-4">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+                    Assigned
+                  </p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">{workload.total_assigned}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Open</p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">{workload.open_assigned}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">
+                    Solved today
+                  </p>
+                  <p className="mt-0.5 text-lg font-semibold text-slate-900">
+                    {workload.closed_today_by_admin}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-slate-400">Status</p>
+                  <p
+                    className={`mt-0.5 text-lg font-semibold ${
+                      member.is_blocked ? 'text-rose-600' : 'text-emerald-600'
+                    }`}
+                  >
+                    {member.is_blocked ? 'Blocked' : 'Active'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {manager ? (
+            <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-violet-100 text-xs font-semibold text-violet-700">
+                  {getInitials(manager.name || manager.manager_name || 'SA')}
+                </div>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wider text-slate-400">Reports to</p>
+                  <p className="text-sm font-semibold text-slate-900">
+                    {manager.name || manager.manager_name || 'Support Admin'}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {manager.email || manager.manager_email || 'Team lead'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 text-xs">
+                <span className="inline-flex rounded-md bg-white px-2.5 py-1 font-medium text-slate-700 ring-1 ring-slate-200">
+                  Queue: {queueLabels[member.default_queue] || formatLabel(member.default_queue)}
+                </span>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <DetailMetricCard
+              label="Assigned Tickets"
+              value={workload.total_assigned}
+              helper="Total workload assigned to this support user."
+              accent="bg-blue-50 text-blue-700"
+            />
+            <DetailMetricCard
+              label="Open Tickets"
+              value={workload.open_assigned}
+              helper="Active tickets still with this support user."
+              accent="bg-amber-50 text-amber-700"
+            />
+            <DetailMetricCard
+              label="Solved Today"
+              value={workload.closed_today_by_admin}
+              helper="Tickets this support user closed today."
+              accent="bg-emerald-50 text-emerald-700"
+            />
+            <DetailMetricCard
+              label="Closed Overall"
+              value={workload.closed_by_admin_total || workload.closed_assigned}
+              helper="All tickets this support user has closed overall."
+              accent="bg-slate-100 text-slate-700"
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <DonutChart
+              title="Personal Ticket Breakdown"
+              description="How this support user's tickets are distributed across states."
+              data={personalBreakdown}
+            />
+            <StatusBreakdownChart
+              title="Workload Snapshot"
+              subtitle="Current assigned, open, closed, and solved-today counts."
+              emptyText="No workload data is available for this support user yet."
+              data={loadSnapshot.map((entry) => ({
+                label: entry.label,
+                value: toMetricValue(entry.value),
+              }))}
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 export const SectionTabs = ({ section, onChange, canManageTeam }) => {
   const tabs = [
     { value: 'analytics', label: 'Analytics', icon: BarChart3 },
@@ -1548,6 +1747,7 @@ export const AnalyticsPanel = ({
   analytics,
   members = [],
   selectedManagerId = null,
+  selectedUserId = null,
   onOpenManagerDashboard,
   onBackToManagerList,
 }) => {
@@ -1562,6 +1762,48 @@ export const AnalyticsPanel = ({
     analytics?.type === 'super_admin' && selectedManagerId
       ? managers.find((manager) => Number(manager.manager_admin_id) === Number(selectedManagerId)) || null
       : null;
+
+  if (selectedUserId) {
+    const selectedUser =
+      members.find((member) => Number(member.id) === Number(selectedUserId)) ||
+      (analytics?.team_members || []).find((member) => Number(member.id) === Number(selectedUserId)) ||
+      null;
+
+    const managerFromDirectory = selectedUser?.manager_admin_id
+      ? members.find((member) => Number(member.id) === Number(selectedUser.manager_admin_id)) || null
+      : null;
+    const managerFromAnalytics =
+      analytics?.type === 'super_admin' && selectedUser?.manager_admin_id
+        ? managers.find(
+            (manager) => Number(manager.manager_admin_id) === Number(selectedUser.manager_admin_id)
+          ) || null
+        : analytics?.manager || null;
+
+    return selectedUser ? (
+      <SupportUserDetailDashboard
+        key={selectedUser.id}
+        member={selectedUser}
+        manager={managerFromDirectory || managerFromAnalytics}
+        onBack={onBackToManagerList}
+      />
+    ) : (
+      <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
+        <div className="space-y-5 px-5 py-5 sm:px-6">
+          <button
+            type="button"
+            onClick={onBackToManagerList}
+            className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Back to analytics
+          </button>
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-6 py-16 text-center text-sm text-slate-500">
+            The selected support user analytics could not be found.
+          </div>
+        </div>
+      </section>
+    );
+  }
 
   if (analytics?.type === 'super_admin') {
     if (selectedManagerId) {
@@ -1980,7 +2222,7 @@ export const AnalyticsPanel = ({
   );
 };
 
-export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
+export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit, onViewAnalytics }) => (
   <section className={`${CARD_CLASS_NAME} overflow-hidden`}>
     <div className="space-y-5 px-5 py-5 sm:px-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -2138,36 +2380,52 @@ export const TeamPanel = ({ members, loading, viewer, onCreate, onEdit }) => (
                         <td className="px-4 py-3.5 text-right">
                           {(() => {
                             const isSelf = Number(member.id) === Number(viewer?.admin_id);
-                            const isSupportAdmin = member.hierarchy_role === 'support_admin';
                             const canEdit =
-                              Boolean(viewer?.can_edit_team_members) && !isSelf && !isSupportAdmin;
-
-                            if (canEdit) {
-                              return (
-                                <button
-                                  type="button"
-                                  onClick={() => onEdit(member)}
-                                  className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
-                                >
-                                  <Pencil className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
-                                  Edit
-                                </button>
-                              );
-                            }
+                              Boolean(
+                                viewer?.can_edit_team_members ||
+                                  viewer?.is_manager ||
+                                  viewer?.is_super_admin ||
+                                  viewer?.hierarchy_role === 'support_admin'
+                              ) && !isSelf;
+                            const canViewAnalytics = Boolean(onViewAnalytics);
 
                             return (
-                              <span
-                                className="text-xs text-slate-400"
-                                title={
-                                  isSelf
-                                    ? 'You cannot edit your own account here'
-                                    : isSupportAdmin
-                                      ? 'Support Admin accounts cannot be edited here'
-                                      : 'Read only'
-                                }
-                              >
-                                {isSelf ? 'You' : isSupportAdmin ? 'View only' : 'Read only'}
-                              </span>
+                              <div className="inline-flex flex-wrap items-center justify-end gap-2">
+                                {canViewAnalytics ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onViewAnalytics(member)}
+                                    className="inline-flex items-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 shadow-sm transition hover:border-blue-300 hover:bg-blue-100"
+                                  >
+                                    <BarChart3 className="mr-1.5 h-3.5 w-3.5" />
+                                    Analytics
+                                  </button>
+                                ) : null}
+
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => onEdit(member)}
+                                    className="inline-flex items-center rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+                                  >
+                                    <Pencil className="mr-1.5 h-3.5 w-3.5 text-slate-500" />
+                                    Edit
+                                  </button>
+                                ) : null}
+
+                                {!canEdit && !canViewAnalytics ? (
+                                  <span
+                                    className="text-xs text-slate-400"
+                                    title={
+                                      isSelf
+                                        ? 'You cannot edit your own account here'
+                                        : 'Read only'
+                                    }
+                                  >
+                                    {isSelf ? 'You' : 'Read only'}
+                                  </span>
+                                ) : null}
+                              </div>
                             );
                           })()}
                         </td>

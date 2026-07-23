@@ -1,3 +1,4 @@
+const { Op } = require('sequelize');
 const SupportAdminProfile = require('../../models/support_admin_profile');
 const logger = require('../../config/logger');
 
@@ -125,10 +126,56 @@ const loadSupportWorkspaceContext = () => async (req, res, next) => {
 
     const profileData = profile.toJSON();
     const permissions = normalizeProfilePermissions(profileData);
+    const profileManagerAdminId = Number(profileData.manager_admin_id);
+    const ownsOwnTeam =
+      Number.isInteger(profileManagerAdminId) && profileManagerAdminId === Number(req.user.id);
+
+    // Anyone who already has support users reporting to them is a team manager,
+    // even if is_team_manager/can_manage_team were left false in the DB.
+    const createdUserCount = await SupportAdminProfile.count({
+      where: {
+        manager_admin_id: req.user.id,
+        is_active: true,
+        admin_id: { [Op.ne]: req.user.id },
+      },
+    });
+    const hasCreatedSupportUsers = createdUserCount > 0;
+
+    // Support Admins own their team (manager_admin_id === self). Support Users report to another admin.
+    let isManager =
+      permissions.is_team_manager ||
+      permissions.can_manage_team ||
+      ownsOwnTeam ||
+      hasCreatedSupportUsers;
+
+    if (isManager && (!permissions.is_team_manager || !permissions.can_manage_team || !ownsOwnTeam)) {
+      await profile.update({
+        is_team_manager: true,
+        can_manage_team: true,
+        manager_admin_id: req.user.id,
+        updated_by_admin_id: req.user.id,
+        updated_at: new Date(),
+      });
+      permissions.is_team_manager = true;
+      permissions.can_manage_team = true;
+      profileData.is_team_manager = true;
+      profileData.can_manage_team = true;
+      profileData.manager_admin_id = req.user.id;
+      isManager = true;
+
+      log('info', 'Repaired support manager profile flags', {
+        requestId: req.requestId,
+        adminId: req.user.id,
+        profileId: profile.id,
+        ownsOwnTeam,
+        hasCreatedSupportUsers,
+      });
+    }
+
     const managerAdminId =
-      permissions.is_team_manager || !profileData.manager_admin_id
+      isManager || !Number.isInteger(profileManagerAdminId)
         ? req.user.id
-        : Number(profileData.manager_admin_id);
+        : profileManagerAdminId;
 
     const relatedProfiles = await SupportAdminProfile.findAll({
       where: {
@@ -153,11 +200,9 @@ const loadSupportWorkspaceContext = () => async (req, res, next) => {
       adminId: req.user.id,
       managerAdminId,
       teamAdminIds,
-      isManager: permissions.is_team_manager || permissions.can_manage_team,
+      isManager,
       isSuperAdmin: false,
-      hierarchyRole: getHierarchyRole({
-        isManager: permissions.is_team_manager || permissions.can_manage_team,
-      }),
+      hierarchyRole: getHierarchyRole({ isManager }),
       defaultQueue: profileData.default_queue || (permissions.can_view_all_tickets ? 'all' : 'assigned_to_me'),
       teamName: profileData.team_name || 'Support Team',
       permissions,

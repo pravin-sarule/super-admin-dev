@@ -82,7 +82,7 @@ const createDetailForm = (ticket) => ({
 
 const SupportWorkspace = () => {
   const navigate = useNavigate();
-  const { queryId, managerId } = useParams();
+  const { queryId, managerId, userId } = useParams();
 
   const [section, setSection] = useState('analytics');
   const [workspace, setWorkspace] = useState({
@@ -120,6 +120,8 @@ const SupportWorkspace = () => {
   const [assignmentLoading, setAssignmentLoading] = useState(false);
   const [toast, setToast] = useState(createToastState());
   const shouldShowManagerAnalytics = Boolean(managerId) && !queryId;
+  const shouldShowUserAnalytics = Boolean(userId) && !queryId;
+  const shouldShowMemberAnalytics = shouldShowManagerAnalytics || shouldShowUserAnalytics;
 
   const showToast = (message, type = 'info') => {
     setToast({
@@ -141,10 +143,10 @@ const SupportWorkspace = () => {
   }, [filters.search]);
 
   useEffect(() => {
-    if (shouldShowManagerAnalytics && section !== 'analytics') {
+    if (shouldShowMemberAnalytics && section !== 'analytics') {
       setSection('analytics');
     }
-  }, [shouldShowManagerAnalytics, section]);
+  }, [shouldShowMemberAnalytics, section]);
 
   const priorityMap = useMemo(
     () =>
@@ -411,19 +413,9 @@ const SupportWorkspace = () => {
   };
 
   const openMemberModal = (mode, member = null) => {
-    // Support admins must not edit their own account (accidental "block login").
-    // Support Admin rows are view-only in this panel — edit support users only.
-    if (
-      member &&
-      (Number(member.id) === Number(workspace.viewer.admin_id) ||
-        member.hierarchy_role === 'support_admin')
-    ) {
-      showToast(
-        Number(member.id) === Number(workspace.viewer.admin_id)
-          ? 'You cannot edit your own support account from here.'
-          : 'Support Admin accounts cannot be edited from Team Members.',
-        'warning'
-      );
+    // Prevent self-edit so a support admin cannot accidentally block their own login.
+    if (member && Number(member.id) === Number(workspace.viewer.admin_id)) {
+      showToast('You cannot edit your own support account from here.', 'warning');
       return;
     }
 
@@ -688,10 +680,9 @@ const SupportWorkspace = () => {
 
   const shouldShowTicketDetail = Boolean(queryId);
   const handleSectionChange = (nextSection) => {
-    // A ticket detail (/support/:queryId) or manager drill-down (/support/admin/:managerId)
-    // is layered over the section content via the URL. Switching tabs must also leave that
-    // sub-route, otherwise setSection changes nothing that is actually visible.
-    if (queryId || (shouldShowManagerAnalytics && nextSection !== 'analytics')) {
+    // A ticket detail (/support/:queryId) or analytics drill-down is layered over the section
+    // content via the URL. Switching tabs must also leave that sub-route.
+    if (queryId || (shouldShowMemberAnalytics && nextSection !== 'analytics')) {
       navigate('/dashboard/support');
     }
 
@@ -700,6 +691,15 @@ const SupportWorkspace = () => {
 
   const handleOpenManagerAnalytics = (selectedManagerId) => {
     navigate(`/dashboard/support/admin/${selectedManagerId}`);
+  };
+
+  const handleOpenMemberAnalytics = (member) => {
+    if (!member?.id) return;
+    if (member.hierarchy_role === 'support_admin') {
+      navigate(`/dashboard/support/admin/${member.id}`);
+      return;
+    }
+    navigate(`/dashboard/support/user/${member.id}`);
   };
 
   const handleBackToAnalyticsList = () => {
@@ -782,6 +782,7 @@ const SupportWorkspace = () => {
             analytics={workspace.analytics}
             members={teamMembers}
             selectedManagerId={managerId}
+            selectedUserId={userId}
             onOpenManagerDashboard={handleOpenManagerAnalytics}
             onBackToManagerList={handleBackToAnalyticsList}
           />
@@ -811,6 +812,7 @@ const SupportWorkspace = () => {
             viewer={workspace.viewer}
             onCreate={() => openMemberModal('create')}
             onEdit={(member) => openMemberModal('edit', member)}
+            onViewAnalytics={handleOpenMemberAnalytics}
           />
         ) : null}
 

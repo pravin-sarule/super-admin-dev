@@ -1767,16 +1767,6 @@ module.exports = (pool) => {
         where: { admin_id: adminId },
       });
 
-      // Team Members panel only edits support users — not Support Admin accounts.
-      if (profile && isMemberManager(profile.toJSON(), adminId)) {
-        return sendError(res, {
-          code: 'FORBIDDEN',
-          message: 'Support Admin accounts cannot be edited from Team Members.',
-          statusCode: 403,
-          requestId: req.requestId,
-        });
-      }
-
       if (!profile) {
         const shouldCreateManagerProfile = access.isSuperAdmin;
         profile = await SupportAdminProfile.create({

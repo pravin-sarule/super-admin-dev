@@ -131,6 +131,7 @@ function App() {
             <Route path="roles" element={<RequireRole allow={[]}><RoleManagement /></RequireRole>} />
             <Route path="support" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
             <Route path="support/admin/:managerId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
+            <Route path="support/user/:userId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
             <Route path="support/:queryId" element={<RequireRole allow={['support-admin']}><SupportHelp /></RequireRole>} />
             {/* Settings is available to every authenticated admin role. */}
             <Route path="settings" element={<Settings />} />
