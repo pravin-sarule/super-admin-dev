@@ -27,11 +27,20 @@ class AnalyticsRepo {
         const params = [];
         let i = startIdx;
 
-        conds.push(`${EVENT_TIME} >= ($${i}::date AT TIME ZONE 'Asia/Kolkata')`);
+        // The ::timestamp cast is REQUIRED and easy to get wrong.
+        //   date AT TIME ZONE 'Asia/Kolkata'
+        //     -> Postgres resolves `date` to timestamptz (midnight UTC), then converts it
+        //        TO Kolkata wall time, yielding a naive `timestamp` of 05:30 — the wrong
+        //        direction. Comparing that against occurred_at re-coerces it with the
+        //        session TZ (UTC), shifting every bound forward by 5h30m and silently
+        //        dropping the first 5.5 hours of each day.
+        //   date::timestamp AT TIME ZONE 'Asia/Kolkata'
+        //     -> interprets midnight as Kolkata local and returns timestamptz. Correct.
+        conds.push(`${EVENT_TIME} >= (($${i}::date)::timestamp AT TIME ZONE 'Asia/Kolkata')`);
         params.push(f.from);
         i += 1;
 
-        conds.push(`${EVENT_TIME} < (($${i}::date + 1) AT TIME ZONE 'Asia/Kolkata')`);
+        conds.push(`${EVENT_TIME} < ((($${i}::date + 1))::timestamp AT TIME ZONE 'Asia/Kolkata')`);
         params.push(f.to);
         i += 1;
 

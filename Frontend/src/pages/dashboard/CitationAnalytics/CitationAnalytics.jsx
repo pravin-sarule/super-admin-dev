@@ -329,8 +329,11 @@ export default function CitationAnalytics() {
 
   const scoreCards = data?.score_cards ?? [];
   const knownCards = scoreCards; // backend already returns the 4 known + any extras, cost-ordered
-  const totalInr = data?.total_known_cost_inr ?? data?.total_platform_cost_inr ?? 0;
-  const totalUsd = data?.total_known_cost_usd ?? data?.total_platform_cost_usd ?? 0;
+  // Use the PLATFORM total, not total_known_*. The latter sums only gemini/claude/document_ai/
+  // india_kanoon, so any other service the engine emits (judgement_ai, serper) renders as its
+  // own card while being silently excluded from the aggregate — the cards then don't add up.
+  const totalInr = data?.total_platform_cost_inr ?? 0;
+  const totalUsd = data?.total_platform_cost_usd ?? 0;
   const userBreakdown = data?.user_breakdown ?? [];
   const sectionErrors = data?.section_errors ?? [];
   const unpricedRecords = Number(data?.unpriced_records ?? 0);
