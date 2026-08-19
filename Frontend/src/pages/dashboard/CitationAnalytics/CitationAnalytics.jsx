@@ -7,12 +7,21 @@ import {
   Wifi,
   WifiOff,
   ChevronRight,
+  ChevronLeft,
   X,
   Download,
   Loader2,
   AlertTriangle,
   SlidersHorizontal,
   Layers,
+  Filter,
+  Building2,
+  Sparkles,
+  Bot,
+  ScanText,
+  Scale,
+  Search,
+  Cpu,
 } from 'lucide-react';
 import {
   getAnalytics,
@@ -96,6 +105,23 @@ function serviceTagClass(service) {
   return 'bg-slate-50 text-slate-700 border-slate-200';
 }
 
+/** Icon + colour per service, so a score card is identifiable before its label is read. */
+const SERVICE_ACCENTS = {
+  gemini: { Icon: Sparkles, chip: 'bg-blue-50 text-blue-600', bar: 'bg-blue-500' },
+  claude: { Icon: Bot, chip: 'bg-amber-50 text-amber-600', bar: 'bg-amber-500' },
+  document_ai: { Icon: ScanText, chip: 'bg-emerald-50 text-emerald-600', bar: 'bg-emerald-500' },
+  india_kanoon: { Icon: Scale, chip: 'bg-indigo-50 text-indigo-600', bar: 'bg-indigo-500' },
+  serper: { Icon: Search, chip: 'bg-rose-50 text-rose-600', bar: 'bg-rose-500' },
+  openai: { Icon: Cpu, chip: 'bg-slate-100 text-slate-600', bar: 'bg-slate-400' },
+};
+const DEFAULT_ACCENT = { Icon: Layers, chip: 'bg-violet-50 text-violet-600', bar: 'bg-violet-500' };
+
+function serviceAccent(service) {
+  const s = String(service || '').toLowerCase();
+  if (IK_ALIASES.includes(s)) return SERVICE_ACCENTS.india_kanoon;
+  return SERVICE_ACCENTS[s] || DEFAULT_ACCENT;
+}
+
 function userInitials(userId) {
   const s = String(userId ?? '').trim();
   if (!s || s.toLowerCase() === 'unknown / anonymous') return '?';
@@ -112,6 +138,42 @@ function formatDateTime(iso) {
   } catch {
     return String(iso);
   }
+}
+
+/**
+ * Shared column header styling for both tables.
+ * Alignment and padding are passed as whole literal class names — Tailwind scans source
+ * text, so an interpolated `text-${align}` would never be generated.
+ */
+const TH_ALIGN = { left: 'text-left', right: 'text-right', center: 'text-center' };
+
+function Th({ children, align = 'left', pad = 'px-5 py-3', className = '' }) {
+  return (
+    <th
+      className={`${pad} ${TH_ALIGN[align] || TH_ALIGN.left} text-[11px] font-semibold text-slate-500 uppercase tracking-wide whitespace-nowrap ${className}`}
+    >
+      {children}
+    </th>
+  );
+}
+
+/** Card header: icon chip + title + one-line description, with room for actions. */
+function SectionHeader({ icon, title, description, children }) {
+  const Icon = icon;
+  return (
+    <div className="px-5 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div className="flex items-start gap-2.5 min-w-0">
+        <span className="p-2 rounded-lg bg-blue-50 text-blue-600 shrink-0">
+          <Icon className="w-4 h-4" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
+          <p className="text-xs text-slate-500 mt-0.5">{description}</p>
+        </div>
+      </div>
+      {children && <div className="flex flex-wrap items-center gap-2 shrink-0">{children}</div>}
+    </div>
+  );
 }
 
 export default function CitationAnalytics() {
@@ -362,49 +424,64 @@ export default function CitationAnalytics() {
         (p, idx, arr) => p >= 1 && p <= totalPages && arr.indexOf(p) === idx
       );
 
+  const pagerBtn =
+    'w-8 h-8 inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-700 disabled:opacity-40 disabled:hover:bg-white disabled:cursor-not-allowed';
+
   return (
-    <div className="citation-management p-6 max-w-7xl mx-auto min-h-screen bg-slate-50/50">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-            <BarChart3 className="w-7 h-7 text-blue-600" />
-            Citation Analytics
-          </h1>
-          <p className="text-slate-600 mt-1 text-sm">
-            Per-call API cost by service and user · {range.from} → {range.to} (IST) ·
-            Auto-refreshes every 30s
-          </p>
+    <div className="citation-management min-h-full w-full bg-gradient-to-b from-slate-50 via-slate-50 to-slate-100 rounded-2xl p-5 lg:p-6 space-y-5">
+      {/* ── Header ── */}
+      <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <span className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm shrink-0">
+            <BarChart3 className="w-5 h-5 text-white" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900 leading-tight">
+              Citation Analytics
+            </h1>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Per-call API cost by service, user and run ·{' '}
+              <span className="font-medium text-slate-600">
+                {range.from} → {range.to}
+              </span>
+              <span className="text-slate-400"> (IST) · auto-refreshes every 30s</span>
+            </p>
+          </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
-              heartbeat.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'
+
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${
+              heartbeat.ok
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                : 'bg-amber-50 text-amber-700 border-amber-100'
             }`}
           >
-            {heartbeat.ok ? (
-              <Wifi className="w-4 h-4" />
-            ) : (
-              <WifiOff className="w-4 h-4" />
-            )}
-            <span>{heartbeat.ok ? 'Live' : 'Checking...'}</span>
-          </div>
+            {heartbeat.ok ? <Wifi className="w-3.5 h-3.5" /> : <WifiOff className="w-3.5 h-3.5" />}
+            {heartbeat.ok ? 'Live' : 'Checking…'}
+          </span>
+
           {syncedAt && (
-            <span className="text-xs text-slate-500" title={lastSyncedMinutesAgo != null ? `${lastSyncedMinutesAgo} min ago` : undefined}>
-              Last synced: {formatDateTime(syncedAt)}
+            <span
+              className="hidden md:inline-flex items-center px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white/70 text-xs text-slate-500"
+              title={lastSyncedMinutesAgo != null ? `${lastSyncedMinutesAgo} min ago` : undefined}
+            >
+              Synced {formatDateTime(syncedAt)}
               {lastSyncedMinutesAgo != null && (
-                <span className="text-slate-400"> · {lastSyncedMinutesAgo} min ago</span>
+                <span className="text-slate-400 ml-1">· {lastSyncedMinutesAgo}m ago</span>
               )}
             </span>
           )}
+
           <button
             type="button"
             onClick={() => setShowRateCard(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 shadow-sm transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
           >
-            <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+            <SlidersHorizontal className="w-4 h-4 text-slate-400" />
             Rate Card
           </button>
+
           <button
             type="button"
             onClick={() => {
@@ -413,7 +490,7 @@ export default function CitationAnalytics() {
               checkHeartbeat();
             }}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
           >
             <RefreshCw className={`w-4 h-4 ${loading || refreshing ? 'animate-spin' : ''}`} />
             Refresh
@@ -421,26 +498,35 @@ export default function CitationAnalytics() {
         </div>
       </div>
 
-      {/* Date range filter */}
-      <div className="mb-4 rounded-xl border border-slate-200 bg-white p-4 flex flex-col lg:flex-row lg:items-center gap-4">
-        <div className="flex flex-wrap items-center gap-2">
-          {RANGE_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => applyPreset(p)}
-              className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${
-                preset === p.id
-                  ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+      {/* ── Filter toolbar (range + department apply to every panel below) ── */}
+      <div className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur shadow-sm px-3 py-3 lg:px-4 flex flex-col 2xl:flex-row 2xl:items-center gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <span className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 shrink-0">
+            <Filter className="w-3.5 h-3.5" />
+            Range
+          </span>
+          <div className="inline-flex flex-wrap items-center gap-1 p-1 rounded-lg bg-slate-100">
+            {RANGE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyPreset(p)}
+                aria-pressed={preset === p.id}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  preset === p.id
+                    ? 'bg-white text-blue-700 shadow-sm ring-1 ring-slate-200'
+                    : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-2 lg:ml-auto">
+        <div className="hidden 2xl:block h-6 w-px bg-slate-200 shrink-0" />
+
+        <div className="flex flex-wrap items-center gap-2">
           <input
             type="date"
             value={range.from}
@@ -449,9 +535,9 @@ export default function CitationAnalytics() {
               setPreset('custom');
               setRange((r) => ({ ...r, from: e.target.value }));
             }}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
           />
-          <span className="text-slate-400 text-sm">→</span>
+          <span className="text-slate-300 text-xs">→</span>
           <input
             type="date"
             value={range.to}
@@ -461,20 +547,42 @@ export default function CitationAnalytics() {
               setPreset('custom');
               setRange((r) => ({ ...r, to: e.target.value }));
             }}
-            className="px-3 py-1.5 rounded-lg border border-slate-200 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
+            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
           />
-          <span className="text-xs text-slate-400">IST</span>
+          <span className="px-1.5 py-0.5 rounded bg-slate-100 text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+            IST
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2 2xl:ml-auto">
+          <span className="hidden lg:inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-400 shrink-0">
+            <Building2 className="w-3.5 h-3.5" />
+            Dept
+          </span>
+          <select
+            className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs text-slate-700 min-w-[190px] transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500/40 focus:border-blue-400"
+            value={department}
+            onChange={(e) => setDepartment(e.target.value)}
+          >
+            {departments.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+                {d.user_count != null ? ` (${d.user_count})` : ''}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
       {error && (
-        <div className="mb-4 p-4 bg-red-50 border border-red-200 text-red-700 rounded-xl text-sm">
-          {error}
+        <div className="p-4 rounded-xl border border-red-200 bg-red-50 text-red-700 text-sm flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>{error}</span>
         </div>
       )}
 
       {sectionErrors.length > 0 && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm flex items-start gap-2">
+        <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             Some data could not be loaded:{' '}
@@ -485,7 +593,7 @@ export default function CitationAnalytics() {
       )}
 
       {unpricedRecords > 0 && (
-        <div className="mb-4 p-3 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-sm flex items-start gap-2">
+        <div className="p-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-sm flex items-start gap-2">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
             <strong>{unpricedRecords.toLocaleString('en-IN')}</strong> event(s) in this range have
@@ -503,118 +611,135 @@ export default function CitationAnalytics() {
       )}
 
       {loading && !data ? (
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600" />
+        <div className="flex flex-col justify-center items-center py-24 gap-3">
+          <div className="animate-spin rounded-full h-9 w-9 border-2 border-slate-200 border-t-blue-600" />
+          <p className="text-sm text-slate-400">Loading cost events…</p>
         </div>
       ) : (
         <>
-          {/* Score cards (cost per service + total) */}
-          <div className="mb-6">
-            <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <Activity className="w-5 h-5 text-blue-600" />
-              Cost Score Cards (Gemini, Claude, Document AI, India Kanoon)
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              {/* Total of the above 4 (aggregate) */}
-              <div className="rounded-xl border border-blue-200 bg-gradient-to-br from-blue-600 to-indigo-600 p-4 shadow-sm text-white">
-                <p className="text-xs font-semibold uppercase text-white/90">TOTAL AGGREGATE COST</p>
-                <p className="text-2xl font-bold mt-2">
+          {/* ── Cost score cards ── */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+                <Activity className="w-4 h-4 text-blue-600" />
+                Cost by service
+              </h2>
+              <span className="text-[11px] uppercase tracking-wide text-slate-400">
+                {knownCards.length} service{knownCards.length === 1 ? '' : 's'} · share of total
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 lg:gap-4">
+              {/* Platform total — every service, including any the engine adds later */}
+              <div className="rounded-xl bg-gradient-to-br from-blue-600 to-indigo-600 shadow-sm ring-1 ring-blue-500/20 px-4 py-4 text-white flex flex-col">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-white/80">
+                    Total aggregate
+                  </span>
+                  <span className="p-1.5 rounded-lg bg-white/15">
+                    <Layers className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+                <p className="mt-3 text-2xl font-semibold tabular-nums leading-none">
                   {formatCurrencyInr(totalInr)}
                 </p>
-                <p className="text-xs text-white/80 mt-1">{formatCurrencyUsd(totalUsd)}</p>
+                <p className="mt-1 text-xs text-white/70 tabular-nums">
+                  {formatCurrencyUsd(totalUsd)}
+                </p>
+                <div className="mt-auto pt-3">
+                  <div className="h-1.5 rounded-full bg-white/25 overflow-hidden">
+                    <div className="h-full w-full rounded-full bg-white/80" />
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-white/70">All services combined</p>
+                </div>
               </div>
 
-              {knownCards.map((card) => (
-                <div
-                  key={card.service}
-                  className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow"
-                >
-                  <p className="text-sm font-medium text-slate-600">{card.label}</p>
-                  <p className="text-xl font-bold text-slate-900 mt-1">
-                    {formatCurrencyInr(card.total_cost_inr)}
-                  </p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    {formatCurrencyUsd(card.total_cost_usd)}
-                  </p>
-                </div>
-              ))}
+              {knownCards.map((card) => {
+                const { Icon, chip, bar } = serviceAccent(card.service);
+                const cost = Number(card.total_cost_inr || 0);
+                const share = totalInr > 0 ? Math.min(100, (cost / totalInr) * 100) : 0;
+                return (
+                  <div
+                    key={card.service}
+                    className="rounded-xl border border-slate-200 bg-white/80 backdrop-blur shadow-sm px-4 py-4 flex flex-col transition-all hover:shadow-md hover:border-slate-300"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 truncate">
+                        {card.label}
+                      </span>
+                      <span className={`p-1.5 rounded-lg shrink-0 ${chip}`}>
+                        <Icon className="w-3.5 h-3.5" />
+                      </span>
+                    </div>
+                    <p className="mt-3 text-2xl font-semibold text-slate-900 tabular-nums leading-none">
+                      {formatCurrencyInr(cost)}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400 tabular-nums">
+                      {formatCurrencyUsd(card.total_cost_usd)}
+                    </p>
+                    <div className="mt-auto pt-3">
+                      <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all ${bar}`}
+                          style={{ width: `${share}%` }}
+                        />
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-slate-400 tabular-nums">
+                        {share.toFixed(1)}% of total
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
             {knownCards.length === 0 && !loading && (
-              <p className="mt-4 text-slate-500 text-sm">No service usage data yet.</p>
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white/60 py-10 text-center">
+                <p className="text-sm text-slate-500">No service usage in this range.</p>
+              </div>
             )}
-          </div>
+          </section>
 
-          {/* User-wise Usage Detail */}
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <div className="p-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Users className="w-5 h-5 text-blue-600" />
-                  User-wise Usage Detail
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Granular breakdown of cloud consumption per identity.
-                </p>
-                {exportError && (
-                  <p className="text-xs text-red-600 mt-1">{exportError}</p>
+          {/* ── User-wise Usage Detail ── */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <SectionHeader
+              icon={Users}
+              title="User-wise Usage Detail"
+              description="Granular breakdown of cloud consumption per identity."
+            >
+              {exportError && (
+                <span className="text-xs text-red-600 max-w-[240px] truncate" title={exportError}>
+                  {exportError}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleExportCsv}
+                disabled={exporting}
+                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 disabled:opacity-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+              >
+                {exporting ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Download className="w-4 h-4 text-slate-400" />
                 )}
-              </div>
-
-              <div className="flex items-center gap-3">
-                <select
-                  className="px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-700 focus:ring-2 focus:ring-blue-500"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                >
-                  {departments.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.name}
-                      {d.user_count != null ? ` (${d.user_count})` : ''}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={handleExportCsv}
-                  disabled={exporting}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                >
-                  {exporting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Download className="w-4 h-4 text-slate-500" />
-                  )}
-                  {exporting ? 'Exporting…' : 'Export CSV'}
-                </button>
-              </div>
-            </div>
+                {exporting ? 'Exporting…' : 'Export CSV'}
+              </button>
+            </SectionHeader>
 
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-50/80">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase">
-                      User Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase">
-                      Department
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-slate-600 uppercase">
-                      Services Used
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase">
-                      Total Requests
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase">
-                      Cumulative Cost
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase">
-                      Last Used
-                    </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-slate-600 uppercase">
+                    <Th>User</Th>
+                    <Th>Department</Th>
+                    <Th>Services Used</Th>
+                    <Th align="right">Total Requests</Th>
+                    <Th align="right">Cumulative Cost</Th>
+                    <Th align="right">Last Used</Th>
+                    <Th align="right" className="w-px">
                       &nbsp;
-                    </th>
+                    </Th>
                   </tr>
                 </thead>
 
@@ -626,30 +751,32 @@ export default function CitationAnalytics() {
                     const shownServices = servicesArr.slice(0, 3);
                     const extraServices = servicesArr.length - shownServices.length;
                     return (
-                      <tr key={row.user_id} className="hover:bg-slate-50/50">
-                        <td className="px-6 py-4">
+                      <tr key={row.user_id} className="transition-colors hover:bg-slate-50">
+                        <td className="px-5 py-3.5">
                           <div className="flex items-center gap-3">
-                            <div className="w-9 h-9 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-xs font-semibold">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600 ring-1 ring-slate-200 flex items-center justify-center text-xs font-semibold shrink-0">
                               {userInitials(row.user_name || row.user_id)}
                             </div>
                             <div className="min-w-0">
                               <div className="text-sm font-semibold text-slate-800 truncate">
                                 {row.user_name || row.user_id || '—'}
                               </div>
-                              {row.email && <div className="text-xs text-slate-500 truncate">{row.email}</div>}
+                              {row.email && (
+                                <div className="text-xs text-slate-400 truncate">{row.email}</div>
+                              )}
                             </div>
                           </div>
                         </td>
 
-                        <td className="px-6 py-4">
+                        <td className="px-5 py-3.5">
                           <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-md bg-slate-50 text-slate-600 border border-slate-200">
                             {row.department || 'Unassigned'}
                           </span>
                         </td>
 
-                        <td className="px-6 py-4">
+                        <td className="px-5 py-3.5">
                           {shownServices.length ? (
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-1.5">
                               {shownServices.map((svc) => (
                                 <span
                                   key={svc}
@@ -674,26 +801,28 @@ export default function CitationAnalytics() {
 
                         {/* Requests = call count. total_quantity on a Gemini row is a TOKEN
                             count, which read as "10.35K calls" under this header. */}
-                        <td className="px-6 py-4 text-right text-sm text-slate-700">
+                        <td className="px-5 py-3.5 text-right text-sm text-slate-700 tabular-nums whitespace-nowrap">
                           {formatNumber(row.total_calls ?? row.total_quantity)}
                           <span className="text-xs text-slate-400 ml-1">
                             {row.total_calls != null ? 'calls' : formatUnit(row.unit_summary)}
                           </span>
                         </td>
 
-                        <td className="px-6 py-4 text-right text-sm text-slate-700">
+                        <td className="px-5 py-3.5 text-right text-sm font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                           {formatCurrencyInr(row.total_cost_inr)}
                         </td>
 
-                        <td className="px-6 py-4 text-right">
-                          <span className="text-xs text-slate-500">{formatDateTime(row.last_used_at)}</span>
+                        <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                          <span className="text-xs text-slate-500">
+                            {formatDateTime(row.last_used_at)}
+                          </span>
                         </td>
 
-                        <td className="px-6 py-4 text-right">
+                        <td className="px-5 py-3.5 text-right">
                           <button
                             type="button"
                             onClick={() => openUserDetails(row.user_id)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-medium text-slate-700 transition-colors hover:bg-slate-50 hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
                           >
                             View
                             <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
@@ -705,7 +834,7 @@ export default function CitationAnalytics() {
 
                   {pagedUsers.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={7} className="px-6 py-10 text-center text-slate-500 text-sm">
+                      <td colSpan={7} className="px-5 py-12 text-center text-sm text-slate-500">
                         No usage between {range.from} and {range.to}
                         {department !== 'all' ? ' for this department' : ''}.
                       </td>
@@ -715,19 +844,25 @@ export default function CitationAnalytics() {
               </table>
             </div>
 
-            <div className="p-4 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm text-slate-500">
-                Showing {fromUser} to {toUser} of {totalUsers} users
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50/60 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs text-slate-500">
+                Showing{' '}
+                <span className="font-medium text-slate-700 tabular-nums">
+                  {fromUser}–{toUser}
+                </span>{' '}
+                of <span className="font-medium text-slate-700 tabular-nums">{totalUsers}</span>{' '}
+                users
               </p>
 
               <div className="flex items-center gap-1">
                 <button
                   type="button"
+                  aria-label="Previous page"
                   onClick={() => setUserPage((p) => Math.max(1, p - 1))}
                   disabled={userPage === 1}
-                  className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className={pagerBtn}
                 >
-                  &lt;
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
 
                 {pagesToRender.map((p) => (
@@ -735,10 +870,11 @@ export default function CitationAnalytics() {
                     key={p}
                     type="button"
                     onClick={() => setUserPage(p)}
-                    className={`px-3 py-2 rounded-lg border text-sm ${
+                    aria-current={p === userPage ? 'page' : undefined}
+                    className={`min-w-8 h-8 px-2 inline-flex items-center justify-center rounded-lg border text-xs font-medium tabular-nums transition-colors ${
                       p === userPage
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900'
                     }`}
                   >
                     {p}
@@ -747,51 +883,45 @@ export default function CitationAnalytics() {
 
                 <button
                   type="button"
+                  aria-label="Next page"
                   onClick={() => setUserPage((p) => Math.min(totalPages, p + 1))}
                   disabled={userPage === totalPages}
-                  className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className={pagerBtn}
                 >
-                  &gt;
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
           </div>
 
-          {/* Session Cost Breakdown */}
-          <div className="mb-6 rounded-xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-            <div className="p-4 border-b border-slate-200">
-              <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <Layers className="w-5 h-5 text-blue-600" />
-                Session &amp; Run Cost Breakdown
-              </h2>
-              <p className="text-xs text-slate-500 mt-1">
-                One row per search run. A session accumulates many runs, so each run is
-                costed separately. Click a row for the per-model and per-API split.
-              </p>
-            </div>
+          {/* ── Session & Run Cost Breakdown ── */}
+          <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+            <SectionHeader
+              icon={Layers}
+              title="Session & Run Cost Breakdown"
+              description="One row per search run — a session accumulates many runs, so each is costed separately. Click a row for the per-model and per-API split."
+            >
+              {sessionsLoading && (
+                <span className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  Loading
+                </span>
+              )}
+            </SectionHeader>
 
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-slate-200">
-                <thead className="bg-slate-50">
+                <thead className="bg-slate-50/80">
                   <tr>
-                    {[
-                      ['Run', 'left'],
-                      ['Session', 'left'],
-                      ['User', 'left'],
-                      ['Services', 'left'],
-                      ['Calls', 'right'],
-                      ['AI Cost', 'right'],
-                      ['API Cost', 'right'],
-                      ['Total Cost', 'right'],
-                      ['Run Time', 'right'],
-                    ].map(([h, align]) => (
-                      <th
-                        key={h}
-                        className={`px-5 py-3 text-${align} text-xs font-semibold text-slate-600 uppercase whitespace-nowrap`}
-                      >
-                        {h}
-                      </th>
-                    ))}
+                    <Th>Run</Th>
+                    <Th>Session</Th>
+                    <Th>User</Th>
+                    <Th>Services</Th>
+                    <Th align="right">Calls</Th>
+                    <Th align="right">AI Cost</Th>
+                    <Th align="right">API Cost</Th>
+                    <Th align="right">Total Cost</Th>
+                    <Th align="right">Run Time</Th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -801,7 +931,7 @@ export default function CitationAnalytics() {
                       onClick={() =>
                         setSelectedSessionId({ sessionId: s.session_id, runId: s.run_id ?? '' })
                       }
-                      className="hover:bg-blue-50/40 cursor-pointer transition-colors"
+                      className="group cursor-pointer transition-colors hover:bg-blue-50/50"
                     >
                       <td className="px-5 py-3">
                         <div className="text-xs font-mono text-slate-700">
@@ -816,14 +946,14 @@ export default function CitationAnalytics() {
                         </div>
                       </td>
                       <td className="px-5 py-3">
-                        <div className="text-[11px] font-mono text-slate-500">
+                        <div className="text-[11px] font-mono text-slate-400">
                           {String(s.session_id).slice(0, 10)}…
                         </div>
                       </td>
                       <td className="px-5 py-3">
                         <div className="text-sm text-slate-800">{s.user_name}</div>
                         {s.email && (
-                          <div className="text-[11px] text-slate-400 truncate max-w-[180px]">
+                          <div className="text-[11px] text-slate-400 truncate max-w-[200px]">
                             {s.email}
                           </div>
                         )}
@@ -840,35 +970,33 @@ export default function CitationAnalytics() {
                           ))}
                         </div>
                       </td>
-                      <td className="px-5 py-3 text-right text-sm text-slate-700">
+                      <td className="px-5 py-3 text-right text-sm text-slate-700 tabular-nums whitespace-nowrap">
                         {formatNumber(s.total_calls)}
                         {s.cache_hits > 0 && (
-                          <div className="text-[11px] text-emerald-600">
-                            {s.cache_hits} cached
-                          </div>
+                          <div className="text-[11px] text-emerald-600">{s.cache_hits} cached</div>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-right text-sm text-slate-600">
+                      <td className="px-5 py-3 text-right text-sm text-slate-600 tabular-nums whitespace-nowrap">
                         {formatCurrencyInr(s.ai_cost_inr)}
                       </td>
-                      <td className="px-5 py-3 text-right text-sm text-slate-600">
+                      <td className="px-5 py-3 text-right text-sm text-slate-600 tabular-nums whitespace-nowrap">
                         {formatCurrencyInr(s.api_cost_inr)}
                       </td>
-                      <td className="px-5 py-3 text-right text-sm font-semibold text-slate-900">
+                      <td className="px-5 py-3 text-right text-sm font-semibold text-slate-900 tabular-nums whitespace-nowrap">
                         {formatCurrencyInr(s.total_cost_inr)}
                       </td>
-                      <td className="px-5 py-3 text-right">
+                      <td className="px-5 py-3 text-right whitespace-nowrap">
                         <span className="text-xs text-slate-500">
                           {formatDateTime(s.last_event_at)}
                         </span>
-                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 inline ml-2" />
+                        <ChevronRight className="w-3.5 h-3.5 text-slate-300 inline ml-2 transition-transform group-hover:translate-x-0.5 group-hover:text-blue-500" />
                       </td>
                     </tr>
                   ))}
 
                   {sessions.length === 0 && !sessionsLoading && (
                     <tr>
-                      <td colSpan={9} className="px-6 py-10 text-center text-slate-500 text-sm">
+                      <td colSpan={9} className="px-5 py-12 text-center text-sm text-slate-500">
                         No runs between {range.from} and {range.to}.
                       </td>
                     </tr>
@@ -877,36 +1005,48 @@ export default function CitationAnalytics() {
               </table>
             </div>
 
-            <div className="p-4 flex items-center justify-between gap-3 flex-wrap">
-              <p className="text-sm text-slate-500">
-                {sessionMeta.total
-                  ? `Showing ${(sessionMeta.page - 1) * SESSION_PAGE_SIZE + 1} to ${Math.min(
-                      sessionMeta.page * SESSION_PAGE_SIZE,
-                      sessionMeta.total
-                    )} of ${sessionMeta.total} runs`
-                  : '0 runs'}
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50/60 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-xs text-slate-500">
+                {sessionMeta.total ? (
+                  <>
+                    Showing{' '}
+                    <span className="font-medium text-slate-700 tabular-nums">
+                      {(sessionMeta.page - 1) * SESSION_PAGE_SIZE + 1}–
+                      {Math.min(sessionMeta.page * SESSION_PAGE_SIZE, sessionMeta.total)}
+                    </span>{' '}
+                    of{' '}
+                    <span className="font-medium text-slate-700 tabular-nums">
+                      {sessionMeta.total}
+                    </span>{' '}
+                    runs
+                  </>
+                ) : (
+                  '0 runs'
+                )}
               </p>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
+                  aria-label="Previous page"
                   onClick={() => setSessionPage((p) => Math.max(1, p - 1))}
                   disabled={sessionPage === 1}
-                  className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className={pagerBtn}
                 >
-                  &lt;
+                  <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="px-3 py-2 text-sm text-slate-600">
+                <span className="px-3 h-8 inline-flex items-center text-xs text-slate-600 tabular-nums">
                   {sessionMeta.page} / {Math.max(1, sessionMeta.totalPages)}
                 </span>
                 <button
                   type="button"
+                  aria-label="Next page"
                   onClick={() =>
                     setSessionPage((p) => Math.min(sessionMeta.totalPages || 1, p + 1))
                   }
                   disabled={sessionPage >= (sessionMeta.totalPages || 1)}
-                  className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
+                  className={pagerBtn}
                 >
-                  &gt;
+                  <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
             </div>
@@ -914,91 +1054,111 @@ export default function CitationAnalytics() {
         </>
       )}
 
-      {/* User detail modal */}
+      {/* ── User detail modal ── */}
       {selectedUserId && (
-        <div className="fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4">
-          <div className="w-full max-w-5xl max-h-[90vh] bg-white rounded-xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-slate-900">
-                  User Analytics: {userDetails?.user_name || selectedUserId}
-                </h3>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {userDetails?.email || 'No email'} · {userDetails?.department || 'Unassigned'} ·
-                  Last used: {formatDateTime(userDetails?.totals?.last_used_at)}
-                </p>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Showing {range.from} → {range.to} (IST)
-                </p>
+        <div className="fixed inset-0 z-[80] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-6xl max-h-[90vh] bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-start justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 text-slate-600 ring-1 ring-slate-200 flex items-center justify-center text-sm font-semibold shrink-0">
+                  {userInitials(userDetails?.user_name || selectedUserId)}
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-semibold text-slate-900 truncate">
+                    {userDetails?.user_name || selectedUserId}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">
+                    {userDetails?.email || 'No email'} · {userDetails?.department || 'Unassigned'} ·
+                    Last used: {formatDateTime(userDetails?.totals?.last_used_at)}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Showing {range.from} → {range.to} (IST)
+                  </p>
+                </div>
               </div>
               <button
                 type="button"
                 onClick={closeUserDetails}
-                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500"
+                aria-label="Close"
+                className="p-2 rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 shrink-0"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="p-5 overflow-y-auto space-y-5">
+            <div className="p-5 overflow-y-auto custom-scrollbar space-y-5 bg-slate-50/50">
               {userLoading ? (
-                <div className="py-10 text-center text-slate-500">Loading user analytics...</div>
+                <div className="py-12 text-center text-sm text-slate-500">
+                  Loading user analytics…
+                </div>
               ) : userError ? (
-                <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{userError}</div>
+                <div className="p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 text-sm">
+                  {userError}
+                </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs text-slate-500 uppercase">Total Cost (INR)</p>
-                      <p className="text-lg font-semibold text-slate-900 mt-1">
-                        {formatCurrencyInr(userDetails?.totals?.total_cost_inr)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs text-slate-500 uppercase">Total Cost (USD)</p>
-                      <p className="text-lg font-semibold text-slate-900 mt-1">
-                        {formatCurrencyUsd(userDetails?.totals?.total_cost_usd)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs text-slate-500 uppercase">Requests</p>
-                      <p className="text-lg font-semibold text-slate-900 mt-1">
-                        {formatNumber(userDetails?.totals?.total_quantity)}
-                      </p>
-                    </div>
-                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-                      <p className="text-xs text-slate-500 uppercase">Records</p>
-                      <p className="text-lg font-semibold text-slate-900 mt-1">
-                        {formatNumber(userDetails?.totals?.record_count)}
-                      </p>
-                    </div>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    {[
+                      ['Total Cost (INR)', formatCurrencyInr(userDetails?.totals?.total_cost_inr)],
+                      ['Total Cost (USD)', formatCurrencyUsd(userDetails?.totals?.total_cost_usd)],
+                      ['Requests', formatNumber(userDetails?.totals?.total_quantity)],
+                      ['Records', formatNumber(userDetails?.totals?.record_count)],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-slate-200 bg-white shadow-sm px-4 py-3"
+                      >
+                        <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                          {label}
+                        </p>
+                        <p className="text-lg font-semibold text-slate-900 mt-1 tabular-nums">
+                          {value}
+                        </p>
+                      </div>
+                    ))}
                   </div>
 
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 text-sm font-semibold text-slate-800">
-                      Service Breakdown (Gemini / Claude / Document AI / India Kanoon)
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-200 text-sm font-semibold text-slate-900">
+                      Service Breakdown
                     </div>
                     <div className="overflow-x-auto">
                       <table className="min-w-full divide-y divide-slate-200">
-                        <thead className="bg-white">
+                        <thead className="bg-slate-50/80">
                           <tr>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase">Service</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">Quantity</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">INR</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">USD</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">Last Used</th>
+                            <Th pad="px-4 py-2.5">Service</Th>
+                            <Th align="right" pad="px-4 py-2.5">
+                              Quantity
+                            </Th>
+                            <Th align="right" pad="px-4 py-2.5">
+                              INR
+                            </Th>
+                            <Th align="right" pad="px-4 py-2.5">
+                              USD
+                            </Th>
+                            <Th align="right" pad="px-4 py-2.5">
+                              Last Used
+                            </Th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {(userDetails?.service_breakdown || []).map((row) => (
-                            <tr key={row.service}>
-                              <td className="px-4 py-2 text-sm text-slate-700">{serviceLabel(row.service)}</td>
-                              <td className="px-4 py-2 text-sm text-slate-700 text-right">
+                            <tr key={row.service} className="hover:bg-slate-50">
+                              <td className="px-4 py-2.5 text-sm text-slate-700">
+                                {serviceLabel(row.service)}
+                              </td>
+                              <td className="px-4 py-2.5 text-sm text-slate-700 text-right tabular-nums">
                                 {formatNumber(row.total_quantity)} {formatUnit(row.unit_summary)}
                               </td>
-                              <td className="px-4 py-2 text-sm text-slate-700 text-right">{formatCurrencyInr(row.total_cost_inr)}</td>
-                              <td className="px-4 py-2 text-sm text-slate-700 text-right">{formatCurrencyUsd(row.total_cost_usd)}</td>
-                              <td className="px-4 py-2 text-sm text-slate-500 text-right">{formatDateTime(row.last_used_at)}</td>
+                              <td className="px-4 py-2.5 text-sm font-medium text-slate-900 text-right tabular-nums">
+                                {formatCurrencyInr(row.total_cost_inr)}
+                              </td>
+                              <td className="px-4 py-2.5 text-sm text-slate-500 text-right tabular-nums">
+                                {formatCurrencyUsd(row.total_cost_usd)}
+                              </td>
+                              <td className="px-4 py-2.5 text-xs text-slate-500 text-right">
+                                {formatDateTime(row.last_used_at)}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1006,31 +1166,47 @@ export default function CitationAnalytics() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-slate-200 overflow-hidden">
-                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 text-sm font-semibold text-slate-800">
+                  <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-200 text-sm font-semibold text-slate-900">
                       Usage Timeline
                     </div>
-                    <div className="overflow-x-auto max-h-80">
+                    <div className="overflow-x-auto max-h-80 custom-scrollbar">
                       <table className="min-w-full divide-y divide-slate-200">
-                        <thead className="bg-white sticky top-0">
+                        <thead className="bg-slate-50/95 backdrop-blur sticky top-0">
                           <tr>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase">When Used</th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase">Service</th>
-                            <th className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase">Operation</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">Qty</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">INR</th>
-                            <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase">Time (ms)</th>
+                            <Th pad="px-4 py-2">When Used</Th>
+                            <Th pad="px-4 py-2">Service</Th>
+                            <Th pad="px-4 py-2">Operation</Th>
+                            <Th align="right" pad="px-4 py-2">
+                              Qty
+                            </Th>
+                            <Th align="right" pad="px-4 py-2">
+                              INR
+                            </Th>
+                            <Th align="right" pad="px-4 py-2">
+                              Time (ms)
+                            </Th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {(userDetails?.timeline || []).map((row) => (
-                            <tr key={row.id}>
-                              <td className="px-4 py-2 text-xs text-slate-700">{formatDateTime(row.created_at)}</td>
-                              <td className="px-4 py-2 text-xs text-slate-700">{serviceLabel(row.service)}</td>
-                              <td className="px-4 py-2 text-xs text-slate-600">{row.operation || '—'}</td>
-                              <td className="px-4 py-2 text-xs text-slate-700 text-right">{formatNumber(row.quantity)} {formatUnit(row.unit)}</td>
-                              <td className="px-4 py-2 text-xs text-slate-700 text-right">{formatCurrencyInr(row.cost_inr)}</td>
-                              <td className="px-4 py-2 text-xs text-slate-500 text-right">
+                            <tr key={row.id} className="hover:bg-slate-50">
+                              <td className="px-4 py-2 text-xs text-slate-500 whitespace-nowrap">
+                                {formatDateTime(row.created_at)}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-700">
+                                {serviceLabel(row.service)}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-600">
+                                {row.operation || '—'}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-700 text-right tabular-nums">
+                                {formatNumber(row.quantity)} {formatUnit(row.unit)}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-900 text-right tabular-nums">
+                                {formatCurrencyInr(row.cost_inr)}
+                              </td>
+                              <td className="px-4 py-2 text-xs text-slate-400 text-right tabular-nums">
                                 {row.usage_time_ms != null ? formatNumber(row.usage_time_ms) : '—'}
                               </td>
                             </tr>
