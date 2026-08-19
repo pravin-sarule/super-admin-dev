@@ -8,6 +8,7 @@ const PipelineRepo = require('../../repositories/citation_routes/pipeline.repo')
 const RoutesdbRepo = require('../../repositories/citation_routes/routesdb.repo');
 const BusinessRepo = require('../../repositories/citation_routes/business.repo');
 const AnalyticsRepo = require('../../repositories/citation_routes/analytics.repo');
+const RateCardRepo = require('../../repositories/citation_routes/rate_card.repo');
 
 // Services
 const OverviewService = require('../../services/citation_routes/overview.service');
@@ -16,6 +17,7 @@ const PipelineService = require('../../services/citation_routes/pipeline.service
 const RoutesdbService = require('../../services/citation_routes/routesdb.service');
 const BusinessService = require('../../services/citation_routes/business.service');
 const AnalyticsService = require('../../services/citation_routes/analytics.service');
+const RateCardService = require('../../services/citation_routes/rate_card.service');
 
 // Controllers
 const OverviewController = require('../../controllers/citation_routes/overview.controller');
@@ -24,6 +26,7 @@ const PipelineController = require('../../controllers/citation_routes/pipeline.c
 const RoutesdbController = require('../../controllers/citation_routes/routesdb.controller');
 const BusinessController = require('../../controllers/citation_routes/business.controller');
 const AnalyticsController = require('../../controllers/citation_routes/analytics.controller');
+const RateCardController = require('../../controllers/citation_routes/rate_card.controller');
 
 // Route factories
 const overviewRoutes = require('./overview.routes');
@@ -36,11 +39,12 @@ const analyticsRoutes = require('./analytics.routes');
 
 /**
  * Wire up all citation admin routes.
- * @param {Pool} citationPool - Citation DB pool
+ * @param {Pool} citationPool - Citation DB pool (citation_db)
  * @param {Pool} authPool - Auth DB pool (for auth middleware and user enrichment fallback)
  * @param {Pool} docPool - docDB pool (preferred source for user profile enrichment)
+ * @param {Pool} costPool - Citation Analytics cost DB pool (citationTest). Analytics tab only.
  */
-module.exports = (citationPool, authPool, docPool) => {
+module.exports = (citationPool, authPool, docPool, costPool = null) => {
     const router = express.Router();
 
     // Apply auth middleware (accepts ADMIN_TOKEN or JWT from dashboard)
@@ -79,11 +83,18 @@ module.exports = (citationPool, authPool, docPool) => {
     const businessController = new BusinessController(businessService);
     router.use('/business', businessRoutes(businessController));
 
-    // --- Analytics (citation_service_usage) ---
-    const analyticsRepo = new AnalyticsRepo(citationPool);
+    // --- Analytics (citation_usage_events @ citationTest) ---
+    // NOTE: uses costPool, NOT citationPool. Never fall back to citationPool here — that
+    // would query a non-existent table against citation_db, which this feature must not touch.
+    const analyticsRepo = new AnalyticsRepo(costPool);
     const analyticsService = new AnalyticsService(analyticsRepo, docPool, authPool);
     const analyticsController = new AnalyticsController(analyticsService);
-    router.use('/analytics', analyticsRoutes(analyticsController));
+
+    const rateCardRepo = new RateCardRepo(costPool);
+    const rateCardService = new RateCardService(rateCardRepo);
+    const rateCardController = new RateCardController(rateCardService);
+
+    router.use('/analytics', analyticsRoutes(analyticsController, rateCardController));
 
     return router;
 };

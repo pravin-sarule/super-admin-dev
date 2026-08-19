@@ -38,6 +38,7 @@ const contentRoutes = require('./routes/contentRoutes');
 const draftPool = require('./config/draftDB');
 const paymentPool = require('./config/payment_DB');
 const citationPool = require('./config/citationDB');
+const citationAnalyticsPool = require('./config/citationAnalyticsDB');
 const llmRoutes = require('./routes/llmRoutes');
 const chunkingMethodRoutes = require('./routes/chunkingMethodRoutes');
 const systemPromptRoutes = require('./routes/systemPromptRoutes');
@@ -121,8 +122,8 @@ console.log('📌 /api/admin/templates → Using Main DB (pool)');
 app.use('/api/admin/templates', adminTemplateRoutes(draftPool));
 
 // Citation admin: dedicated path so it never conflicts with /api/admin/plans or other admin routes
-console.log('📌 /api/citation-admin  → Using Citation DB + Auth DB + docDB');
-app.use('/api/citation-admin', citationAdminRoutes(citationPool, pool, docPool));
+console.log('📌 /api/citation-admin  → Using Citation DB + Auth DB + docDB + Citation Cost DB');
+app.use('/api/citation-admin', citationAdminRoutes(citationPool, pool, docPool, citationAnalyticsPool));
 
 console.log('📌 /api/admin/plans     → Using Payment DB (paymentPool)');
 app.use('/api/admin/plans', planRoutes(paymentPool));
@@ -1037,6 +1038,7 @@ const startServer = async () => {
 
         try {
           await citationPool.end();
+          await citationAnalyticsPool.end();
           console.log('✅ Citation PostgreSQL pool closed.');
         } catch (e) {
           console.error('❌ Error closing citation pool:', e);
