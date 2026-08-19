@@ -725,31 +725,48 @@ async function listIkJudgmentDocuments({ search = '', limit = 10, offset = 0 } =
     offset,
   });
 
-  const response = await axios.post(
-    `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
-    {
-      from: offset,
-      size: limit,
-      track_total_hits: true,
-      query: buildIkSearchQuery(search),
-      sort: [
-        { publishdate: { order: 'desc', unmapped_type: 'date' } },
-        { _id: { order: 'desc' } },
-      ],
-      _source: [
-        'tid',
-        'title',
-        'docsource',
-        'publishdate',
-        'fetched_at',
-        'author',
-        'bench',
-        'numcites',
-        'numcitedby',
-      ],
-    },
-    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
-  );
+  const searchBody = {
+    from: offset,
+    size: limit,
+    track_total_hits: true,
+    query: buildIkSearchQuery(search),
+    _source: [
+      'tid',
+      'title',
+      'docsource',
+      'publishdate',
+      'fetched_at',
+      'author',
+      'bench',
+      'numcites',
+      'numcitedby',
+    ],
+  };
+
+  let response;
+  try {
+    response = await axios.post(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+      {
+        ...searchBody,
+        sort: [
+          { publishdate: { order: 'desc', unmapped_type: 'date', missing: '_last' } },
+        ],
+      },
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+  } catch (error) {
+    logger.error('ik_judgments sorted list failed, retrying without sort', error, {
+      index: IK_JUDGMENTS_INDEX,
+      upstreamStatus: error.response?.status || null,
+      upstreamData: error.response?.data || null,
+    });
+    response = await axios.post(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+      searchBody,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+  }
 
   const hits = Array.isArray(response.data?.hits?.hits) ? response.data.hits.hits : [];
   const total = Number(response.data?.hits?.total?.value || hits.length);

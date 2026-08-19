@@ -78,6 +78,8 @@ const PipelineInspectDashboard = ({
     || null;
   const qdrantPointCount = detail.stores?.qdrant?.count || 0;
   const textPreview = String(detail.textPreview || upload.mergedText || '');
+  const htmlDoc = String(detail.htmlDoc || upload.htmlDoc || '');
+  const hasHtmlDoc = /<\/?[a-z][\s\S]*>/i.test(htmlDoc);
   const detailStatus = upload.status || judgment.status;
 
   const statCards = [
@@ -233,6 +235,41 @@ const PipelineInspectDashboard = ({
             value={upload.sourceUrl || judgment.citation_data?.source_url}
             className="md:col-span-2"
           />
+        </div>
+      </section>
+
+      <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-semibold text-slate-900">Full Document</h2>
+            <p className="text-sm text-slate-500">
+              Complete judgment text stored in `ik_judgments` for {upload.originalFilename || judgment.case_name || 'this document'}.
+            </p>
+          </div>
+          {upload.sourceUrl ? (
+            <a
+              href={upload.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center rounded-2xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-blue-700 transition hover:bg-blue-50"
+            >
+              Open on Indian Kanoon
+            </a>
+          ) : null}
+        </div>
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
+          {hasHtmlDoc ? (
+            <iframe
+              title={upload.originalFilename || 'Judgment document'}
+              sandbox=""
+              srcDoc={htmlDoc}
+              className="h-[80vh] w-full bg-white"
+            />
+          ) : (
+            <div className="h-[80vh] overflow-y-auto whitespace-pre-wrap p-6 text-sm leading-7 text-slate-800">
+              {textPreview || 'No document text is stored for this judgment.'}
+            </div>
+          )}
         </div>
       </section>
 

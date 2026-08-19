@@ -107,7 +107,13 @@ const PipelineJudgmentTable = ({
                   return (
                     <tr key={judgment.judgmentUuid} className="hover:bg-slate-50">
                       <td className="px-5 py-4 align-top">
-                        <div className="font-semibold text-slate-900">{judgment.caseName || 'Case name missing'}</div>
+                        <button
+                          type="button"
+                          onClick={() => onInspect?.(judgment)}
+                          className="text-left font-semibold text-blue-700 underline-offset-2 transition hover:text-blue-800 hover:underline"
+                        >
+                          {judgment.caseName || 'Case name missing'}
+                        </button>
                         <div className="mt-1 text-xs text-slate-500">
                           {judgment.year ? `Year ${judgment.year}` : 'Year unavailable'}
                         </div>

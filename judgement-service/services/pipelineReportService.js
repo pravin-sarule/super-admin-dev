@@ -540,6 +540,7 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
       chunks: [],
       aliases: [],
       textPreview,
+      htmlDoc: ikDocument.doc || '',
       stores: {
         postgres: { status: 'degraded', count: 0 },
         elasticsearch: {
