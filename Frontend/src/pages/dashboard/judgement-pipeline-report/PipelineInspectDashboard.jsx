@@ -8,9 +8,7 @@ import {
   Text,
 } from 'lucide-react';
 import judgementAdminApi from '../../../services/judgementAdminApi';
-import ChunkPreviewCard from '../judgement-service/ChunkPreviewCard';
 import IndexReferencesCard from '../judgement-service/IndexReferencesCard';
-import TextPreviewCard from '../judgement-service/TextPreviewCard';
 import VectorPreviewCard from '../judgement-service/VectorPreviewCard';
 import { STATUS_STYLES } from '../judgement-service/constants';
 import { prettyStatus } from '../judgement-service/helpers';
@@ -281,11 +279,6 @@ const PipelineInspectDashboard = ({
           qdrantCollection={qdrantCollection}
           fetchVectors={fetchPipelineVectors}
         />
-      </section>
-
-      <section className="grid gap-6 xl:grid-cols-2">
-        <TextPreviewCard textPreview={textPreview} />
-        <ChunkPreviewCard chunks={chunks} />
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
