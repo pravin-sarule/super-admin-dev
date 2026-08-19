@@ -1,11 +1,7 @@
 import React from 'react';
 import {
   ArrowLeft,
-  FileStack,
   LoaderCircle,
-  ScanText,
-  ShieldCheck,
-  Text,
 } from 'lucide-react';
 import judgementAdminApi from '../../../services/judgementAdminApi';
 import IndexReferencesCard from '../judgement-service/IndexReferencesCard';
@@ -67,47 +63,14 @@ const PipelineInspectDashboard = ({
   const upload = detail.upload || {};
   const judgment = detail.judgment || {};
   const chunks = detail.chunks || [];
-  const indexedVectors = chunks.filter(
-    (chunk) => chunk.qdrant_point_id || chunk.embedding_status === 'indexed'
-  ).length;
   const qdrantCollection = detail.stores?.qdrant?.collection
     || upload.qdrantCollection
     || judgment.qdrant_collection
     || null;
-  const qdrantPointCount = detail.stores?.qdrant?.count || 0;
   const textPreview = String(detail.textPreview || upload.mergedText || '');
   const htmlDoc = String(detail.htmlDoc || upload.htmlDoc || '');
   const hasHtmlDoc = /<\/?[a-z][\s\S]*>/i.test(htmlDoc);
   const detailStatus = upload.status || judgment.status;
-
-  const statCards = [
-    {
-      label: 'Chunks',
-      value: chunks.length,
-      detail: `${indexedVectors} indexed vectors`,
-      icon: Text,
-    },
-    {
-      label: 'Vectors in Qdrant',
-      value: qdrantPointCount,
-      detail: qdrantCollection || 'Qdrant pending',
-      icon: ScanText,
-    },
-    {
-      label: 'Aliases',
-      value: (detail.aliases || []).length,
-      detail: upload.canonicalId || 'Canonical ID pending',
-      icon: ShieldCheck,
-    },
-    {
-      label: 'Elasticsearch',
-      value: detail.stores?.elasticsearch?.present ? 'Indexed' : 'Missing',
-      detail: upload.esDocId
-        ? `${detail.stores?.elasticsearch?.index || 'ik_judgments'} • ${upload.esDocId}`
-        : 'Pending',
-      icon: FileStack,
-    },
-  ];
 
   const fetchPipelineVectors = (_id, pointIds) =>
     judgementAdminApi.pipelineReportVectors(judgmentUuid, pointIds);
@@ -169,25 +132,6 @@ const PipelineInspectDashboard = ({
             </div>
           </div>
         ) : null}
-      </section>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card) => (
-          <div key={card.label} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  {card.label}
-                </div>
-                <div className="mt-2 text-2xl font-bold text-slate-900">{card.value}</div>
-                <div className="mt-2 break-all text-xs text-slate-500">{card.detail}</div>
-              </div>
-              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 text-slate-600">
-                <card.icon className="h-5 w-5" />
-              </div>
-            </div>
-          </div>
-        ))}
       </section>
 
       <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
