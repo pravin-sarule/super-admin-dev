@@ -2,14 +2,17 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const { createLogger } = require('../utils/logger');
 
-const DEFAULT_JWT_SECRET = '4e14aa06e9fc8bc7a4140949f711bdf89b7f600942d2cbfad513f87d11af02cc';
+const JWT_SECRET = String(process.env.JWT_SECRET || '').trim();
 const INTERNAL_SERVICE_KEY =
   process.env.JUDGEMENT_INTERNAL_API_KEY ||
   process.env.INTERNAL_SERVICE_KEY ||
   '';
 
-const JWT_SECRET = process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
 const logger = createLogger('Auth');
+
+if (!JWT_SECRET) {
+  logger.error('JWT_SECRET is not set. Admin tokens cannot be verified.');
+}
 
 function normalizeRole(role) {
   return String(role || '')

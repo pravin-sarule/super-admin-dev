@@ -102,7 +102,9 @@ const PipelineInspectDashboard = ({
     {
       label: 'Elasticsearch',
       value: detail.stores?.elasticsearch?.present ? 'Indexed' : 'Missing',
-      detail: upload.esDocId || 'Pending',
+      detail: upload.esDocId
+        ? `${detail.stores?.elasticsearch?.index || 'ik_judgments'} • ${upload.esDocId}`
+        : 'Pending',
       icon: FileStack,
     },
   ];
@@ -150,7 +152,7 @@ const PipelineInspectDashboard = ({
           </div>
 
           <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-right text-sm text-slate-600">
-            <div className="font-semibold text-slate-900">Judgment UUID</div>
+            <div className="font-semibold text-slate-900">Document ID</div>
             <div className="mt-1 break-all">{judgmentUuid}</div>
           </div>
         </div>

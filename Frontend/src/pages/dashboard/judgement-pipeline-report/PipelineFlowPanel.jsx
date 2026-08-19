@@ -43,7 +43,9 @@ const PipelineFlowPanel = ({ descriptor, stores, summary, warnings }) => {
             },
             {
               key: 'elasticsearch',
-              label: 'Elasticsearch',
+              label: stores?.elasticsearch?.index
+                ? `Elasticsearch • ${stores.elasticsearch.index}`
+                : 'Elasticsearch',
               value: stores?.elasticsearch?.count || 0,
             },
             {

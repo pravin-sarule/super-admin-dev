@@ -71,11 +71,21 @@ const getAuthHeaders = () => {
   };
 };
 
-// On 401 (Invalid token / Unauthorized), clear token and force re-login so backend and frontend stay in sync
+function isJudgementApiRequest(err) {
+  const url = String(err.config?.url || err.request?.responseURL || '');
+  return (
+    url.includes('/judgements-admin') ||
+    url.includes('/api/judgements') ||
+    url.includes('judgement-service')
+  );
+}
+
+// On 401 from the admin backend, clear token and force re-login.
+// Do not treat judgement-service 401s as a session expiry — that service has its own JWT check.
 axios.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !isJudgementApiRequest(err)) {
       localStorage.removeItem('token');
       sessionStorage.removeItem('token');
       window.location.href = '/login';

@@ -43,7 +43,7 @@ const PipelineJudgmentTable = ({
           <div>
             <h2 className="text-xl font-semibold text-slate-900">Inserted Judgments</h2>
             <p className="text-sm text-slate-500">
-              These are the judgments inserted by the Indian Kanoon fallback pipeline.
+              These are all documents currently stored in Elasticsearch index `ik_judgments`.
             </p>
           </div>
 
@@ -54,7 +54,7 @@ const PipelineJudgmentTable = ({
                 type="text"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search case, canonical id, court"
+                placeholder="Search title, IK id, court"
                 className="w-full rounded-2xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-4 text-sm text-slate-700 outline-none focus:border-blue-400 md:w-72"
               />
             </div>
@@ -78,7 +78,7 @@ const PipelineJudgmentTable = ({
             <thead className="bg-slate-50">
               <tr className="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <th className="px-5 py-4">Case</th>
-                <th className="px-5 py-4">Canonical ID</th>
+                <th className="px-5 py-4">IK ID</th>
                 <th className="px-5 py-4">Court / Date</th>
                 <th className="px-5 py-4">Stores</th>
                 <th className="px-5 py-4">Inserted</th>
@@ -97,7 +97,7 @@ const PipelineJudgmentTable = ({
               ) : judgments.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-16 text-center text-slate-500">
-                    No `ik_pipeline` judgments match the current search.
+                    No `ik_judgments` documents match the current search.
                   </td>
                 </tr>
               ) : (
@@ -124,7 +124,11 @@ const PipelineJudgmentTable = ({
                       </td>
                       <td className="px-5 py-4 align-top">
                         <div className="flex flex-wrap gap-2">
-                          <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${STORE_BADGE_STYLES.present}`}>
+                          <span
+                            className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
+                              judgment.stores?.postgres ? STORE_BADGE_STYLES.present : STORE_BADGE_STYLES.missing
+                            }`}
+                          >
                             PG
                           </span>
                           <span

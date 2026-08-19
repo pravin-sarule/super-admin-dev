@@ -13,6 +13,7 @@ const ELASTICSEARCH_PASSWORD =
   process.env.ELASTICSEARCH_PASSWORD ||
   process.env.ELASTIC_PASSWORD;
 const INDEX_NAME = process.env.ELASTICSEARCH_INDEX || 'judgments';
+const IK_JUDGMENTS_INDEX = process.env.IK_JUDGMENTS_INDEX || 'ik_judgments';
 const ELASTICSEARCH_TIMEOUT_MS = Number(process.env.ELASTICSEARCH_TIMEOUT_MS || 120000);
 const ELASTICSEARCH_HEALTH_TIMEOUT_MS = Number(process.env.ELASTICSEARCH_HEALTH_TIMEOUT_MS || 5000);
 
@@ -611,6 +612,214 @@ async function searchJudgmentDocuments({
   }
 }
 
+function yearFromPublishDate(publishdate) {
+  const year = Number(String(publishdate || '').slice(0, 4));
+  return Number.isFinite(year) && year > 1000 ? year : null;
+}
+
+function mapIkJudgmentHit(hit = {}) {
+  const source = hit._source || {};
+  const tid = String(source.tid || hit._id || '').trim();
+  const publishdate = source.publishdate || source.fetched_at || null;
+
+  return {
+    tid,
+    title: source.title || null,
+    docsource: source.docsource || null,
+    publishdate,
+    text: source.text || '',
+    doc: source.doc || '',
+    author: source.author || null,
+    bench: source.bench || null,
+    numcites: Number(source.numcites || 0),
+    numcitedby: Number(source.numcitedby || 0),
+    casesCited: Array.isArray(source.casesCited) ? source.casesCited : [],
+    citedBy: Array.isArray(source.citedBy) ? source.citedBy : [],
+    fetched_at: source.fetched_at || null,
+    year: yearFromPublishDate(publishdate),
+    source_url: tid ? `https://indiankanoon.org/doc/${tid}/` : null,
+  };
+}
+
+function buildIkSearchQuery(search = '') {
+  const normalizedSearch = String(search || '').trim();
+  if (!normalizedSearch) {
+    return { match_all: {} };
+  }
+
+  return {
+    bool: {
+      should: [
+        { term: { tid: normalizedSearch } },
+        {
+          multi_match: {
+            query: normalizedSearch,
+            fields: ['title^4', 'tid^5', 'docsource^3', 'text'],
+            type: 'best_fields',
+            operator: 'and',
+          },
+        },
+      ],
+      minimum_should_match: 1,
+    },
+  };
+}
+
+async function summarizeIkJudgmentDocuments() {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const startedAt = Date.now();
+  logger.flow('Summarizing ik_judgments documents', {
+    index: IK_JUDGMENTS_INDEX,
+  });
+
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+    {
+      size: 0,
+      track_total_hits: true,
+      aggs: {
+        with_date: {
+          filter: { exists: { field: 'publishdate' } },
+        },
+        courts: {
+          cardinality: { field: 'docsource.kw' },
+        },
+        publish_min: { min: { field: 'publishdate' } },
+        publish_max: { max: { field: 'publishdate' } },
+      },
+    },
+    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+  );
+
+  const total = Number(response.data?.hits?.total?.value || 0);
+  const summary = {
+    index: IK_JUDGMENTS_INDEX,
+    totalJudgments: total,
+    judgmentsWithDate: Number(response.data?.aggregations?.with_date?.doc_count || 0),
+    distinctCourts: Number(response.data?.aggregations?.courts?.value || 0),
+    firstInsertedAt: response.data?.aggregations?.publish_min?.value_as_string || null,
+    latestInsertedAt: response.data?.aggregations?.publish_max?.value_as_string || null,
+  };
+
+  logger.info('ik_judgments summary completed', {
+    ...summary,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return summary;
+}
+
+async function listIkJudgmentDocuments({ search = '', limit = 10, offset = 0 } = {}) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const startedAt = Date.now();
+  logger.flow('Listing ik_judgments documents', {
+    index: IK_JUDGMENTS_INDEX,
+    search,
+    limit,
+    offset,
+  });
+
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+    {
+      from: offset,
+      size: limit,
+      track_total_hits: true,
+      query: buildIkSearchQuery(search),
+      sort: [
+        { publishdate: { order: 'desc', unmapped_type: 'date' } },
+        { _id: { order: 'desc' } },
+      ],
+      _source: [
+        'tid',
+        'title',
+        'docsource',
+        'publishdate',
+        'fetched_at',
+        'author',
+        'bench',
+        'numcites',
+        'numcitedby',
+      ],
+    },
+    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+  );
+
+  const hits = Array.isArray(response.data?.hits?.hits) ? response.data.hits.hits : [];
+  const total = Number(response.data?.hits?.total?.value || hits.length);
+
+  logger.info('ik_judgments list completed', {
+    index: IK_JUDGMENTS_INDEX,
+    search,
+    total,
+    returnedRows: hits.length,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return {
+    index: IK_JUDGMENTS_INDEX,
+    total,
+    rows: hits.map(mapIkJudgmentHit),
+  };
+}
+
+async function getIkJudgmentDocument(docId) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const normalizedDocId = String(docId || '').trim();
+  if (!normalizedDocId) {
+    return null;
+  }
+
+  const startedAt = Date.now();
+  logger.flow('Fetching ik_judgments document', {
+    index: IK_JUDGMENTS_INDEX,
+    docId: normalizedDocId,
+  });
+
+  try {
+    const response = await axios.get(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_doc/${encodeURIComponent(normalizedDocId)}`,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+
+    if (!response.data?.found) {
+      return null;
+    }
+
+    logger.info('ik_judgments document fetch completed', {
+      index: IK_JUDGMENTS_INDEX,
+      docId: normalizedDocId,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return mapIkJudgmentHit(response.data);
+  } catch (error) {
+    if (error.response?.status === 404) {
+      logger.warn('ik_judgments document not found', {
+        index: IK_JUDGMENTS_INDEX,
+        docId: normalizedDocId,
+      });
+      return null;
+    }
+
+    logger.error('ik_judgments document fetch failed', error, {
+      index: IK_JUDGMENTS_INDEX,
+      docId: normalizedDocId,
+      upstreamStatus: error.response?.status || null,
+    });
+    throw error;
+  }
+}
+
 module.exports = {
   checkElasticsearchHealth,
   indexJudgmentDocument,
@@ -618,4 +827,8 @@ module.exports = {
   getJudgmentDocument,
   countJudgmentDocuments,
   searchJudgmentDocuments,
+  summarizeIkJudgmentDocuments,
+  listIkJudgmentDocuments,
+  getIkJudgmentDocument,
+  IK_JUDGMENTS_INDEX,
 };

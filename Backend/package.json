@@ -10,6 +10,7 @@
     "migrate:template-files": "node migrations/run_template_files_migration.js",
     "migrate:document-ai": "node migrations/run_document_ai_extractions_migration.js",
     "migrate:citation-usage": "node migrations/run_citation_usage_events_migration.js",
+    "repair:citation-usd": "node migrations/repair_missing_cost_usd.js",
     "migrate:jurinex-voice": "node modules/jurinex-voice/db/migrate.js"
   },
   "keywords": [],
