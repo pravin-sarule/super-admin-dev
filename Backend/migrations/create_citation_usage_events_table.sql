@@ -193,6 +193,7 @@ DECLARE
     native        NUMERIC(24,10) := 0;
     billable      NUMERIC(24,10) := 0;
     uncached_in   NUMERIC(24,10) := 0;
+    fx            NUMERIC(12,4);
 BEGIN
     -- (a) explicit cost supplied => manual override, rate card bypassed
     IF NEW.cost_inr IS NOT NULL OR NEW.cost_usd IS NOT NULL THEN
@@ -240,9 +241,35 @@ BEGIN
         NEW.cost_source         := 'rate_card';
 
     ELSIF NEW.producer_cost_inr IS NOT NULL OR NEW.producer_cost_usd IS NOT NULL THEN
-        -- (c) no rate card row: fall back to whatever the engine computed
-        NEW.cost_inr    := COALESCE(NEW.producer_cost_inr, 0);
-        NEW.cost_usd    := COALESCE(NEW.producer_cost_usd, 0);
+        -- (c) no rate card row: fall back to whatever the engine computed.
+        --
+        -- The engine almost always sends ONE currency (India Kanoon is INR-native, so it
+        -- reports rupees only). COALESCE(...,0) on the other side booked those rows as
+        -- INR-with-$0.00, which is not a rounding artefact — it silently drags the
+        -- dashboard's INR:USD ratio away from the real peg. Derive the missing side from
+        -- the prevailing rate so both totals stay reconcilable.
+        SELECT c.inr_per_usd INTO fx
+          FROM citation_rate_card c
+         WHERE c.is_active
+           AND LOWER(TRIM(c.provider)) = LOWER(TRIM(NEW.provider))
+           AND c.effective_from <= NEW.occurred_at
+         ORDER BY c.effective_from DESC
+         LIMIT 1;
+
+        IF fx IS NULL THEN
+            -- Unknown provider: any active rate carries the same USD peg.
+            SELECT c.inr_per_usd INTO fx
+              FROM citation_rate_card c
+             WHERE c.is_active
+             ORDER BY c.effective_from DESC
+             LIMIT 1;
+        END IF;
+
+        fx := COALESCE(NULLIF(fx, 0), 95.66);
+
+        NEW.cost_inr := COALESCE(NEW.producer_cost_inr, NEW.producer_cost_usd * fx, 0);
+        NEW.cost_usd := COALESCE(NEW.producer_cost_usd, NEW.producer_cost_inr / fx, 0);
+        NEW.applied_inr_per_usd := fx;
         NEW.rate_version := 'producer';
         NEW.cost_source  := 'producer';
 
@@ -286,12 +313,38 @@ CREATE TRIGGER trg_cue_append_only
 
 
 -- -------------------------------------------------------------------------------------
--- 6. CANONICAL VIEW  —  the single place the India Kanoon alias merge is defined
+-- 6. CANONICAL VIEW  —  the single place a vendor score-card bucket is defined
 -- -------------------------------------------------------------------------------------
+-- A score card is a VENDOR (who bills us), so the bucket resolves from `provider`, never
+-- from the producer's free-text `service`.
+--
+-- Why: on 2026-08-18 the engine changed `service` from 'gemini' to 'judgement_ai' while
+-- still calling gemini-2.5-flash / gemini-3.6-flash / gemini-embedding-001 with
+-- provider='gemini'. That split one vendor's spend across two score cards mid-week — the
+-- Gemini card read ₹0.00 for every range after the 18th while ₹74 of Gemini spend sat in
+-- a card named after the engine's own product. `provider` is the stable identity; the
+-- engine may rename `service` again and the Gemini card will still total all Gemini cost.
+--
+-- `service` is NOT discarded — it stays on every row, and the run breakdown still splits
+-- by operation/agent (judgment_verifier, keyword_extract, …), so nothing is lost.
 CREATE OR REPLACE VIEW v_citation_usage_events AS
 SELECT
     e.*,
     CASE
+        WHEN LOWER(TRIM(e.provider)) IN ('gemini', 'google', 'google_ai', 'vertex_ai')
+            THEN 'gemini'
+        WHEN LOWER(TRIM(e.provider)) IN ('claude', 'anthropic')
+            THEN 'claude'
+        WHEN LOWER(TRIM(e.provider)) IN (
+            'indian_kanoon', 'india_kanoon', 'indiakanoon',
+            'india_kanoon_api', 'indian_kanoon_api', 'inidia_kanoon'
+        ) THEN 'india_kanoon'
+        WHEN LOWER(TRIM(e.provider)) IN ('document_ai', 'documentai', 'google_document_ai')
+            THEN 'document_ai'
+        WHEN LOWER(TRIM(e.provider)) = 'openai'  THEN 'openai'
+        WHEN LOWER(TRIM(e.provider)) = 'serper'  THEN 'serper'
+        -- Unrecognised provider: fall back to the service label, preserving the original
+        -- India Kanoon alias merge so an event with a blank/odd provider still buckets.
         WHEN LOWER(TRIM(e.service)) IN (
             'indian_kanoon', 'india_kanoon', 'indiakanoon',
             'india_kanoon_api', 'indian_kanoon_api', 'inidia_kanoon'
@@ -416,3 +469,35 @@ UPDATE citation_rate_card
 RAISE NOTICE 'Rate card v1 seeded.';
 END
 $seed$;
+
+
+-- -------------------------------------------------------------------------------------
+-- 9. OPERATION ALIASES  —  producer spellings that must not fall through the rate card
+-- -------------------------------------------------------------------------------------
+-- The engine emits operation='doc' for an India Kanoon document fetch; the rate card was
+-- seeded as 'document'. With no match the pricing trigger fell back to the engine's own
+-- figure (cost_source='producer'), which bypasses the rate card entirely — repricing IK
+-- documents in the admin UI would not have moved those calls, and because the engine
+-- reports rupees only, each such row was booked as INR with $0.00.
+--
+-- Deliberately OUTSIDE the version-guarded seed block above, so it also lands on a DB
+-- that was already migrated. Idempotent via NOT EXISTS; the rate is copied from the
+-- canonical 'document' row rather than hardcoded, so the two cannot drift apart.
+INSERT INTO citation_rate_card
+    (version, provider, service, model, operation, tier, display_name, unit, currency,
+     inr_per_usd, flat_rate_per_unit, is_active, notes, updated_by, effective_from)
+SELECT d.version, d.provider, d.service, NULL, 'doc', d.tier,
+       'India Kanoon — Document (engine alias "doc")', d.unit, d.currency,
+       d.inr_per_usd, d.flat_rate_per_unit, TRUE,
+       'Alias of operation=document — the engine writes "doc"', 'migration',
+       TIMESTAMPTZ '2024-01-01 00:00:00+00'
+  FROM citation_rate_card d
+ WHERE d.provider = 'indian_kanoon'
+   AND d.operation = 'document'
+   AND d.is_active
+   AND NOT EXISTS (
+        SELECT 1 FROM citation_rate_card x
+         WHERE x.provider = 'indian_kanoon' AND x.operation = 'doc' AND x.is_active
+   )
+ ORDER BY d.effective_from DESC
+ LIMIT 1;
