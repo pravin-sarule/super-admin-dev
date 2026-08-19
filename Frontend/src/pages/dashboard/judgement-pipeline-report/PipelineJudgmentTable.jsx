@@ -2,7 +2,7 @@ import React from 'react';
 import { ChevronLeft, ChevronRight, Eye, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import { formatDateTime, prettyStatus } from './helpers';
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
 
 const STATUS_STYLES = {
   uploaded: 'border-sky-200 bg-sky-50 text-sky-700',
@@ -105,7 +105,11 @@ const PipelineJudgmentTable = ({
                   const statusStyle = STATUS_STYLES[judgment.status] || 'border-slate-200 bg-slate-100 text-slate-600';
 
                   return (
-                    <tr key={judgment.judgmentUuid} className="hover:bg-slate-50">
+                    <tr
+                      key={judgment.judgmentUuid || judgment.canonicalId}
+                      className="cursor-pointer hover:bg-slate-50"
+                      onClick={() => onInspect?.(judgment)}
+                    >
                       <td className="px-5 py-4 align-top">
                         <button
                           type="button"
@@ -139,13 +143,13 @@ const PipelineJudgmentTable = ({
                           </span>
                           <span
                             className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${
-                              judgment.stores.elasticsearch ? STORE_BADGE_STYLES.present : STORE_BADGE_STYLES.missing
+                              judgment.stores?.elasticsearch ? STORE_BADGE_STYLES.present : STORE_BADGE_STYLES.missing
                             }`}
                           >
                             ES
                           </span>
                           <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold ${STORE_BADGE_STYLES.qdrant}`}>
-                            Qdrant {judgment.stores.qdrantPoints || 0}
+                            Qdrant {judgment.stores?.qdrantPoints || 0}
                           </span>
                         </div>
                       </td>
@@ -163,7 +167,10 @@ const PipelineJudgmentTable = ({
                       <td className="px-5 py-4 align-top text-right">
                         <button
                           type="button"
-                          onClick={() => onInspect?.(judgment)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            onInspect?.(judgment);
+                          }}
                           className="inline-flex items-center gap-1.5 rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                         >
                           <Eye className="h-3.5 w-3.5" />

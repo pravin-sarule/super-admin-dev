@@ -5,7 +5,14 @@ import { createPipelineReportLogger } from './logger';
 
 const logger = createPipelineReportLogger('Dashboard');
 const DEFAULT_SOURCE_TYPE = 'ik_pipeline';
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 200;
+
+function extractJudgments(payload = {}) {
+  if (Array.isArray(payload.judgments)) return payload.judgments;
+  if (Array.isArray(payload.data?.judgments)) return payload.data.judgments;
+  if (Array.isArray(payload.rows)) return payload.rows;
+  return [];
+}
 
 function buildSummaryState(payload = {}) {
   return {
@@ -115,7 +122,7 @@ export default function useJudgementPipelineReport({ sourceType = DEFAULT_SOURCE
 
         if (ignore) return;
 
-        setJudgments(response.judgments || []);
+        setJudgments(extractJudgments(response));
         setTableWarnings(response.warnings || []);
         setErrorMessage('');
         setMeta(response.meta || {
@@ -128,7 +135,7 @@ export default function useJudgementPipelineReport({ sourceType = DEFAULT_SOURCE
         logger.info('Pipeline report table loaded', {
           sourceType: normalizedSourceType,
           total: response.meta?.total || 0,
-          returnedRows: (response.judgments || []).length,
+          returnedRows: extractJudgments(response).length,
         });
       } catch (error) {
         if (ignore) return;

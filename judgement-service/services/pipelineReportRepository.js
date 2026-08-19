@@ -5,7 +5,12 @@ const logger = createLogger('PipelineReportRepo');
 const DEFAULT_SOURCE_TYPE = 'ik_pipeline';
 const ALL_SOURCE_TYPES = 'all';
 const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 100;
+const MAX_LIMIT = 1000;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return UUID_PATTERN.test(String(value || '').trim());
+}
 
 function normalizeSourceType(sourceType) {
   const normalized = String(sourceType || DEFAULT_SOURCE_TYPE).trim();
@@ -174,24 +179,32 @@ async function listPipelineJudgments({
 
 async function getPipelineJudgmentByUuid(judgmentUuid) {
   const normalizedUuid = String(judgmentUuid || '').trim();
-  if (!normalizedUuid) return null;
+  if (!normalizedUuid || !isUuid(normalizedUuid)) return null;
 
-  const result = await pool.query(
-    `
-      SELECT *
-      FROM judgments
-      WHERE judgment_uuid = $1
-      LIMIT 1
-    `,
-    [normalizedUuid]
-  );
+  try {
+    const result = await pool.query(
+      `
+        SELECT *
+        FROM judgments
+        WHERE judgment_uuid = $1
+        LIMIT 1
+      `,
+      [normalizedUuid]
+    );
 
-  return result.rows[0] || null;
+    return result.rows[0] || null;
+  } catch (error) {
+    logger.warn('Pipeline judgment UUID lookup failed', {
+      judgmentUuid: normalizedUuid,
+      message: error.message,
+    });
+    return null;
+  }
 }
 
 async function getChunksByJudgmentUuid(judgmentUuid) {
   const normalizedUuid = String(judgmentUuid || '').trim();
-  if (!normalizedUuid) return [];
+  if (!normalizedUuid || !isUuid(normalizedUuid)) return [];
 
   const result = await pool.query(
     `
@@ -208,7 +221,7 @@ async function getChunksByJudgmentUuid(judgmentUuid) {
 
 async function getAliasesByJudgmentUuid(judgmentUuid) {
   const normalizedUuid = String(judgmentUuid || '').trim();
-  if (!normalizedUuid) return [];
+  if (!normalizedUuid || !isUuid(normalizedUuid)) return [];
 
   const result = await pool.query(
     `

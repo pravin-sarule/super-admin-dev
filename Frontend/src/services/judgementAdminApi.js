@@ -72,7 +72,9 @@ function shouldRetryDirect(error, transport) {
 
   if (!error.response) return true;
 
-  return Number(error.response.status) >= 500;
+  // Do not send local 5xx to the remote judgement-service; that retry often
+  // fails CORS and shows up in the UI as a generic Network Error.
+  return false;
 }
 
 function authHeaders(extra = {}) {

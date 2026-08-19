@@ -281,24 +281,7 @@ async function listPipelineJudgments({
       offset: normalizedOffset,
     });
 
-    const warnings = [];
-    const canonicalIds = ikList.rows.map((row) => row.tid).filter(Boolean);
-    let qdrantCountsMap = new Map();
-
-    if (canonicalIds.length) {
-      try {
-        qdrantCountsMap = await countPointsByCanonicalIds({
-          sourceType: normalizedSourceType,
-          canonicalIds,
-        });
-      } catch (error) {
-        warnings.push(createWarning('qdrant', error));
-      }
-    }
-
-    const judgments = ikList.rows.map((row) => (
-      mapIkRowToJudgment(row, Number(qdrantCountsMap.get(row.tid) || 0))
-    ));
+    const judgments = ikList.rows.map((row) => mapIkRowToJudgment(row, 0));
 
     logger.info('Pipeline judgment list ready from ik_judgments', {
       sourceType: normalizedSourceType,
@@ -320,7 +303,7 @@ async function listPipelineJudgments({
         hasMore: normalizedOffset + judgments.length < ikList.total,
         index: ikList.index || IK_JUDGMENTS_INDEX,
       },
-      warnings,
+      warnings: [],
     };
   }
 
@@ -466,18 +449,7 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
     }
 
     const textPreview = String(ikDocument.text || '');
-    const qdrantFilter = buildQdrantFilter({
-      sourceType: 'ik_pipeline',
-      canonicalId: ikDocument.tid,
-    });
-
     const warnings = [];
-    let qdrantPointCount = 0;
-    try {
-      qdrantPointCount = await countPoints({ filter: qdrantFilter });
-    } catch (error) {
-      warnings.push(createWarning('qdrant', error));
-    }
 
     const upload = {
       documentId: ikDocument.tid,
@@ -517,8 +489,7 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
       judgmentUuid: normalizedUuid,
       elasticsearchPresent: true,
       textPreviewChars: textPreview.length,
-      qdrantPointCount,
-      warningCount: warnings.length,
+      htmlChars: String(ikDocument.doc || '').length,
       durationMs: Date.now() - startedAt,
     });
 
@@ -550,8 +521,8 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
           index: IK_JUDGMENTS_INDEX,
         },
         qdrant: {
-          status: warnings.some((warning) => warning.store === 'qdrant') ? 'degraded' : 'healthy',
-          count: qdrantPointCount,
+          status: 'degraded',
+          count: 0,
           collection: COLLECTION_NAME,
         },
       },
