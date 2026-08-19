@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Loader2, Cpu, Globe, AlertTriangle, Clock } from 'lucide-react';
+import { X, Loader2, Cpu, Globe, AlertTriangle, Clock, ChevronDown } from 'lucide-react';
 import { getAnalyticsSessionDetails } from '../../../services/citationAdminApi';
 
 /**
@@ -349,18 +349,35 @@ export default function SessionCostModal({ sessionId, runId, onClose }) {
                 </p>
               )}
 
-              {/* Raw call log */}
+              {/* Raw call log — disclosure button, styled like the page's other actions */}
               <button
                 type="button"
                 onClick={() => setShowTimeline((s) => !s)}
-                className="mt-4 inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-900"
+                aria-expanded={showTimeline}
+                aria-controls="session-raw-call-log"
+                className={`mt-4 inline-flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 ${
+                  showTimeline
+                    ? 'border-slate-300 bg-slate-100 text-slate-900 hover:bg-slate-200'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                }`}
               >
-                <Clock className="w-3.5 h-3.5" />
-                {showTimeline ? 'Hide' : 'Show'} raw call log ({data.timeline.length})
+                <Clock className="w-4 h-4 text-slate-400" />
+                {showTimeline ? 'Hide raw call log' : 'Show raw call log'}
+                <span className="px-1.5 py-0.5 rounded-md bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-600 tabular-nums">
+                  {data.timeline.length}
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-400 transition-transform ${
+                    showTimeline ? 'rotate-180' : ''
+                  }`}
+                />
               </button>
 
               {showTimeline && (
-                <div className="mt-3 overflow-x-auto rounded-lg border border-slate-200 max-h-72 overflow-y-auto">
+                <div
+                  id="session-raw-call-log"
+                  className="mt-3 overflow-x-auto rounded-lg border border-slate-200 max-h-72 overflow-y-auto"
+                >
                   <table className="min-w-full divide-y divide-slate-200 text-[11px]">
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
