@@ -187,7 +187,8 @@ class AnalyticsRepo {
         doc_id,
         user_key AS user_id,
         service_canonical AS service,
-        COALESCE(stage, operation) AS operation,
+        operation,
+        stage,
         model,
         quantity,
         unit,
@@ -210,6 +211,194 @@ class AnalyticsRepo {
       LIMIT $${nextIdx + 1}
     `;
         const result = await this.pool.query(query, [...params, String(userId), limit]);
+        return result.rows;
+    }
+
+    // ------------------------------------------------------------------ sessions
+
+    /**
+     * Total distinct RUNS in scope — drives pagination.
+     *
+     * A session_id spans the whole user session and accumulates many searches, so grouping
+     * by session alone collapses every run into one row. The grouping key is
+     * (session_id, run_id); rows with no run_id (e.g. the costLedger backfill, which is a
+     * session-level snapshot) collapse to a single row per session, which is correct.
+     */
+    async getSessionsCount(f) {
+        const { clause, params } = this._where(f);
+        const result = await this.pool.query(
+            `SELECT COUNT(*)::int AS total FROM (
+               SELECT 1 FROM ${SRC} ${clause} AND session_id IS NOT NULL
+                GROUP BY session_id, run_id
+             ) g`,
+            params
+        );
+        return result.rows[0]?.total ?? 0;
+    }
+
+    /**
+     * One page of run rows. The AI / API split mirrors the engine's terminal report:
+     * "AI subtotal" = LLM providers, "IK subtotal" = the metered HTTP APIs.
+     */
+    async getSessions(f, { limit = 10, offset = 0 } = {}) {
+        const { clause, params, nextIdx } = this._where(f);
+        const query = `
+      SELECT
+        session_id,
+        run_id,
+        MAX(user_key)  AS user_id,
+        MAX(case_id)   AS case_id,
+        COUNT(*)::int                AS event_count,
+        COALESCE(SUM(calls), 0)::bigint          AS total_calls,
+        COALESCE(SUM(input_tokens), 0)::bigint   AS input_tokens,
+        COALESCE(SUM(output_tokens), 0)::bigint  AS output_tokens,
+        COUNT(*) FILTER (WHERE cache_hit)::int   AS cache_hits,
+        COALESCE(SUM(cost_inr) FILTER (WHERE provider IN ('gemini','claude','openai')), 0)::numeric(18,6) AS ai_cost_inr,
+        COALESCE(SUM(cost_inr) FILTER (WHERE provider NOT IN ('gemini','claude','openai')), 0)::numeric(18,6) AS api_cost_inr,
+        COALESCE(SUM(cost_inr), 0)::numeric(18,6) AS total_cost_inr,
+        COALESCE(SUM(cost_usd), 0)::numeric(18,8) AS total_cost_usd,
+        COUNT(*) FILTER (WHERE cost_source = 'unpriced')::int AS unpriced_count,
+        ARRAY_AGG(DISTINCT service_canonical ORDER BY service_canonical) AS services_used,
+        MIN(${EVENT_TIME}) AS started_at,
+        MAX(${EVENT_TIME}) AS last_event_at
+      FROM ${SRC}
+      ${clause} AND session_id IS NOT NULL
+      GROUP BY session_id, run_id
+      ORDER BY MAX(${EVENT_TIME}) DESC, session_id ASC, run_id ASC NULLS FIRST
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}
+    `;
+        const result = await this.pool.query(query, [...params, limit, offset]);
+        return result.rows;
+    }
+
+    /**
+     * Scope a drill-down to one run when runId is given, else the whole session.
+     * `$2 IS NULL` means "all runs"; an explicit run id (including the string 'null' for
+     * rows that genuinely have no run_id) narrows to that run.
+     */
+    _runScope(runId, idx = 2) {
+        return runId === undefined || runId === null
+            ? { sql: '', param: [] }
+            : { sql: ` AND COALESCE(run_id, '') = $${idx}`, param: [String(runId)] };
+    }
+
+    /** Run/session header totals — no date filter: a run is billed whole. */
+    async getSessionTotals(sessionId, runId) {
+        const scope = this._runScope(runId);
+        const query = `
+      SELECT
+        session_id,
+        MAX(run_id)   AS run_id,
+        MAX(user_key) AS user_id,
+        MAX(case_id)  AS case_id,
+        COUNT(*)::int                AS event_count,
+        COALESCE(SUM(calls), 0)::bigint          AS total_calls,
+        COALESCE(SUM(input_tokens), 0)::bigint   AS input_tokens,
+        COALESCE(SUM(output_tokens), 0)::bigint  AS output_tokens,
+        COALESCE(SUM(cached_tokens), 0)::bigint  AS cached_tokens,
+        COUNT(*) FILTER (WHERE cache_hit)::int   AS cache_hits,
+        COUNT(*) FILTER (WHERE success = FALSE)::int AS failed_count,
+        COUNT(*) FILTER (WHERE cost_source = 'unpriced')::int AS unpriced_count,
+        COUNT(*) FILTER (WHERE cost_source = 'producer')::int  AS producer_priced_count,
+        COALESCE(SUM(cost_inr) FILTER (WHERE provider IN ('gemini','claude','openai')), 0)::numeric(18,6) AS ai_cost_inr,
+        COALESCE(SUM(cost_inr) FILTER (WHERE provider NOT IN ('gemini','claude','openai')), 0)::numeric(18,6) AS api_cost_inr,
+        COALESCE(SUM(cost_inr), 0)::numeric(18,6) AS total_cost_inr,
+        COALESCE(SUM(cost_usd), 0)::numeric(18,8) AS total_cost_usd,
+        COALESCE(SUM(producer_cost_inr), 0)::numeric(18,6) AS producer_cost_inr,
+        MIN(${EVENT_TIME}) AS started_at,
+        MAX(${EVENT_TIME}) AS last_event_at
+      FROM ${SRC}
+      WHERE session_id = $1${scope.sql}
+      GROUP BY session_id
+    `;
+        const result = await this.pool.query(query, [String(sessionId), ...scope.param]);
+        return result.rows[0] || null;
+    }
+
+    /**
+     * LLM lines for a session — one row per (agent, model), matching the engine's
+     * "Task / agent | Model | Calls | Tokens in | Tokens out | Cost INR" table.
+     */
+    async getSessionLlmBreakdown(sessionId, runId) {
+        const scope = this._runScope(runId);
+        const query = `
+      SELECT
+        operation,
+        MIN(stage) AS stage,
+        model,
+        provider,
+        service_canonical AS service,
+        COALESCE(SUM(calls), 0)::bigint         AS calls,
+        COALESCE(SUM(input_tokens), 0)::bigint  AS input_tokens,
+        COALESCE(SUM(output_tokens), 0)::bigint AS output_tokens,
+        COALESCE(SUM(cached_tokens), 0)::bigint AS cached_tokens,
+        COALESCE(SUM(cost_inr), 0)::numeric(18,6) AS cost_inr,
+        COALESCE(SUM(cost_usd), 0)::numeric(18,8) AS cost_usd,
+        COALESCE(SUM(producer_cost_inr), 0)::numeric(18,6) AS producer_cost_inr,
+        MIN(rate_version) AS rate_version,
+        MIN(cost_source)  AS cost_source
+      FROM ${SRC}
+      WHERE session_id = $1 AND unit = 'tokens'${scope.sql}
+      GROUP BY operation, model, provider, service_canonical
+      ORDER BY cost_inr DESC
+    `;
+        const result = await this.pool.query(query, [String(sessionId), ...scope.param]);
+        return result.rows;
+    }
+
+    /**
+     * Metered API lines for a session (India Kanoon, Serper, Document AI, grounding) —
+     * one row per operation, with the effective per-unit rate derived from the cost.
+     */
+    async getSessionApiBreakdown(sessionId, runId) {
+        const scope = this._runScope(runId);
+        const query = `
+      SELECT
+        provider,
+        service_canonical AS service,
+        operation,
+        unit,
+        COALESCE(SUM(calls), 0)::bigint AS calls,
+        COALESCE(SUM(quantity), 0)::bigint AS quantity,
+        COUNT(*) FILTER (WHERE cache_hit)::int AS cache_hits,
+        COALESCE(SUM(cost_inr), 0)::numeric(18,6) AS cost_inr,
+        COALESCE(SUM(cost_usd), 0)::numeric(18,8) AS cost_usd,
+        CASE WHEN SUM(calls) FILTER (WHERE NOT cache_hit) > 0
+             THEN (SUM(cost_inr) / SUM(calls) FILTER (WHERE NOT cache_hit))::numeric(18,4)
+             ELSE 0 END AS unit_rate_inr,
+        MIN(rate_version) AS rate_version,
+        MIN(cost_source)  AS cost_source
+      FROM ${SRC}
+      WHERE session_id = $1 AND unit <> 'tokens'${scope.sql}
+      GROUP BY 1, 2, 3, 4
+      ORDER BY cost_inr DESC
+    `;
+        const result = await this.pool.query(query, [String(sessionId), ...scope.param]);
+        return result.rows;
+    }
+
+    /** Raw call log for the drill-down. */
+    async getSessionTimeline(sessionId, runId, limit = 300) {
+        const scope = this._runScope(runId);
+        const query = `
+      SELECT
+        id, run_id, step_no, doc_id,
+        provider, service_canonical AS service,
+        operation, stage, model, unit,
+        quantity, calls, input_tokens, output_tokens, cached_tokens, cache_hit,
+        cost_inr, cost_usd, cost_source, rate_version,
+        success, error_code, usage_time_ms,
+        ${EVENT_TIME} AS occurred_at
+      FROM ${SRC}
+      WHERE session_id = $1${this._runScope(runId, 3).sql}
+      ORDER BY ${EVENT_TIME} ASC, id ASC
+      LIMIT $2
+    `;
+        const result = await this.pool.query(query, [
+            String(sessionId),
+            limit,
+            ...this._runScope(runId, 3).param,
+        ]);
         return result.rows;
     }
 

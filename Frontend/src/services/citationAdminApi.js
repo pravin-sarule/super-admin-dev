@@ -95,11 +95,73 @@ export const getRoutesDbTopCited = (limit = 20) =>
 export const getRoutesDbCourtsBreakdown = () =>
   request('GET', '/routesdb/courts-breakdown');
 
-// --- Analytics (citation_service_usage) ---
-export const getAnalytics = () => request('GET', '/analytics');
+// --- Analytics (citation_usage_events @ citationTest) ---
+export const getAnalytics = (params = {}) =>
+  request('GET', '/analytics', null, {
+    ...(params.from && { from: params.from }),
+    ...(params.to && { to: params.to }),
+    department: params.department ?? 'all',
+    page: params.page ?? 1,
+    pageSize: params.pageSize ?? 4,
+  });
 export const getAnalyticsHeartbeat = () => request('GET', '/analytics/heartbeat');
-export const getAnalyticsUserDetails = (userId) =>
-  request('GET', `/analytics/user/${encodeURIComponent(userId)}`);
+export const getAnalyticsDepartments = () => request('GET', '/analytics/departments');
+export const getAnalyticsUserDetails = (userId, params = {}) =>
+  request('GET', `/analytics/user/${encodeURIComponent(userId)}`, null, {
+    ...(params.from && { from: params.from }),
+    ...(params.to && { to: params.to }),
+  });
+
+// --- Sessions (per-session cost breakdown) ---
+export const getAnalyticsSessions = (params = {}) =>
+  request('GET', '/analytics/sessions', null, {
+    ...(params.from && { from: params.from }),
+    ...(params.to && { to: params.to }),
+    department: params.department ?? 'all',
+    page: params.page ?? 1,
+    pageSize: params.pageSize ?? 10,
+  });
+export const getAnalyticsSessionDetails = (sessionId, runId) =>
+  request(
+    'GET',
+    `/analytics/sessions/${encodeURIComponent(sessionId)}`,
+    null,
+    runId === undefined || runId === null ? null : { run_id: runId }
+  );
+
+/**
+ * CSV export. Cannot use `request()` — that returns res.data and drops the
+ * Content-Disposition header we need for the filename. And a plain <a href> would 401,
+ * since the Bearer token lives in localStorage and cannot ride on a link.
+ */
+export const downloadAnalyticsCsv = async (params = {}) => {
+  const res = await axios({
+    method: 'GET',
+    url: `${ADMIN_BASE}/analytics/export`,
+    headers: getAuthHeaders(),
+    responseType: 'blob',
+    params: {
+      ...(params.from && { from: params.from }),
+      ...(params.to && { to: params.to }),
+      department: params.department ?? 'all',
+      scope: params.scope ?? 'users',
+    },
+  });
+  const match = /filename="?([^"]+)"?/i.exec(res.headers['content-disposition'] || '');
+  return {
+    blob: res.data,
+    filename: match?.[1] || `citation-cost-${params.from || 'all'}_to_${params.to || 'all'}.csv`,
+  };
+};
+
+// --- Rate card (admin-editable model pricing) ---
+export const getRateCard = (includeInactive = false) =>
+  request('GET', '/analytics/rate-card', null, { includeInactive });
+export const createRate = (body) => request('POST', '/analytics/rate-card', body);
+export const updateRate = (id, body) =>
+  request('PUT', `/analytics/rate-card/${encodeURIComponent(id)}`, body);
+export const deactivateRate = (id) =>
+  request('POST', `/analytics/rate-card/${encodeURIComponent(id)}/deactivate`, {});
 
 // --- Business ---
 export const getBusinessSummary = () => request('GET', '/business/summary');

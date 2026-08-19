@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS citation_rate_card (
     display_name  TEXT,
     unit          TEXT NOT NULL,                      -- tokens|calls|pages
     currency      TEXT NOT NULL DEFAULT 'USD',        -- currency the rate columns are expressed in
-    inr_per_usd   NUMERIC(12,4) NOT NULL DEFAULT 85.00,
+    -- Live FX peg. Editable per row from the Rate Card admin panel; refresh it when the
+    -- rupee moves. (The legacy engine hardcoded 85.00, which is why its USD figures drifted.)
+    inr_per_usd   NUMERIC(12,4) NOT NULL DEFAULT 95.66,
 
     input_rate_per_million              NUMERIC(14,6) NOT NULL DEFAULT 0,
     output_rate_per_million             NUMERIC(14,6) NOT NULL DEFAULT 0,
@@ -346,27 +348,27 @@ INSERT INTO citation_rate_card
      input_rate_per_million, output_rate_per_million, cached_input_rate_per_million,
      cache_storage_rate_per_million_hour, is_active, notes, updated_by)
 VALUES
-    ('v1','gemini','gemini','gemini-3.7-flash',      NULL,'intro',   'Gemini 3.7 Flash (Intro)',   'tokens','USD',85.00, 0.75, 3.75, 0.075, 0.50, FALSE,'Promotional intro pricing — activate while the promo runs','migration'),
-    ('v1','gemini','gemini','gemini-3.7-flash',      NULL,'standard','Gemini 3.7 Flash',           'tokens','USD',85.00, 1.50, 7.50, 0.150, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-3.6-flash',      NULL,'intro',   'Gemini 3.6 Flash (Intro)',   'tokens','USD',85.00, 0.75, 3.75, 0.075, 0.50, FALSE,'Promotional intro pricing — activate while the promo runs','migration'),
-    ('v1','gemini','gemini','gemini-3.6-flash',      NULL,'standard','Gemini 3.6 Flash',           'tokens','USD',85.00, 1.50, 7.50, 0.150, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-3.5-flash',      NULL,'standard','Gemini 3.5 Flash',           'tokens','USD',85.00, 1.50, 9.00, 0.150, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-3.1-pro-preview',NULL,'standard','Gemini 3.1 Pro Preview',     'tokens','USD',85.00, 2.00,12.00, 0.200, 4.50, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-3.5-flash-lite', NULL,'standard','Gemini 3.5 Flash-Lite',      'tokens','USD',85.00, 0.30, 2.50, 0.030, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-3.1-flash-lite', NULL,'standard','Gemini 3.1 Flash-Lite',      'tokens','USD',85.00, 0.25, 1.50, 0.025, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-2.5-pro',        NULL,'standard','Gemini 2.5 Pro',             'tokens','USD',85.00, 1.25,10.00, 0.125, 4.50, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-2.5-flash',      NULL,'standard','Gemini 2.5 Flash',           'tokens','USD',85.00, 0.30, 2.50, 0.030, 1.00, TRUE, 'Legacy engine mis-billed this at Flash-Lite rates (4x under-report)','migration'),
-    ('v1','gemini','gemini','gemini-2.5-flash-lite', NULL,'standard','Gemini 2.5 Flash-Lite',      'tokens','USD',85.00, 0.10, 0.40, 0.010, 1.00, TRUE, NULL,'migration'),
-    ('v1','gemini','gemini','gemini-2.0-flash',      NULL,'standard','Gemini 2.0 Flash',           'tokens','USD',85.00, 0.10, 0.40, 0.010, 1.00, TRUE, 'Rate recovered from legacy data','migration');
+    ('v1','gemini','gemini','gemini-3.7-flash',      NULL,'intro',   'Gemini 3.7 Flash (Intro)',   'tokens','USD',95.66, 0.75, 3.75, 0.075, 0.50, FALSE,'Promotional intro pricing — activate while the promo runs','migration'),
+    ('v1','gemini','gemini','gemini-3.7-flash',      NULL,'standard','Gemini 3.7 Flash',           'tokens','USD',95.66, 1.50, 7.50, 0.150, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-3.6-flash',      NULL,'intro',   'Gemini 3.6 Flash (Intro)',   'tokens','USD',95.66, 0.75, 3.75, 0.075, 0.50, FALSE,'Promotional intro pricing — activate while the promo runs','migration'),
+    ('v1','gemini','gemini','gemini-3.6-flash',      NULL,'standard','Gemini 3.6 Flash',           'tokens','USD',95.66, 1.50, 7.50, 0.150, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-3.5-flash',      NULL,'standard','Gemini 3.5 Flash',           'tokens','USD',95.66, 1.50, 9.00, 0.150, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-3.1-pro-preview',NULL,'standard','Gemini 3.1 Pro Preview',     'tokens','USD',95.66, 2.00,12.00, 0.200, 4.50, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-3.5-flash-lite', NULL,'standard','Gemini 3.5 Flash-Lite',      'tokens','USD',95.66, 0.30, 2.50, 0.030, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-3.1-flash-lite', NULL,'standard','Gemini 3.1 Flash-Lite',      'tokens','USD',95.66, 0.25, 1.50, 0.025, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-2.5-pro',        NULL,'standard','Gemini 2.5 Pro',             'tokens','USD',95.66, 1.25,10.00, 0.125, 4.50, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-2.5-flash',      NULL,'standard','Gemini 2.5 Flash',           'tokens','USD',95.66, 0.30, 2.50, 0.030, 1.00, TRUE, 'Legacy engine mis-billed this at Flash-Lite rates (4x under-report)','migration'),
+    ('v1','gemini','gemini','gemini-2.5-flash-lite', NULL,'standard','Gemini 2.5 Flash-Lite',      'tokens','USD',95.66, 0.10, 0.40, 0.010, 1.00, TRUE, NULL,'migration'),
+    ('v1','gemini','gemini','gemini-2.0-flash',      NULL,'standard','Gemini 2.0 Flash',           'tokens','USD',95.66, 0.10, 0.40, 0.010, 1.00, TRUE, 'Rate recovered from legacy data','migration');
 
 -- 8b. Gemini embeddings (INR-native, carried from legacy: 14.0636 INR / 976,634 tokens)
 INSERT INTO citation_rate_card
     (version, provider, service, model, operation, tier, display_name, unit, currency, inr_per_usd,
      input_rate_per_million, is_active, notes, updated_by)
 VALUES
-    ('v1','gemini','gemini','gemini-embedding-001',NULL,'standard','Gemini Embedding 001','tokens','INR',85.00, 14.40, TRUE,
+    ('v1','gemini','gemini','gemini-embedding-001',NULL,'standard','Gemini Embedding 001','tokens','INR',95.66, 14.40, TRUE,
      'Recovered from legacy data (INR 14.40/M). Not confirmed against a published price list — verify.','migration'),
-    ('v1','gemini','gemini','models/gemini-embedding-001',NULL,'standard','Gemini Embedding 001 (prefixed id)','tokens','INR',85.00, 14.40, TRUE,
+    ('v1','gemini','gemini','models/gemini-embedding-001',NULL,'standard','Gemini Embedding 001 (prefixed id)','tokens','INR',95.66, 14.40, TRUE,
      'Alias: engine sometimes reports the models/ prefix','migration');
 
 -- 8c. Claude token models (USD per 1M) — recovered exactly: INR 255 / INR 1275 at 85/USD
@@ -374,7 +376,7 @@ INSERT INTO citation_rate_card
     (version, provider, service, model, operation, tier, display_name, unit, currency, inr_per_usd,
      input_rate_per_million, output_rate_per_million, is_active, notes, updated_by)
 VALUES
-    ('v1','claude','claude','claude-sonnet-4-6',NULL,'standard','Claude Sonnet 4.6','tokens','USD',85.00, 3.00, 15.00, TRUE,
+    ('v1','claude','claude','claude-sonnet-4-6',NULL,'standard','Claude Sonnet 4.6','tokens','USD',95.66, 3.00, 15.00, TRUE,
      'Recovered exactly from legacy data','migration');
 
 -- 8d. Gemini per-call operations (USD 0.035/call = INR 2.975 — matches legacy exactly)
@@ -382,28 +384,28 @@ INSERT INTO citation_rate_card
     (version, provider, service, model, operation, tier, display_name, unit, currency, inr_per_usd,
      flat_rate_per_unit, is_active, notes, updated_by)
 VALUES
-    ('v1','gemini','gemini',NULL,'grounding',          'standard','Gemini Search Grounding','calls','USD',85.00, 0.035, TRUE,
+    ('v1','gemini','gemini',NULL,'grounding',          'standard','Gemini Search Grounding','calls','USD',95.66, 0.035, TRUE,
      'Largest single Gemini cost line in legacy data (63% of Gemini spend)','migration'),
-    ('v1','gemini','gemini',NULL,'web_citation_search','standard','Gemini Web Citation Search','calls','USD',85.00, 0.035, TRUE, NULL,'migration');
+    ('v1','gemini','gemini',NULL,'web_citation_search','standard','Gemini Web Citation Search','calls','USD',95.66, 0.035, TRUE, NULL,'migration');
 
 -- 8e. India Kanoon (INR-native, all verified exactly from legacy data)
 INSERT INTO citation_rate_card
     (version, provider, service, model, operation, tier, display_name, unit, currency, inr_per_usd,
      flat_rate_per_unit, is_active, notes, updated_by)
 VALUES
-    ('v1','indian_kanoon','india_kanoon',NULL,'search',   'standard','India Kanoon — Search',           'calls','INR',85.00, 0.50, TRUE,'Verified: 3019 calls = INR 1509.50','migration'),
-    ('v1','indian_kanoon','india_kanoon',NULL,'orig_doc', 'standard','India Kanoon — Original Document','calls','INR',85.00, 0.50, TRUE,'Verified: 908 calls = INR 454.00','migration'),
-    ('v1','indian_kanoon','india_kanoon',NULL,'document', 'standard','India Kanoon — Document',         'calls','INR',85.00, 0.20, TRUE,'Verified: 1298 calls = INR 259.60','migration'),
-    ('v1','indian_kanoon','india_kanoon',NULL,'fragment', 'standard','India Kanoon — Fragment',         'calls','INR',85.00, 0.05, TRUE,'Verified: 2640 calls = INR 132.00','migration'),
-    ('v1','indian_kanoon','india_kanoon',NULL,'meta',     'standard','India Kanoon — Doc Metainfo',     'calls','INR',85.00, 0.02, TRUE,'Verified: 2547 calls = INR 50.94','migration');
+    ('v1','indian_kanoon','india_kanoon',NULL,'search',   'standard','India Kanoon — Search',           'calls','INR',95.66, 0.50, TRUE,'Verified: 3019 calls = INR 1509.50','migration'),
+    ('v1','indian_kanoon','india_kanoon',NULL,'orig_doc', 'standard','India Kanoon — Original Document','calls','INR',95.66, 0.50, TRUE,'Verified: 908 calls = INR 454.00','migration'),
+    ('v1','indian_kanoon','india_kanoon',NULL,'document', 'standard','India Kanoon — Document',         'calls','INR',95.66, 0.20, TRUE,'Verified: 1298 calls = INR 259.60','migration'),
+    ('v1','indian_kanoon','india_kanoon',NULL,'fragment', 'standard','India Kanoon — Fragment',         'calls','INR',95.66, 0.05, TRUE,'Verified: 2640 calls = INR 132.00','migration'),
+    ('v1','indian_kanoon','india_kanoon',NULL,'meta',     'standard','India Kanoon — Doc Metainfo',     'calls','INR',95.66, 0.02, TRUE,'Verified: 2547 calls = INR 50.94','migration');
 
 -- 8f. Document AI + Serper (INR-native)
 INSERT INTO citation_rate_card
     (version, provider, service, model, operation, tier, display_name, unit, currency, inr_per_usd,
      flat_rate_per_unit, is_active, notes, updated_by)
 VALUES
-    ('v1','document_ai','document_ai',NULL,'ocr',   'standard','Document AI — OCR','pages','INR',85.00, 0.1276, TRUE,'Verified: 50 pages = INR 6.38','migration'),
-    ('v1','serper','serper',          NULL,'search','standard','Serper — Search',  'calls','INR',85.00, 0.85,   TRUE,'Verified: 17 calls = INR 14.45','migration');
+    ('v1','document_ai','document_ai',NULL,'ocr',   'standard','Document AI — OCR','pages','INR',95.66, 0.1276, TRUE,'Verified: 50 pages = INR 6.38','migration'),
+    ('v1','serper','serper',          NULL,'search','standard','Serper — Search',  'calls','INR',95.66, 0.85,   TRUE,'Verified: 17 calls = INR 14.45','migration');
 
 -- Pin v1 to a fixed start so the effective window also covers backfilled/legacy events
 -- (rows default to NOW(), which would exclude anything older than the migration run).
