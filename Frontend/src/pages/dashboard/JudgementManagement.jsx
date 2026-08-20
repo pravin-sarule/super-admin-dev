@@ -43,18 +43,17 @@ const JudgementManagement = () => {
   }
 
   return (
-    <div className="space-y-6">
-      <section className="rounded-3xl border border-slate-200 bg-white/90 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="max-w-3xl">
-            <h1 className="text-2xl font-semibold text-slate-900">Judgment Dashboards</h1>
-            <p className="mt-2 text-sm leading-6 text-slate-600">
-              Switch between the admin-upload workspace and the user citation fallback report without leaving the
-              judgments section.
+    <div className="space-y-4">
+      <section className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-sm font-semibold text-slate-900">Judgment Dashboards</h1>
+            <p className="mt-0.5 truncate text-xs text-slate-500">
+              {DASHBOARD_VIEWS[activeView].description}
             </p>
           </div>
 
-          <div className="inline-flex rounded-2xl border border-slate-200 bg-slate-100 p-1">
+          <div className="inline-flex self-start rounded-lg border border-slate-200 bg-slate-100 p-0.5 sm:self-auto">
             {Object.entries(DASHBOARD_VIEWS).map(([key, view]) => {
               const Icon = view.icon;
               const isActive = key === activeView;
@@ -64,22 +63,18 @@ const JudgementManagement = () => {
                   key={key}
                   type="button"
                   onClick={() => handleViewChange(key)}
-                  className={`inline-flex items-center gap-2 rounded-2xl px-4 py-2.5 text-sm font-medium transition ${
+                  className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition ${
                     isActive
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  <Icon className="h-4 w-4" />
+                  <Icon className="h-3.5 w-3.5" />
                   {view.label}
                 </button>
               );
             })}
           </div>
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">
-          {DASHBOARD_VIEWS[activeView].description}
         </div>
       </section>
 
