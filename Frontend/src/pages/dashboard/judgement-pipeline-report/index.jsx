@@ -22,7 +22,7 @@ const JudgementPipelineReportDashboard = ({ sourceType = 'ik_pipeline' }) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {dashboard.errorMessage ? (
         <section className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {dashboard.errorMessage}
