@@ -5,24 +5,24 @@ import JudgementPipelineReportDashboard from './judgement-pipeline-report';
 import JudgementServiceDashboard from './judgement-service';
 
 const DASHBOARD_VIEWS = {
-  admin_upload: {
-    label: 'Admin Uploads',
-    description: 'Upload PDFs, monitor OCR, inspect metadata, and manage the admin ingestion pipeline.',
-    icon: FileUp,
-  },
   ik_pipeline: {
     label: 'User Pipeline',
     description: 'Track judgments inserted after user citation searches fall back to Indian Kanoon.',
     icon: Database,
   },
+  admin_upload: {
+    label: 'Admin Uploads',
+    description: 'Upload PDFs, monitor OCR, inspect metadata, and manage the admin ingestion pipeline.',
+    icon: FileUp,
+  },
 };
 
 function normalizeView(view) {
-  if (view === 'ik_pipeline') {
-    return 'ik_pipeline';
+  if (view === 'admin_upload') {
+    return 'admin_upload';
   }
 
-  return 'admin_upload';
+  return 'ik_pipeline';
 }
 
 const JudgementManagement = () => {
@@ -33,7 +33,7 @@ const JudgementManagement = () => {
     const normalizedView = normalizeView(nextView);
     const nextSearchParams = new URLSearchParams(searchParams);
 
-    if (normalizedView === 'admin_upload') {
+    if (normalizedView === 'ik_pipeline') {
       nextSearchParams.delete('view');
     } else {
       nextSearchParams.set('view', normalizedView);
