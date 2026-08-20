@@ -1,6 +1,12 @@
 # Judgment Storage, Mapping, and Data Flow
 
-This document explains where a judgment upload is stored, what goes into each SQL table, what is stored in Qdrant and Elasticsearch, how `canonical_id` is created and propagated, and how one judgment is mapped across all persistence layers.
+This is the **detailed** mapping for **Admin PDF uploads**: which SQL columns, GCS paths, Qdrant payload fields, and Elasticsearch fields are written.
+
+For a simple overview with ASCII data-flow diagrams of **both** pipelines (User Pipeline + Admin Uploads), start here:
+
+**[`documentation.md`](./documentation.md)**
+
+---
 
 ## 1. Storage Overview
 

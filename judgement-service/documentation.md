@@ -1,296 +1,428 @@
-# Judgement Service — Databases, Collections, and Data Flow
+# Judgement Service — Simple Guide
 
-This document describes every store used by `judgement-service`: **why it exists**, **what is written**, **what is fetched**, and **which collections / indices / tables** hold the data.
+This file explains **what the service does**, **where data lives**, and **how it moves**.
 
-The service runs on port `8095` by default and is used by:
-
-- **Admin Uploads** (`/dashboard/judgements`) — PDF upload and processing pipeline
-- **User Pipeline** (`/dashboard/judgements?view=ik_pipeline`) — Indian Kanoon fallback copies
-- **Judgement Search** — hybrid semantic + full-text search
+Read this first. For table-by-table mapping of admin PDF uploads, see `database_storing.md`.
 
 ---
 
-## 1. Store map
+## What is this?
 
-| Store | Role | Why we use it | Config |
-|---|---|---|---|
-| **PostgreSQL** (`citationTest`) | Relational source of truth | Identity, pipeline status, pages, chunks, aliases, analytics | `CITATION_DB_URL` |
-| **Google Cloud Storage** | File artifacts | PDFs, split pages, OCR JSON are too large for SQL | `GCS_BUCKET_NAME` (default `draft_templates`) |
-| **Elasticsearch** | Keyword / phrase search | Fast full-text search and User Pipeline listing | `ELASTIC_URL` |
-| **Qdrant** | Vector search | Semantic chunk retrieval for hybrid search | `QDRANT_URL`, `QDRANT_COLLECTION` |
-| **Document AI** | OCR (not a database) | Extract text from scanned PDF pages | `DOCUMENT_AI_*` |
-| **Neo4j** | Graph (disabled locally) | Citation graph; currently skipped | `JUDGEMENT_DISABLE_NEO4J=true` |
+`judgement-service` stores and searches legal judgments.
 
-PostgreSQL is the **anchor** for admin uploads. Elasticsearch and Qdrant are **search indexes** built from that pipeline.
+It runs on port **8095**. Super Admin talks to it from:
 
-The **User Pipeline** (citation fallback) currently lists and inspects documents from Elasticsearch index **`ik_judgments`**. Those copies often exist in Elasticsearch even when they are not yet in PostgreSQL.
+```
+http://localhost:3001/dashboard/judgements
+```
+
+There are **two workspaces** on that page:
+
+| Button | What you see |
+|---|---|
+| **User Pipeline** (default) | Judgments fetched from Indian Kanoon when a user search missed locally |
+| **Admin Uploads** | PDFs uploaded by Super Admin, then OCR'd and indexed |
+
+Sidebar **Judgement Upload** opens **User Pipeline** first.
 
 ---
 
-## 2. Identity keys
+## Big picture
 
-| Key | Meaning | Typical type |
-|---|---|---|
-| `document_id` | One uploaded file | UUID |
-| `judgment_uuid` | One logical judgment in PostgreSQL | UUID |
-| `canonical_id` | Stable business id for a case | string, unique in `judgments` |
-| `tid` | Indian Kanoon document id | numeric string (`104418353`) |
-| `chunk_id` | One text chunk; also Qdrant point id | UUID |
-| `es_doc_id` | Elasticsearch document id | usually `canonical_id` on `judgments`; `tid` on `ik_judgments` |
+Think of four boxes. Each box has one job.
 
-`canonical_id` is generated in `services/metadataService.js` as:
+```
+  ┌─────────────┐     ┌───────────────┐     ┌────────────────┐     ┌────────────┐
+  │ PostgreSQL  │     │ Google Cloud  │     │ Elasticsearch  │     │   Qdrant   │
+  │             │     │    Storage    │     │                │     │            │
+  │ Who / what  │     │ Files (PDFs)  │     │ Find by words  │     │ Find by    │
+  │ is this     │     │ OCR JSON      │     │ (full text)    │     │ meaning    │
+  │ case?       │     │               │     │                │     │ (vectors)  │
+  └─────────────┘     └───────────────┘     └────────────────┘     └────────────┘
+         │                    │                     │                     │
+         └────────────────────┴─────────────────────┴─────────────────────┘
+                                      │
+                         judgement-service :8095
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    │                                   │
+            Super Admin UI                      User citation search
+            (localhost:3001)                    (app / judment-api)
+```
 
-```text
-<case-name-slug>-<court-code>-<year>-<10-char-hash>
+| Store | Plain English |
+|---|---|
+| **PostgreSQL** | The notebook. Names, dates, status, pages, chunks. |
+| **GCS** | The filing cabinet. Actual PDF files. |
+| **Elasticsearch** | The word index. “Find this phrase.” |
+| **Qdrant** | The meaning index. “Find similar ideas.” |
+
+Indian Kanoon and Document AI are **sources**, not stores. We fetch from them, then write into the boxes above.
+
+---
+
+## How the Super Admin page is laid out
+
+```
+┌─ Judgment Dashboards ─────────────────────────────────────────┐
+│  [ User Pipeline ]  [ Admin Uploads ]                         │
+└───────────────────────────────────────────────────────────────┘
+
+  User Pipeline (default)                 Admin Uploads
+  ─────────────────────                   ─────────────
+  Pipeline summary                        Choose PDFs + upload
+  Metric cards                            Status cards
+  Inserted Judgments table                Pipeline Monitor
+       │                                       │
+       │ Inspect                               │ Inspect
+       ▼                                       ▼
+  Header + Back (black)                   Document inspect
+  Document Workspace                      Pages / OCR / chunks
+  Full Document (HTML/text)               Vectors / aliases
+  Document Overview
+```
+
+User Pipeline inspect does **not** show Aliases or Vector Preview. Those belong to Admin Uploads.
+
+---
+
+## Two pipelines
+
+### 1) User Pipeline — “we don’t have this citation, fetch it”
+
+When a lawyer searches a citation and we do **not** have it locally, the product fetches it from Indian Kanoon and keeps a raw copy.
+
+```
+  Lawyer / user
+       │
+       │  "find this citation"
+       ▼
+  ┌─────────────────────────┐
+  │ Look locally first      │
+  │  Postgres               │
+  │  ES index `judgments`   │
+  │  Qdrant chunks          │
+  └───────────┬─────────────┘
+              │
+         found? ──yes──► return local judgment
+              │
+              no
+              ▼
+  ┌─────────────────────────┐
+  │ Indian Kanoon           │
+  │ fetch by citation / tid │
+  └───────────┬─────────────┘
+              │
+              ▼
+  ┌─────────────────────────────────────────┐
+  │ Elasticsearch index  ik_judgments       │
+  │                                         │
+  │  _id          = IK tid  (e.g. 134606517)│
+  │  title        = case name               │
+  │  text         = plain judgment text     │
+  │  doc          = original HTML           │
+  │  docsource    = court                   │
+  │  publishdate  = judgment date           │
+  └─────────────────────────────────────────┘
+              │
+              ▼
+  Super Admin → User Pipeline
+  lists and inspects THIS index only
+```
+
+**Important:** many of these copies live **only** in `ik_judgments`. Postgres can still show **0**. That is normal today.
+
+```
+  User Pipeline UI
+       │
+       ├── summary cards  ──► count docs in ik_judgments
+       ├── table          ──► search + paginate ik_judgments
+       └── inspect        ──► one doc: metadata + HTML/text
+```
+
+Qdrant is **not** required to list or inspect User Pipeline docs. If Qdrant is down, the table still works. Semantic search elsewhere will be weak.
+
+---
+
+### 2) Admin Uploads — “we uploaded a PDF”
+
+Super Admin drops in a PDF. The service splits it, OCRs it if needed, then writes to **all four stores**.
+
+```
+  Super Admin
+  "Choose PDFs" → Upload Judgments
+       │
+       ▼
+  ┌──────────────┐
+  │  Postgres    │  create upload row (status = uploaded / processing)
+  │  judgment_   │
+  │  uploads     │
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐
+  │  GCS         │  judgements/original/<document_id>/file.pdf
+  └──────┬───────┘
+         │
+         ▼
+  ┌──────────────┐
+  │  Split PDF   │  one file per page
+  │  → GCS       │  judgements/pages/<document_id>/page-0001.pdf
+  └──────┬───────┘
+         │
+         ├── digital text? ──yes──► use embedded text
+         │
+         └── scanned? ──no text──► Document AI OCR
+                                      │
+                                      ▼
+                                 GCS ocr-raw JSON
+                                      │
+                                      ▼
+                                 merge page text
+         │
+         ▼
+  ┌──────────────────────────────────────────┐
+  │ PostgreSQL                               │
+  │   judgments          (the case)          │
+  │   judgment_uploads   (this PDF)          │
+  │   judgment_pages     (each page)         │
+  │   judgment_chunks    (text slices)       │
+  │   citation_aliases   (other citations)   │
+  └──────────────────┬───────────────────────┘
+                     │
+          ┌──────────┴──────────┐
+          ▼                     ▼
+  ┌─────────────────┐   ┌──────────────────────┐
+  │ Elasticsearch   │   │ Qdrant               │
+  │ index           │   │ collection           │
+  │ `judgments`     │   │ `legal_embeddings_v2`│
+  │                 │   │                      │
+  │ id = canonical_ │   │ point id = chunk_id  │
+  │      id         │   │ vector = 768-d       │
+  │ full_text =     │   │ payload = case meta  │
+  │   whole case    │   │   + chunk text       │
+  └─────────────────┘   └──────────────────────┘
+```
+
+**UI:** Judgment Dashboards → **Admin Uploads**.
+
+Reads Postgres first, then GCS / ES / Qdrant for previews.
+
+---
+
+## Elasticsearch — two indexes (easy mix-up)
+
+```
+  Elasticsearch cluster
+  │
+  ├── judgments            ← processed cases (admin PDF + some IK ingest)
+  │     id     = canonical_id
+  │     used by  Admin search, hybrid search
+  │
+  └── ik_judgments         ← raw Indian Kanoon fallback copies
+        id     = tid  (Indian Kanoon number)
+        used by  User Pipeline table + inspect
+```
+
+Same cluster. **Different indexes. Different ids.** Do not look for a User Pipeline row in `judgments` if it was only written to `ik_judgments`.
+
+---
+
+## Identity keys (how one case is named)
+
+```
+  One uploaded PDF
+       │
+       ├── document_id      UUID of this file
+       │
+       └── judgment_uuid    UUID of the logical case in Postgres
+                │
+                ├── canonical_id     human-ish slug
+                │                    <case>-<court>-<year>-<hash>
+                │
+                ├── es_doc_id        usually = canonical_id
+                │                    on index `judgments`
+                │
+                └── chunk_id         UUID per text slice
+                                     also Qdrant point id
+
+  One Indian Kanoon fallback copy
+       │
+       └── tid              Indian Kanoon number (e.g. 134606517)
+                            also Elasticsearch _id on `ik_judgments`
 ```
 
 ---
 
-## 3. PostgreSQL
+## Search data flow (Judgement Search / judment-api)
 
-**Database:** `citationTest` (from `CITATION_DB_URL`)
+Users search by **meaning** (Qdrant) and by **words** (Elasticsearch `judgments`). Results are then filled with names and dates from Postgres.
 
-**Why:** store structured metadata, processing state, and joins that search indexes cannot own. Admin Uploads, pipeline status, and search enrichment all read PostgreSQL.
+```
+  Query: "demolition of the building"
+       │
+       ├──────────────────────┐
+       ▼                      ▼
+  Qdrant                  Elasticsearch
+  legal_embeddings_v2     index `judgments`
+  similar chunks          phrase / keyword hits
+       │                      │
+       └──────────┬───────────┘
+                  ▼
+           Merge + rank
+                  │
+                  ▼
+           Postgres lookup
+           (case name, court, date)
+                  │
+                  ▼
+           Search results
+```
 
-### 3.1 Tables
+`ik_judgments` is **not** the main hybrid-search index. It is the fallback archive listed in User Pipeline.
 
-| Table | Stores | Fetched for |
+---
+
+## What each screen reads
+
+```
+  Super Admin
+       │
+       ├── User Pipeline
+       │      summary + table + inspect  ──►  ES  ik_judgments
+       │      store chips PG / ES / Qdrant are health + counts
+       │
+       ├── Admin Uploads
+       │      list / status              ──►  Postgres judgment_uploads
+       │      inspect pages              ──►  GCS + Postgres pages
+       │      inspect text / search      ──►  ES judgments
+       │      inspect vectors            ──►  Qdrant
+       │
+       └── Judgement Search
+              semantic                   ──►  Qdrant
+              full text                  ──►  ES judgments
+              extra fields               ──►  Postgres
+```
+
+| Screen | Main store | Notes |
 |---|---|---|
-| `judgments` | One row per logical case: name, court, date, `source_type`, `es_doc_id`, `qdrant_collection` | Admin metadata, search enrichment, pipeline reports that still use SQL |
-| `judgment_uploads` | One row per uploaded PDF: status, GCS paths, merged text, admin user, errors | Admin Uploads dashboard, reprocess, inspect |
-| `judgment_pages` | Per-page type, OCR text, GCS page/OCR URIs | Page preview, OCR layout |
-| `judgment_chunks` | Chunk text, offsets, embedding status, `qdrant_point_id` | Chunk preview, vector inspect |
-| `citation_aliases` | Alternate citation strings for a judgment | Search alias matching |
-| `judgment_api_analytics` | Search API timings and result counts | Judgement Search analytics |
-| `judges` / `judgment_judges` | Judge names linked to a judgment | Future structured extraction |
-| `statutes_cited` | Act / section citations | Future structured extraction |
+| User Pipeline table | `ik_judgments` | Paginated (10 / 25 / 50 / 100) |
+| User Pipeline inspect | `ik_judgments` | Metadata + full HTML/`text` |
+| Admin Uploads | Postgres | Plus GCS, ES, Qdrant |
+| Hybrid search | Qdrant + ES `judgments` | Postgres enriches the hit |
 
-### 3.2 `source_type` values in `judgments`
+---
+
+## Postgres tables (admin pipeline)
+
+```
+  judgments ─────────── 1 case
+       │
+       ├── judgment_uploads     1 row per PDF
+       ├── judgment_pages       1 row per page
+       ├── judgment_chunks      1 row per text slice
+       └── citation_aliases     other ways to cite the case
+
+  Also: judgment_api_analytics, judges, statutes_cited
+```
+
+`source_type` on `judgments`:
 
 | Value | Meaning |
 |---|---|
-| `admin-upload` | Uploaded from Super Admin → Judgement Upload |
-| `indian_kanoon` | Fetched / ingested from Indian Kanoon into the `judgments` ES index |
-| `ik_pipeline` | User citation fallback (intended SQL row; many fallback docs live only in `ik_judgments`) |
+| `admin-upload` | Super Admin PDF |
+| `indian_kanoon` | IK ingest into the main `judgments` index |
+| `ik_pipeline` | User fallback (SQL row may be missing; copy may live only in `ik_judgments`) |
 
-### 3.3 What PostgreSQL does **not** store
-
-- Original PDF bytes (GCS)
-- Chunk embedding vectors (Qdrant)
-- Full-text search inverted index (Elasticsearch)
-- Raw Indian Kanoon HTML for the User Pipeline list (`ik_judgments`)
+Postgres does **not** store PDF bytes, embedding vectors, or the User Pipeline HTML archive.
 
 ---
 
-## 4. Google Cloud Storage
+## GCS folders (admin pipeline)
 
-**Bucket:** `GCS_BUCKET_NAME` (local config uses `draft_templates`)
+```
+  bucket (GCS_BUCKET_NAME)
+  └── judgements/
+        ├── original/<document_id>/....pdf
+        ├── pages/<document_id>/page-0001.pdf
+        └── ocr-raw/<document_id>/batch-001.json
+```
 
-**Why:** binary files and bulky OCR JSON must not live in Postgres.
+SQL only keeps the **path**, not the file.
 
-| Path | Stores | Fetched for |
+---
+
+## Qdrant
+
+```
+  collection: legal_embeddings_v2
+  vector size: 768
+  distance: cosine
+  point id: chunk_id
+
+  payload: judgment_uuid, canonical_id, case_name,
+           chunk_text, court, year, source_type
+```
+
+If Qdrant returns **404**, the cluster URL is wrong or the service is down. User Pipeline listing still works. **Qdrant Points** stays 0.
+
+---
+
+## End-to-end map (one glance)
+
+```
+                         SOURCES
+              ┌────────────┴────────────┐
+              │                         │
+        Admin PDF                 Indian Kanoon
+              │                         │
+              ▼                         ▼
+        split + OCR               raw HTML + text
+              │                         │
+              ▼                         ▼
+     ┌────────────────┐        ┌─────────────────┐
+     │ Postgres       │        │ ES ik_judgments │
+     │ GCS            │        │ (User Pipeline) │
+     │ ES judgments   │        └─────────────────┘
+     │ Qdrant         │
+     └───────┬────────┘
+             │
+             ▼
+      Hybrid search  (ES judgments + Qdrant)
+```
+
+---
+
+## Local ports
+
+| App | Port | URL |
 |---|---|---|
-| `judgements/original/<document_id>/...pdf` | Original uploaded PDF | Download / reprocess |
-| `judgements/pages/<document_id>/page-0001.pdf` | Single-page PDF | Page viewer |
-| `judgements/ocr-raw/<document_id>/batch-001.json` | Document AI OCR JSON | OCR layout inspect |
-| `judgements/ocr-input/...` / `ocr-output/...` | Document AI batch IO | OCR pipeline |
+| Super Admin UI | 3001 | `http://localhost:3001` |
+| Admin backend | 4000 | proxies `/api/judgements-admin` |
+| judgement-service | 8095 | `http://localhost:8095` |
 
-SQL keeps only the **paths**: `storage_path`, `gcs_page_path`, `ocr_json_path`.
+Use the **same** `JWT_SECRET` in Admin backend and judgement-service, or Judgement Upload will bounce to login.
+
+Do not commit `.env`. Passwords and API keys stay there.
 
 ---
 
-## 5. Elasticsearch
+## Code map
 
-Elasticsearch holds **searchable text**, not PDFs. There are two indices.
-
-Env:
-
-- URL: `ELASTIC_URL` / `ELASTICSEARCH_URL`
-- Default admin/search index: `ELASTICSEARCH_INDEX` → **`judgments`**
-- User-pipeline index: `IK_JUDGMENTS_INDEX` → **`ik_judgments`**
-
-### 5.1 Index `judgments`
-
-**Why:** keyword and phrase search over processed judgments (admin uploads + IK ingest that went through the main pipeline).
-
-**Document id:** `canonical_id` (sometimes `ik:<tid>`)
-
-**Stores:**
-
-| Field | Purpose |
+| File | Job |
 |---|---|
-| `judgment_uuid` | Link back to Postgres |
-| `canonical_id` | Stable case id |
-| `case_name`, `court_code`, `court_name` | Display + filter |
-| `year`, `judgment_date` | Date filter |
-| `citations` / `primary_citation` | Citation search |
-| `full_text` | Entire judgment text (this is what search hits) |
-| `summary_text`, `holding_text` | Optional summaries |
-| `source_type` | `admin-upload`, `indian_kanoon`, `ik_pipeline` |
-| `source_url` | Origin URL (stored, not searched) |
-| `status`, `verification_status` | Processing flags |
-
-**Fetched for:**
-
-- Hybrid / full-text search (`judment_api`)
-- Admin detail text preview when `es_doc_id` is set
-- Counts by `source_type` (legacy pipeline-report path)
-
-### 5.2 Index `ik_judgments`
-
-**Why:** raw Indian Kanoon copies created when a **user citation search** cannot find the case locally. The Super Admin **User Pipeline** dashboard lists and inspects **this index only**.
-
-**Document id:** Indian Kanoon `tid` (example `134606517`)
-
-**Stores:**
-
-| Field | Purpose |
-|---|---|
-| `tid` | IK document id (also ES `_id`) |
-| `title` | Case name shown in the table |
-| `text` | Plain judgment text (full view fallback) |
-| `doc` | Original HTML (full document view) |
-| `docsource` | Court name |
-| `publishdate` | Court judgment date |
-| `author`, `bench` | Judge metadata |
-| `casesCited`, `citedBy` | Citation graph |
-| `numcites`, `numcitedby` | Counts |
-| `fetched_at` | Ingest time (often empty on current docs) |
-
-**Fetched for:**
-
-- User Pipeline cards (total, courts, dates)
-- Inserted Judgments table (all docs)
-- Inspect / Full Document view
-- Not used by Admin Uploads PDF pipeline
-
-**What it does not store:** PDFs, page images, chunk vectors, Postgres `judgment_uuid`.
-
----
-
-## 6. Qdrant
-
-**Why:** semantic search. Elasticsearch matches words; Qdrant matches meaning of chunks.
-
-Env:
-
-- `QDRANT_URL`, `QDRANT_API_KEY`
-- Active collection in code: `QDRANT_COLLECTION` → **`legal_embeddings_v2`**
-- Also defined in `.env` but **not used by `qdrantService.js` today:** `JUDGEMENT_QDRANT_COLLECTION=judgement_segments_768`
-
-### 6.1 Collection `legal_embeddings_v2`
-
-| Item | Value |
-|---|---|
-| Vector size | 768 (`GEMINI_EMBEDDING_DIMENSION`) |
-| Distance | Cosine |
-| Point id | `chunk_id` |
-
-**Stores (payload):**
-
-- `judgment_uuid`
-- `canonical_id`
-- `case_name`
-- `chunk_text`
-- `chunk_index`
-- `court_code`
-- `year`
-- `source_type`
-
-**Fetched for:**
-
-- Hybrid / semantic search
-- Per-judgment vector inspect (admin pipeline)
-- Duplicate detection (fingerprint search)
-
-If Qdrant is unreachable (404 / wrong cluster URL), User Pipeline still works for listing `ik_judgments`, but **Qdrant Points stays 0** and semantic search is degraded.
-
----
-
-## 7. Document AI (OCR)
-
-Not a database. Used only during **Admin Uploads** processing.
-
-**Why:** scanned PDFs have no digital text. Document AI produces OCR JSON, which is written to GCS and merged into `judgment_uploads.merged_text` / `judgment_pages.text_content`.
-
-That merged text is then:
-
-1. Chunked → Postgres `judgment_chunks` + Qdrant
-2. Indexed as `full_text` → Elasticsearch `judgments`
-
----
-
-## 8. Two pipelines
-
-### 8.1 Admin Uploads (`source_type = admin-upload`)
-
-```text
-PDF upload
-  → GCS original
-  → split pages → GCS page PDFs
-  → OCR if needed → GCS JSON + SQL pages
-  → merge text
-  → Postgres judgments + uploads + chunks
-  → Elasticsearch index `judgments` (full_text)
-  → Qdrant collection `legal_embeddings_v2` (chunk vectors)
-```
-
-**UI:** Judgement Upload → **Admin Uploads**
-
-**Reads:** PostgreSQL first, then ES/Qdrant/GCS for previews.
-
-### 8.2 User citation fallback (`ik_judgments`)
-
-```text
-User searches a citation
-  → local Postgres / `judgments` ES / Qdrant miss
-  → fetch from Indian Kanoon
-  → write raw copy into Elasticsearch index `ik_judgments`
-     (id = tid, fields = title, text, doc, court, date, cites)
-```
-
-**UI:** Judgement Upload → **User Pipeline**
-
-**Reads:** Elasticsearch `ik_judgments` for the table and full document. PostgreSQL count may be 0 if those IK copies were never upserted into `judgments`. Qdrant is not required for this list/inspect view.
-
----
-
-## 9. What each UI reads
-
-| Screen | Primary store | Also uses |
-|---|---|---|
-| Admin Uploads list / status | PostgreSQL `judgment_uploads` | GCS, ES `judgments`, Qdrant |
-| User Pipeline list / inspect | Elasticsearch **`ik_judgments`** | Qdrant only if reachable |
-| Judgement Search (hybrid) | Qdrant chunks + ES `judgments` | Postgres for metadata enrichment |
-| Dependency Monitor | Health checks to PG, GCS, ES, Qdrant, Document AI config | — |
-
----
-
-## 10. Fetch vs store summary
-
-```text
-                    STORE                              FETCH
-Admin PDF           GCS original/pages/OCR             Page PDF / OCR layout
-Admin metadata      Postgres judgments + uploads       Admin dashboard
-Admin full text     ES `judgments`.full_text           Keyword search, detail text
-Admin chunks        Qdrant `legal_embeddings_v2`       Semantic search
-User IK fallback    ES `ik_judgments` (title/text/doc) User Pipeline table + full view
-Search analytics    Postgres judgment_api_analytics    Search analytics panel
-```
-
----
-
-## 11. Related files
-
-| File | Contents |
-|---|---|
-| `db/initSchema.js` | Postgres table creation |
-| `services/elasticsearchService.js` | `judgments` + `ik_judgments` APIs |
+| `db/initSchema.js` | Create Postgres tables |
+| `services/processingService.js` | Admin PDF pipeline writes |
+| `services/elasticsearchService.js` | `judgments` + `ik_judgments` |
 | `services/qdrantService.js` | `legal_embeddings_v2` |
-| `services/processingService.js` | Admin upload pipeline writes |
 | `services/pipelineReportService.js` | User Pipeline report (reads `ik_judgments`) |
-| `config/db.js` | Postgres connection |
-| `config/gcs.js` | GCS client |
-| `database_storing.md` | Longer upload-mapping write-up |
+| `judment_api/` | External search API |
+| `database_storing.md` | Detailed admin-upload field mapping |
 
-Do not commit secrets. Connection strings, ES passwords, and Qdrant API keys live only in `.env`.
+Frontend (Super Admin):
+
+| File | Job |
+|---|---|
+| `Frontend/.../JudgementManagement.jsx` | Toggle; default = User Pipeline |
+| `Frontend/.../judgement-pipeline-report/` | User Pipeline UI |
+| `Frontend/.../judgement-service/` | Admin Uploads UI |
