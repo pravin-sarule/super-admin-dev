@@ -3,9 +3,6 @@ import {
   ArrowLeft,
   LoaderCircle,
 } from 'lucide-react';
-import judgementAdminApi from '../../../services/judgementAdminApi';
-import IndexReferencesCard from '../judgement-service/IndexReferencesCard';
-import VectorPreviewCard from '../judgement-service/VectorPreviewCard';
 import { STATUS_STYLES } from '../judgement-service/constants';
 import { prettyStatus } from '../judgement-service/helpers';
 import { formatDateTime } from './helpers';
@@ -60,20 +57,12 @@ const PipelineInspectDashboard = ({
 
   const upload = detail.upload || {};
   const judgment = detail.judgment || {};
-  const chunks = detail.chunks || [];
-  const qdrantCollection = detail.stores?.qdrant?.collection
-    || upload.qdrantCollection
-    || judgment.qdrant_collection
-    || null;
   const textPreview = String(detail.textPreview || upload.mergedText || '');
   const htmlDoc = String(detail.htmlDoc || upload.htmlDoc || '');
   const hasHtmlDoc = /<\/?[a-z][\s\S]*>/i.test(htmlDoc);
   const detailStatus = upload.status || judgment.status;
   const sourceUrl = upload.sourceUrl || judgment.citation_data?.source_url || '';
   const documentId = upload.canonicalId || judgment.canonical_id || judgmentUuid;
-
-  const fetchPipelineVectors = (_id, pointIds) =>
-    judgementAdminApi.pipelineReportVectors(judgmentUuid, pointIds);
 
   return (
     <div className="space-y-4">
@@ -199,16 +188,6 @@ const PipelineInspectDashboard = ({
             {textPreview || 'No document text is stored for this judgment.'}
           </div>
         )}
-      </section>
-
-      <section className="grid items-start gap-4 xl:grid-cols-2">
-        <IndexReferencesCard selectedDetail={detail} />
-        <VectorPreviewCard
-          chunks={chunks}
-          documentId={judgmentUuid}
-          qdrantCollection={qdrantCollection}
-          fetchVectors={fetchPipelineVectors}
-        />
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
