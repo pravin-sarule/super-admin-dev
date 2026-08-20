@@ -201,7 +201,7 @@ const PipelineInspectDashboard = ({
         )}
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-2">
+      <section className="grid items-start gap-4 xl:grid-cols-2">
         <IndexReferencesCard selectedDetail={detail} />
         <VectorPreviewCard
           chunks={chunks}
@@ -215,7 +215,7 @@ const PipelineInspectDashboard = ({
         <div className="border-b border-slate-200 px-4 py-3">
           <h3 className="text-sm font-semibold text-slate-900">Document Overview</h3>
         </div>
-        <div className="grid gap-2 p-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid divide-y divide-slate-100 md:grid-cols-2 md:divide-x md:divide-y-0 xl:grid-cols-4">
           <OverviewField
             label="Merged Text"
             value={textPreview.length}
@@ -266,7 +266,7 @@ const MetadataField = ({ label, value, className = '', href = '' }) => {
 };
 
 const OverviewField = ({ label, value, hint, href = '' }) => (
-  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+  <div className="px-4 py-3">
     <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
     {href && value && value !== 'Not provided' ? (
       <a
