@@ -5,7 +5,7 @@ import { createPipelineReportLogger } from './logger';
 
 const logger = createPipelineReportLogger('Dashboard');
 const DEFAULT_SOURCE_TYPE = 'ik_pipeline';
-const DEFAULT_PAGE_SIZE = 200;
+const DEFAULT_PAGE_SIZE = 10;
 
 function extractJudgments(payload = {}) {
   if (Array.isArray(payload.judgments)) return payload.judgments;
@@ -122,15 +122,17 @@ export default function useJudgementPipelineReport({ sourceType = DEFAULT_SOURCE
 
         if (ignore) return;
 
-        setJudgments(extractJudgments(response));
+        const rows = extractJudgments(response);
+        const total = Number(response.meta?.total ?? rows.length);
+        setJudgments(rows);
         setTableWarnings(response.warnings || []);
         setErrorMessage('');
-        setMeta(response.meta || {
-          total: 0,
-          limit: pageSize,
-          offset,
-          search: deferredSearch,
-          hasMore: false,
+        setMeta({
+          total,
+          limit: Number(response.meta?.limit || pageSize),
+          offset: Number(response.meta?.offset ?? offset),
+          search: response.meta?.search ?? deferredSearch,
+          hasMore: Boolean(response.meta?.hasMore) || offset + rows.length < total,
         });
         logger.info('Pipeline report table loaded', {
           sourceType: normalizedSourceType,
@@ -234,7 +236,14 @@ export default function useJudgementPipelineReport({ sourceType = DEFAULT_SOURCE
     errorMessage,
     judgments,
     loading: summaryLoading || tableLoading,
-    meta,
+    meta: {
+      ...meta,
+      total:
+        Number(meta.total || 0) ||
+        (String(meta.search || deferredSearch || '').trim()
+          ? 0
+          : Number(summaryState.stores?.elasticsearch?.count || 0)),
+    },
     pageSize,
     refreshing,
     searchInput,

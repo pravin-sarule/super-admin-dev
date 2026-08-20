@@ -769,7 +769,12 @@ async function listIkJudgmentDocuments({ search = '', limit = 10, offset = 0 } =
   }
 
   const hits = Array.isArray(response.data?.hits?.hits) ? response.data.hits.hits : [];
-  const total = Number(response.data?.hits?.total?.value || hits.length);
+  const rawTotal = response.data?.hits?.total;
+  const total = Number(
+    rawTotal?.value ??
+    rawTotal ??
+    hits.length
+  );
 
   logger.info('ik_judgments list completed', {
     index: IK_JUDGMENTS_INDEX,

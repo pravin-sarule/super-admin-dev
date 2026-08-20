@@ -2,7 +2,18 @@ import React from 'react';
 import { ChevronLeft, ChevronRight, Eye, LoaderCircle, RefreshCw, Search } from 'lucide-react';
 import { formatDateTime, prettyStatus } from './helpers';
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100, 200];
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
+function getVisiblePages(currentPage, totalPages) {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  return [...pages]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right);
+}
 
 const STATUS_STYLES = {
   uploaded: 'border-sky-200 bg-sky-50 text-sky-700',
@@ -32,9 +43,12 @@ const PipelineJudgmentTable = ({
   setSearchInput,
 }) => {
   const total = Number(meta?.total || 0);
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  const startCount = total === 0 ? 0 : meta.offset + 1;
-  const endCount = Math.min(total, meta.offset + judgments.length);
+  const offset = Number(meta?.offset || 0);
+  const totalPages = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
+  const startCount = total === 0 ? 0 : offset + 1;
+  const endCount = Math.min(total, offset + judgments.length);
+  const visiblePages = getVisiblePages(currentPage, totalPages);
+  const showPagination = total > 0 || judgments.length > 0;
 
   return (
     <section className="rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
@@ -185,15 +199,16 @@ const PipelineJudgmentTable = ({
           </table>
         </div>
 
-        {!loading && total > 0 ? (
-          <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-100 bg-slate-50/50 px-5 py-4 md:flex-row">
+        {showPagination ? (
+          <div className="flex flex-col items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-5 py-4 md:flex-row">
             <div className="flex flex-col gap-3 md:flex-row md:items-center">
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-slate-500">Show</span>
                 <select
                   value={pageSize}
                   onChange={(event) => setPageSize(Number(event.target.value))}
-                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400"
+                  disabled={loading}
+                  className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-blue-400 disabled:opacity-50"
                 >
                   {PAGE_SIZE_OPTIONS.map((option) => (
                     <option key={option} value={option}>
@@ -204,30 +219,50 @@ const PipelineJudgmentTable = ({
                 <span className="text-xs font-medium text-slate-500">per page</span>
               </div>
 
-              <div className="text-xs text-slate-500">
+              <div className="text-xs font-semibold text-slate-600">
                 Showing {startCount}-{endCount} of {total} judgments
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1">
               <button
                 type="button"
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
+                disabled={loading || currentPage === 1}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
 
-              <div className="flex items-center gap-1">
-                <span className="text-xs font-semibold text-slate-700">Page {currentPage}</span>
-                <span className="text-xs text-slate-500">of {totalPages}</span>
-              </div>
+              {visiblePages.map((pageNumber, index) => {
+                const previous = visiblePages[index - 1];
+                const showEllipsis = previous && pageNumber - previous > 1;
+
+                return (
+                  <React.Fragment key={pageNumber}>
+                    {showEllipsis ? (
+                      <span className="px-1 text-xs text-slate-400">…</span>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(pageNumber)}
+                      disabled={loading}
+                      className={`inline-flex h-8 min-w-8 items-center justify-center rounded-lg border px-2 text-xs font-semibold transition disabled:opacity-60 ${
+                        pageNumber === currentPage
+                          ? 'border-blue-600 bg-blue-600 text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      {pageNumber}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
 
               <button
                 type="button"
                 onClick={() => setCurrentPage(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
+                disabled={loading || currentPage === totalPages}
                 className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 transition hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white"
               >
                 <ChevronRight className="h-4 w-4" />
