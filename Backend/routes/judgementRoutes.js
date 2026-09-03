@@ -222,6 +222,111 @@ module.exports = (pool) => {
   router.use(protect(pool));
   router.use(authorize(['super-admin']));
 
+  // --- Library Upload (Elasticsearch-only Indian Kanoon-format records) ---
+  // Before the /:documentId routes so "library" is never read as a document id.
+  router.post('/library/upload', (req, res, next) => {
+    logger.info('Received library upload request', {
+      requestId: req.requestId,
+      layer: 'JUDGEMENT_PROXY',
+      adminUserId: req.user?.id,
+      contentLength: req.headers['content-length'] || null,
+    });
+
+    return forward(req, res, next, {
+      method: 'POST',
+      path: '/api/judgements/library/upload',
+      data: req,
+      headers: {
+        ...(req.headers['content-type'] ? { 'content-type': req.headers['content-type'] } : {}),
+        ...(req.headers['content-length'] ? { 'content-length': req.headers['content-length'] } : {}),
+      },
+      timeoutMs: Math.max(proxyTimeoutMs, 900000),
+    });
+  });
+
+  router.get('/library', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: '/api/judgements/library',
+      params: req.query,
+    })
+  );
+
+  router.get('/library/:tid/html', async (req, res, next) => {
+    const startedAt = Date.now();
+    const path = `/api/judgements/library/${encodeURIComponent(req.params.tid)}/html`;
+
+    try {
+      const response = await axios({
+        method: 'GET',
+        url: `${serviceBaseUrl}${path}`,
+        params: req.query,
+        headers: buildHeaders(req),
+        responseType: 'stream',
+        timeout: proxyTimeoutMs,
+      });
+
+      res.setHeader('Content-Type', response.headers['content-type'] || 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+
+      logger.info('judgement-service request completed (STREAM)', {
+        requestId: req.requestId,
+        layer: 'JUDGEMENT_PROXY',
+        method: 'GET',
+        path,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+
+      return response.data.pipe(res);
+    } catch (error) {
+      logger.error(`judgement-service stream request failed: ${error.message}`, {
+        requestId: req.requestId,
+        layer: 'JUDGEMENT_PROXY',
+        method: 'GET',
+        path,
+        upstreamStatus: error.response?.status,
+      });
+
+      if (error.response) {
+        return res.status(error.response.status).json({
+          success: false,
+          message: 'Judgement service could not render the library HTML',
+          upstreamStatus: error.response.status,
+        });
+      }
+      return next({
+        statusCode: 502,
+        code: 'JUDGEMENT_SERVICE_UNAVAILABLE',
+        message: 'Judgement service is unavailable',
+      });
+    }
+  });
+
+  router.get('/library/:tid', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'GET',
+      path: `/api/judgements/library/${encodeURIComponent(req.params.tid)}`,
+    })
+  );
+
+  router.put('/library/:tid', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'PUT',
+      path: `/api/judgements/library/${encodeURIComponent(req.params.tid)}`,
+      data: req.body,
+      headers: { 'content-type': 'application/json' },
+      timeoutMs: Math.max(proxyTimeoutMs, 300000),
+    })
+  );
+
+  router.delete('/library/:tid', (req, res, next) =>
+    forward(req, res, next, {
+      method: 'DELETE',
+      path: `/api/judgements/library/${encodeURIComponent(req.params.tid)}`,
+    })
+  );
+
   // ... (keeping existing routes but inside this scope)
   router.get('/summary', (req, res, next) =>
     forward(req, res, next, {

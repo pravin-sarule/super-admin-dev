@@ -1,6 +1,10 @@
 const { generateEmbeddings } = require('../services/embeddingService');
 const { searchChunksByVector, COLLECTION_NAME } = require('../services/qdrantService');
-const { searchJudgmentDocuments } = require('../services/elasticsearchService');
+const {
+  searchJudgmentDocuments,
+  searchIkLibraryFullText,
+  IK_JUDGMENTS_INDEX,
+} = require('../services/elasticsearchService');
 const { getSignedReadUrl } = require('../services/storageService');
 const {
   sourceScopeToSourceTypes,
@@ -776,6 +780,77 @@ async function semanticSearch(payload = {}) {
   };
 }
 
+/**
+ * Admin uploads stored straight into the judgment library (ik_judgments) have no
+ * Postgres row, Qdrant points or PDF copy; everything the result needs is on the
+ * Elasticsearch record itself. Shaped like formatFullTextResult so the same UI
+ * renders both.
+ */
+function formatLibraryFullTextResult(hit, query, maxRawScore) {
+  const source = hit._source || {};
+  const highlights = hit.highlight || {};
+  const tid = String(source.tid || hit._id || '').trim();
+  const upload = source.upload && typeof source.upload === 'object' ? source.upload : {};
+  const year = Number(String(source.publishdate || '').slice(0, 4)) || null;
+
+  const relevance = buildFullTextRelevance(
+    {
+      _score: hit._score,
+      _source: { case_name: source.title || '' },
+      highlight: { case_name: highlights.title || [], full_text: highlights.text || [] },
+    },
+    query,
+    maxRawScore
+  );
+
+  return {
+    score: relevance.rawScore,
+    rawScore: relevance.rawScore,
+    relevanceScore: relevance.score,
+    relevance,
+    judgment: {
+      judgmentUuid: tid,
+      canonicalId: tid,
+      caseName: source.title || null,
+      courtCode: source.docsource || null,
+      year,
+      judgmentDate: source.publishdate || null,
+      sourceType: 'admin-upload',
+      sourceBucket: 'admin_uploaded',
+      verificationStatus: 'verified',
+      confidenceScore: null,
+      citationData: {},
+      ocrInfo: {},
+      citations: [],
+      status: 'indexed',
+      author: source.author || null,
+      bench: source.bench || null,
+      library: true,
+      libraryTid: tid,
+      libraryIndex: IK_JUDGMENTS_INDEX,
+    },
+    document: {
+      documentId: tid,
+      uploadStatus: 'indexed',
+      uploadMetadata: upload,
+      pipelineMetrics: {},
+      createdAt: source.fetched_at || null,
+      updatedAt: upload.updated_at || source.fetched_at || null,
+      originalFilename: upload.filename || null,
+      sourceUrl: null,
+      storageBucket: null,
+      storagePath: null,
+      storageUri: null,
+      originalFileUrl: null,
+      signedStorageUrl: null,
+    },
+    highlights: {
+      fullText: highlights.text || [],
+      caseName: highlights.title || [],
+    },
+  };
+}
+
 async function fullTextSearch(payload = {}) {
   const query = normalizeQuery(payload.query);
   if (!query) {
@@ -789,16 +864,39 @@ async function fullTextSearch(payload = {}) {
   const operator = String(payload.operator || 'and').toLowerCase() === 'or' ? 'or' : 'and';
   const scope = payload.__resolvedSearchScope || resolveSearchScope(payload);
   const timings = {};
+  const warnings = [];
 
+  // Two Elasticsearch legs: the pipeline's own `judgments` index and the
+  // judgment library (ik_judgments) for admin uploads. Either may be down or
+  // empty without failing the whole search.
+  const includeLibrary = scope.requestedSourceScope !== 'user_generated';
   const elasticStartedAt = Date.now();
-  const hits = await searchJudgmentDocuments({
-    query,
-    limit,
-    phraseMatch,
-    operator,
-    sourceTypes: scope.fullTextSourceTypes,
-  });
+  const [judgmentsLeg, libraryLeg] = await Promise.allSettled([
+    searchJudgmentDocuments({
+      query,
+      limit,
+      phraseMatch,
+      operator,
+      sourceTypes: scope.fullTextSourceTypes,
+    }),
+    includeLibrary
+      ? searchIkLibraryFullText({ query, limit, phraseMatch, operator })
+      : Promise.resolve([]),
+  ]);
   timings.elasticMs = Date.now() - elasticStartedAt;
+
+  if (judgmentsLeg.status === 'rejected' && libraryLeg.status === 'rejected') {
+    throw judgmentsLeg.reason;
+  }
+
+  const hits = judgmentsLeg.status === 'fulfilled' ? judgmentsLeg.value : [];
+  if (judgmentsLeg.status === 'rejected') {
+    warnings.push({ store: 'judgments_index', message: judgmentsLeg.reason?.message || 'judgments index unavailable' });
+  }
+  const libraryHits = libraryLeg.status === 'fulfilled' ? libraryLeg.value : [];
+  if (libraryLeg.status === 'rejected') {
+    warnings.push({ store: IK_JUDGMENTS_INDEX, message: libraryLeg.reason?.message || 'judgment library unavailable' });
+  }
 
   const judgmentUuids = hits
     .map((hit) => hit._source?.judgment_uuid)
@@ -819,12 +917,12 @@ async function fullTextSearch(payload = {}) {
   const signedUrlMap = await buildSignedUrlMap(metadataRows, payload.signedUrlExpiryMinutes);
   timings.signedUrlMs = Date.now() - signedUrlStartedAt;
 
-  const maxRawScore = hits.reduce((maxScore, hit) => {
+  const maxRawScore = [...hits, ...libraryHits].reduce((maxScore, hit) => {
     const parsed = Number(hit?._score || 0);
     return Number.isFinite(parsed) ? Math.max(maxScore, parsed) : maxScore;
   }, 0);
 
-  const results = hits.map((hit) => {
+  const pipelineResults = hits.map((hit) => {
     const judgmentUuid = String(hit._source?.judgment_uuid || '');
     return formatFullTextResult(
       hit,
@@ -834,6 +932,13 @@ async function fullTextSearch(payload = {}) {
       maxRawScore
     );
   });
+  const libraryResults = libraryHits.map((hit) => formatLibraryFullTextResult(hit, query, maxRawScore));
+
+  const results = [...pipelineResults, ...libraryResults]
+    .sort((left, right) =>
+      (Number(right.relevanceScore || 0) - Number(left.relevanceScore || 0))
+      || (Number(right.rawScore || 0) - Number(left.rawScore || 0)))
+    .slice(0, limit);
 
   return {
     query,
@@ -847,6 +952,12 @@ async function fullTextSearch(payload = {}) {
       sourceScope: scope.requestedSourceScope,
       sourceTypes: scope.fullTextSourceTypes,
     },
+    sources: {
+      judgmentsIndex: pipelineResults.length,
+      library: libraryResults.length,
+      libraryIncluded: includeLibrary,
+    },
+    warnings,
     totalResults: results.length,
     timings,
     results,
@@ -1007,7 +1118,9 @@ async function hybridSearch(payload = {}) {
   const fullTextLimit = normalizePositiveInt(payload.fullTextLimit || payload.judgmentLimit || payload.limit, 10, 50);
   const scope = resolveSearchScope(payload);
 
-  const [semanticInitial, fullText] = await Promise.all([
+  // The semantic leg needs Gemini embeddings + Qdrant; when either is down the
+  // full-text leg (Elasticsearch only) must still answer.
+  const [semanticSettled, fullTextSettled] = await Promise.allSettled([
     semanticSearch({
       ...payload,
       __resolvedSearchScope: scope,
@@ -1020,11 +1133,52 @@ async function hybridSearch(payload = {}) {
     }),
   ]);
 
-  const semantic = await hydrateSemanticWithFullText({
-    query: semanticInitial.query,
-    semantic: semanticInitial,
-    fullText,
-  });
+  if (fullTextSettled.status === 'rejected') {
+    throw fullTextSettled.reason;
+  }
+  const fullText = fullTextSettled.value;
+
+  let semanticInitial;
+  if (semanticSettled.status === 'fulfilled') {
+    semanticInitial = semanticSettled.value;
+  } else {
+    const reason = semanticSettled.reason?.message || 'semantic search unavailable';
+    logger.warn('Semantic search unavailable; returning full-text results only', { reason });
+    semanticInitial = {
+      query: fullText.query,
+      collection: COLLECTION_NAME,
+      searchMode: 'semantic',
+      limit: semanticLimit,
+      scoreThreshold: normalizeScoreThreshold(payload.scoreThreshold),
+      appliedScoreThreshold: null,
+      thresholdFallbackTriggered: false,
+      filters: { sourceScope: scope.requestedSourceScope },
+      requestedSourceScope: scope.requestedSourceScope,
+      effectiveSourceScope: null,
+      scopeCoverage: scope.semanticScopeCoverage,
+      scopeCoverageMessage: null,
+      unavailableReason: `Semantic search is unavailable (${reason}). Showing Elasticsearch full-text matches only.`,
+      unavailable: true,
+      totalResults: 0,
+      timings: {},
+      results: [],
+    };
+  }
+
+  let semantic = semanticInitial;
+  if (!semanticInitial.unavailable) {
+    try {
+      semantic = await hydrateSemanticWithFullText({
+        query: semanticInitial.query,
+        semantic: semanticInitial,
+        fullText,
+      });
+    } catch (error) {
+      logger.warn('Semantic hydration from full-text failed; returning semantic results as-is', {
+        reason: error.message,
+      });
+    }
+  }
 
   return {
     query: semantic.query,
@@ -1048,6 +1202,10 @@ async function hybridSearch(payload = {}) {
     },
     semantic,
     fullText,
+    warnings: [
+      ...(semanticInitial.unavailable ? [{ store: 'qdrant', message: semanticInitial.unavailableReason }] : []),
+      ...(fullText.warnings || []),
+    ],
     totalResults: {
       semanticChunks: semantic.totalResults,
       fullTextJudgments: fullText.totalResults,

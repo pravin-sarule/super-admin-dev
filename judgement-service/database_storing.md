@@ -927,3 +927,35 @@ So yes:
 Qdrant canonical_id should match judgment_uploads.canonical_id
 but the actual unique file identity is document_id
  -->
+
+## Library Upload (Elasticsearch only) — full architecture in [ADMIN_LIBRARY_UPLOAD.md](ADMIN_LIBRARY_UPLOAD.md)
+
+Super Admin → Judgment Dashboards → **Admin Uploads**. A court PDF is converted
+into the exact record the judgment library stores for Indian Kanoon judgments
+and written to `ik_judgments` + `ik_judgment_paragraphs`. Nothing else is
+written: no Postgres row, no GCS copy, no Qdrant, no chunk tables.
+
+| Index | Record |
+|---|---|
+| `ik_judgments` (`_id` = tid) | `tid, title, doc (IK-style HTML), text (= strip_html(doc)), docsource, publishdate, author, bench, numcites=0, numcitedby=0, casesCited=[], citedBy=[]` + `fetched_at` (upload time), `source="admin_upload"`, `upload` (non-indexed: filename, uploaded_by, page_count, text_source, sha1, …) |
+| `ik_judgment_paragraphs` (`_id` = `{tid}:{n}`) | `judgment_id, paragraph_no, title, docsource, publishdate, bench, text, sections, acts, citations` — same chunking rules as the library |
+
+- tid = `9` + 10 digits derived from the SHA-1 of the extracted text
+  (`ikFormatService.deriveUploadTid`); the same PDF uploaded twice is reported as
+  a duplicate. Indian Kanoon ids are ≤ 9 digits, so the ranges never overlap,
+  and only tids in the upload range can be edited or deleted.
+- Text comes from the PDF text layer (`pdf-parse`); image-only PDFs go through
+  Document AI OCR in 15-page batches. Title / court / date are detected
+  (`metadataService`), judges from CORAM / HON'BLE lines; all can be set on
+  upload or edited later. An edit rebuilds HTML, text and paragraphs from the
+  stored `doc` under the same tid.
+
+Endpoints under `/api/judgements/library` (proxied as `/api/judgements-admin/library`):
+`POST /upload` (multipart `documents[]`, optional `title|docsource|publishdate|author|bench`),
+`GET /` (list, `search/page/size`), `GET /:tid`, `GET /:tid/html` (`?raw=1` for the fragment),
+`PUT /:tid` (edit), `DELETE /:tid`.
+
+Code: `services/ikFormatService.js` (record builder), `services/libraryUploadService.js`
+(extract → build → store), `controllers/libraryUploadController.js`,
+`services/elasticsearchService.js` (`createIkJudgmentDocument`, `bulkCreateIkParagraphs`,
+`searchIkAdminUploads`, `deleteIkJudgmentDocument`).

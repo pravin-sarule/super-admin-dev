@@ -1,9 +1,12 @@
 import React from 'react';
 import { Database, FileUp } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
+import JudgementLibraryDashboard from './judgement-library';
 import JudgementPipelineReportDashboard from './judgement-pipeline-report';
-import JudgementServiceDashboard from './judgement-service';
 
+// Admin Uploads is the Elasticsearch-only flow: each PDF becomes an Indian
+// Kanoon-format record in ik_judgments. The earlier OCR/Qdrant/Postgres pipeline
+// (pages/dashboard/judgement-service) is no longer wired into this page.
 const DASHBOARD_VIEWS = {
   ik_pipeline: {
     label: 'User Pipeline',
@@ -12,13 +15,14 @@ const DASHBOARD_VIEWS = {
   },
   admin_upload: {
     label: 'Admin Uploads',
-    description: 'Upload PDFs, monitor OCR, inspect metadata, and manage the admin ingestion pipeline.',
+    description: 'Upload court PDFs straight into the judgment library as Indian Kanoon-format records (Elasticsearch only).',
     icon: FileUp,
   },
 };
 
 function normalizeView(view) {
-  if (view === 'admin_upload') {
+  // "library_upload" was a short-lived alias for the same workspace.
+  if (view === 'admin_upload' || view === 'library_upload') {
     return 'admin_upload';
   }
 
@@ -81,7 +85,7 @@ const JudgementManagement = () => {
       {activeView === 'ik_pipeline' ? (
         <JudgementPipelineReportDashboard sourceType="ik_pipeline" />
       ) : (
-        <JudgementServiceDashboard />
+        <JudgementLibraryDashboard />
       )}
     </div>
   );

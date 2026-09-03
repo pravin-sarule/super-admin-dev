@@ -1,6 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const controller = require('../controllers/judgementController');
+const libraryController = require('../controllers/libraryUploadController');
 const { authenticate, authorize } = require('../middleware/auth');
 const { createJudgementUploadStorage } = require('../services/storageService');
 
@@ -29,6 +30,29 @@ function assignUploadContext(req, _res, next) {
 
 router.use(authenticate);
 router.use(authorize(['super-admin']));
+
+// --- Library Upload: PDF -> Indian Kanoon-format record in ik_judgments (Elasticsearch only) ---
+// Registered before the /:documentId routes so "library" is never read as a document id.
+const libraryMaxFiles = Math.max(1, Number(process.env.LIBRARY_UPLOAD_MAX_FILES || 20));
+const libraryMaxBytes = Math.max(1024 * 1024, Number(process.env.LIBRARY_UPLOAD_MAX_BYTES || 60 * 1024 * 1024));
+const libraryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { files: libraryMaxFiles, fileSize: libraryMaxBytes },
+});
+
+router.post(
+  '/library/upload',
+  libraryUpload.fields([
+    { name: 'documents', maxCount: libraryMaxFiles },
+    { name: 'document', maxCount: 1 },
+  ]),
+  libraryController.uploadToLibrary
+);
+router.get('/library', libraryController.listLibrary);
+router.get('/library/:tid/html', libraryController.getLibraryRecordHtml);
+router.get('/library/:tid', libraryController.getLibraryRecord);
+router.put('/library/:tid', libraryController.updateLibraryRecord);
+router.delete('/library/:tid', libraryController.deleteLibraryRecord);
 
 router.get('/summary', controller.getJudgementSummary);
 router.get('/pipeline-report/summary', controller.getPipelineReportSummary);

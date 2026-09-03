@@ -621,6 +621,9 @@ function mapIkJudgmentHit(hit = {}) {
   const source = hit._source || {};
   const tid = String(source.tid || hit._id || '').trim();
   const publishdate = source.publishdate || source.fetched_at || null;
+  // Judgments published from admin uploads carry `source: 'admin_upload'`;
+  // everything else in the library came from an Indian Kanoon /doc response.
+  const isAdminUpload = source.source === 'admin_upload';
 
   return {
     tid,
@@ -637,8 +640,397 @@ function mapIkJudgmentHit(hit = {}) {
     citedBy: Array.isArray(source.citedBy) ? source.citedBy : [],
     fetched_at: source.fetched_at || null,
     year: yearFromPublishDate(publishdate),
-    source_url: tid ? `https://indiankanoon.org/doc/${tid}/` : null,
+    source: isAdminUpload ? 'admin_upload' : 'indian_kanoon',
+    upload: isAdminUpload && source.upload && typeof source.upload === 'object' ? source.upload : null,
+    source_url: isAdminUpload ? null : (tid ? `https://indiankanoon.org/doc/${tid}/` : null),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/*            Library writes for admin uploads (ik_judgments + paragraphs)      */
+/* -------------------------------------------------------------------------- */
+
+const IK_PARAGRAPHS_INDEX = process.env.IK_PARAGRAPHS_INDEX || 'ik_judgment_paragraphs';
+// Admin uploads are minted as "9" + 10 digits (ikFormatService.deriveUploadTid).
+const UPLOAD_TID_REGEXP = '9[0-9]{10}';
+let ensureLibraryMappingPromise = null;
+
+/**
+ * The `upload` bookkeeping block must stay out of the index (like casesCited /
+ * citedBy in the library's own mapping). Idempotent; a failure only logs, in
+ * which case dynamic mapping would still store the block.
+ */
+async function ensureIkLibraryMapping() {
+  if (!ELASTICSEARCH_URL) return;
+  if (ensureLibraryMappingPromise) return ensureLibraryMappingPromise;
+
+  ensureLibraryMappingPromise = (async () => {
+    try {
+      await axios.put(
+        `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_mapping`,
+        { properties: { upload: { type: 'object', enabled: false } } },
+        requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+      );
+      logger.info('ik_judgments mapping ensured for upload bookkeeping block', { index: IK_JUDGMENTS_INDEX });
+    } catch (error) {
+      ensureLibraryMappingPromise = null;
+      logger.warn('Could not ensure ik_judgments upload mapping; continuing', {
+        index: IK_JUDGMENTS_INDEX,
+        upstreamStatus: error.response?.status || null,
+        reason: error.response?.data?.error?.reason || error.message,
+      });
+    }
+  })();
+
+  return ensureLibraryMappingPromise;
+}
+
+/**
+ * List admin-uploaded judgments (identified by their tid range), newest first.
+ * `doc` and `text` are excluded from the listing payload.
+ */
+async function searchIkAdminUploads({ search = '', from = 0, size = 20 } = {}) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const normalizedSearch = String(search || '').trim();
+  const must = [];
+  if (normalizedSearch) {
+    must.push({
+      bool: {
+        should: [
+          { term: { tid: normalizedSearch } },
+          {
+            multi_match: {
+              query: normalizedSearch,
+              fields: ['title^4', 'docsource^2', 'author', 'bench', 'text'],
+              type: 'best_fields',
+              operator: 'and',
+            },
+          },
+        ],
+        minimum_should_match: 1,
+      },
+    });
+  }
+
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+    {
+      from: Math.max(0, Number(from) || 0),
+      size: Math.min(200, Math.max(1, Number(size) || 20)),
+      track_total_hits: true,
+      query: {
+        bool: {
+          filter: [{ regexp: { tid: UPLOAD_TID_REGEXP } }],
+          ...(must.length ? { must } : {}),
+        },
+      },
+      _source: { excludes: ['doc', 'text'] },
+      sort: [
+        { fetched_at: { order: 'desc', unmapped_type: 'date', missing: '_last' } },
+        { tid: { order: 'asc' } },
+      ],
+    },
+    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+  );
+
+  const hits = Array.isArray(response.data?.hits?.hits) ? response.data.hits.hits : [];
+  const total = Number(response.data?.hits?.total?.value ?? hits.length);
+
+  return { total, rows: hits.map(mapIkJudgmentHit) };
+}
+
+/**
+ * Full-text search over admin-uploaded judgments in ik_judgments, with the same
+ * strict → relaxed strategy as searchJudgmentDocuments (text ↔ full_text,
+ * title ↔ case_name). Returns raw hits with <mark> highlights on text/title.
+ */
+async function searchIkLibraryFullText({
+  query,
+  limit = 10,
+  phraseMatch = false,
+  operator = 'and',
+} = {}) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+
+  const normalizedQuery = String(query || '').trim();
+  if (!normalizedQuery) {
+    throw new Error('A search query is required');
+  }
+
+  const normalizedOperator = String(operator || 'and').toLowerCase() === 'or' ? 'or' : 'and';
+  const startedAt = Date.now();
+
+  const execute = async (queryBody) => {
+    const response = await axios.post(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_search`,
+      {
+        size: Math.min(50, Math.max(1, Number(limit) || 10)),
+        _source: ['tid', 'title', 'docsource', 'publishdate', 'author', 'bench', 'fetched_at', 'source', 'upload'],
+        query: {
+          bool: {
+            must: [queryBody],
+            filter: [{ regexp: { tid: UPLOAD_TID_REGEXP } }],
+          },
+        },
+        highlight: {
+          pre_tags: ['<mark>'],
+          post_tags: ['</mark>'],
+          fields: {
+            text: { fragment_size: 180, number_of_fragments: 3 },
+            title: { number_of_fragments: 1 },
+          },
+        },
+      },
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+    return response.data?.hits?.hits || [];
+  };
+
+  const strictQuery = phraseMatch
+    ? {
+      bool: {
+        should: [
+          { match_phrase: { text: { query: normalizedQuery, slop: 2 } } },
+          { match_phrase: { title: { query: normalizedQuery, slop: 1 } } },
+        ],
+        minimum_should_match: 1,
+      },
+    }
+    : {
+      multi_match: {
+        query: normalizedQuery,
+        fields: ['text^4', 'title^3', 'docsource', 'author', 'bench'],
+        type: 'best_fields',
+        operator: normalizedOperator,
+      },
+    };
+
+  let strategy = phraseMatch ? 'phrase' : `strict_${normalizedOperator}`;
+  let hits = await execute(strictQuery);
+
+  if (!hits.length && !phraseMatch) {
+    const relaxedQuery = {
+      bool: {
+        should: [
+          {
+            multi_match: {
+              query: normalizedQuery,
+              fields: ['text^5', 'title^4', 'docsource^2'],
+              type: 'best_fields',
+              operator: 'or',
+              minimum_should_match: resolveRelaxedMinimumShouldMatch(normalizedQuery),
+              boost: 2,
+            },
+          },
+          { match_phrase: { text: { query: normalizedQuery, slop: 3, boost: 3 } } },
+          { match_phrase: { title: { query: normalizedQuery, slop: 2, boost: 4 } } },
+        ],
+        minimum_should_match: 1,
+      },
+    };
+    hits = await execute(relaxedQuery);
+    strategy = hits.length ? 'relaxed_hybrid' : `${strategy}_empty`;
+  }
+
+  logger.info('ik_judgments library full-text search completed', {
+    index: IK_JUDGMENTS_INDEX,
+    query: normalizedQuery,
+    limit,
+    strategy,
+    returnedHits: hits.length,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return hits;
+}
+
+function assertUploadTid(tid, action) {
+  // Belt and braces: this module must never delete a real Indian Kanoon judgment.
+  const value = String(tid || '').trim();
+  if (!/^9\d{10}$/.test(value)) {
+    throw new Error(`Refusing to ${action} ${value || '(empty)'}: not an admin-upload tid`);
+  }
+  return value;
+}
+
+/**
+ * Create-only write into ik_judgments (op_type=create). Returns
+ *   { created: true }                    on 201
+ *   { created: false, existing: source } on 409 (already in the library)
+ */
+async function createIkJudgmentDocument(tid, body) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+  const docId = String(tid || '').trim();
+  if (!docId) throw new Error('tid is required');
+
+  logger.step('Creating judgment in ik_judgments', {
+    index: IK_JUDGMENTS_INDEX,
+    tid: docId,
+    title: body?.title,
+    docChars: String(body?.doc || '').length,
+    textChars: String(body?.text || '').length,
+  });
+
+  try {
+    await axios.put(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_create/${encodeURIComponent(docId)}`,
+      body,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+    return { created: true };
+  } catch (error) {
+    if (error.response?.status === 409) {
+      const existing = await getIkJudgmentSource(docId);
+      logger.warn('ik_judgments document already exists; not overwriting', {
+        index: IK_JUDGMENTS_INDEX,
+        tid: docId,
+        existingSource: existing?.source || 'indian_kanoon',
+      });
+      return { created: false, existing };
+    }
+    logger.error('ik_judgments create failed', error, {
+      index: IK_JUDGMENTS_INDEX,
+      tid: docId,
+      upstreamStatus: error.response?.status || null,
+      upstreamData: error.response?.data || null,
+    });
+    throw error;
+  }
+}
+
+/** Raw _source of an ik_judgments record (null when absent). */
+async function getIkJudgmentSource(tid) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+  const docId = String(tid || '').trim();
+  if (!docId) return null;
+
+  try {
+    const response = await axios.get(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_doc/${encodeURIComponent(docId)}`,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+    return response.data?.found ? response.data._source : null;
+  } catch (error) {
+    if (error.response?.status === 404) return null;
+    throw error;
+  }
+}
+
+/**
+ * Bulk create paragraph rows with deterministic ids `{tid}:{paragraph_no}`.
+ * Existing ids are skipped (create-only), so a re-run adds only what is missing.
+ */
+async function bulkCreateIkParagraphs(rows = []) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+  if (!rows.length) return { created: 0, skipped: 0, failed: 0 };
+
+  const lines = [];
+  for (const row of rows) {
+    lines.push(JSON.stringify({ create: { _index: IK_PARAGRAPHS_INDEX, _id: `${row.judgment_id}:${row.paragraph_no}` } }));
+    lines.push(JSON.stringify(row));
+  }
+  const payload = `${lines.join('\n')}\n`;
+
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/_bulk?refresh=wait_for`,
+    payload,
+    {
+      ...requestConfig(ELASTICSEARCH_TIMEOUT_MS),
+      headers: { 'Content-Type': 'application/x-ndjson' },
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    }
+  );
+
+  const summary = { created: 0, skipped: 0, failed: 0 };
+  for (const item of response.data?.items || []) {
+    const result = item.create || {};
+    if (result.status === 201) summary.created += 1;
+    else if (result.status === 409) summary.skipped += 1;
+    else summary.failed += 1;
+  }
+
+  logger.info('ik_judgment_paragraphs bulk create completed', {
+    index: IK_PARAGRAPHS_INDEX,
+    judgmentId: rows[0]?.judgment_id,
+    rows: rows.length,
+    ...summary,
+  });
+
+  if (summary.failed) {
+    const firstFailure = (response.data?.items || []).find((i) => i.create?.error)?.create?.error;
+    throw new Error(`Paragraph bulk index failed for ${summary.failed} row(s): ${JSON.stringify(firstFailure || {}).slice(0, 300)}`);
+  }
+
+  return summary;
+}
+
+async function countIkParagraphs(tid) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+  const docId = String(tid || '').trim();
+  if (!docId) return 0;
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/${IK_PARAGRAPHS_INDEX}/_count`,
+    { query: { term: { judgment_id: docId } } },
+    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+  );
+  return Number(response.data?.count || 0);
+}
+
+/**
+ * Remove an admin-upload judgment and all of its paragraph rows from the library.
+ * Guarded so that only tids minted for uploads (9 + 10 digits) can ever be deleted.
+ */
+async function deleteIkJudgmentDocument(tid) {
+  if (!ELASTICSEARCH_URL) {
+    throw new Error('Elasticsearch URL is not configured');
+  }
+  const docId = assertUploadTid(tid, 'delete');
+
+  logger.step('Deleting admin-upload judgment from library', {
+    index: IK_JUDGMENTS_INDEX,
+    paragraphIndex: IK_PARAGRAPHS_INDEX,
+    tid: docId,
+  });
+
+  let judgmentDeleted = false;
+  try {
+    await axios.delete(
+      `${ELASTICSEARCH_URL}/${IK_JUDGMENTS_INDEX}/_doc/${encodeURIComponent(docId)}?refresh=wait_for`,
+      requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+    );
+    judgmentDeleted = true;
+  } catch (error) {
+    if (error.response?.status !== 404) throw error;
+  }
+
+  const response = await axios.post(
+    `${ELASTICSEARCH_URL}/${IK_PARAGRAPHS_INDEX}/_delete_by_query?refresh=true&conflicts=proceed`,
+    { query: { term: { judgment_id: docId } } },
+    requestConfig(ELASTICSEARCH_TIMEOUT_MS)
+  );
+
+  const paragraphsDeleted = Number(response.data?.deleted || 0);
+  logger.info('Admin-upload judgment removed from library', {
+    tid: docId,
+    judgmentDeleted,
+    paragraphsDeleted,
+  });
+
+  return { judgmentDeleted, paragraphsDeleted };
 }
 
 function buildIkSearchQuery(search = '') {
@@ -740,6 +1132,11 @@ async function listIkJudgmentDocuments({ search = '', limit = 10, offset = 0 } =
       'bench',
       'numcites',
       'numcitedby',
+      'source',
+      'source_url',
+      'upload_document_id',
+      'judgment_uuid',
+      'canonical_id',
     ],
   };
 
@@ -852,5 +1249,14 @@ module.exports = {
   summarizeIkJudgmentDocuments,
   listIkJudgmentDocuments,
   getIkJudgmentDocument,
+  createIkJudgmentDocument,
+  getIkJudgmentSource,
+  bulkCreateIkParagraphs,
+  countIkParagraphs,
+  deleteIkJudgmentDocument,
+  ensureIkLibraryMapping,
+  searchIkAdminUploads,
+  searchIkLibraryFullText,
   IK_JUDGMENTS_INDEX,
+  IK_PARAGRAPHS_INDEX,
 };

@@ -347,6 +347,70 @@ class JudgementAdminApi {
       headers: authHeaders(),
     });
   }
+
+  // --- Library Upload: PDF -> Indian Kanoon-format record in ik_judgments (Elasticsearch only) ---
+
+  async libraryUpload({ files = [], fields = {} } = {}) {
+    const formData = new FormData();
+    files.forEach((file) => formData.append('documents', file));
+    Object.entries(fields).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && String(value).trim() !== '') {
+        formData.append(key, String(value));
+      }
+    });
+
+    return performRequest('libraryUpload', {
+      method: 'POST',
+      url: `${PROXY_API_BASE_URL}/library/upload`,
+      data: formData,
+      headers: authHeaders(),
+    });
+  }
+
+  async libraryList(params = {}) {
+    return performRequest('libraryList', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/library`,
+      headers: authHeaders(),
+      params,
+    });
+  }
+
+  async libraryDetail(tid) {
+    return performRequest('libraryDetail', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/library/${encodeURIComponent(tid)}`,
+      headers: authHeaders(),
+    });
+  }
+
+  async libraryHtml(tid) {
+    return performRequest('libraryHtml', {
+      method: 'GET',
+      url: `${PROXY_API_BASE_URL}/library/${encodeURIComponent(tid)}/html`,
+      headers: authHeaders(),
+      responseType: 'text',
+    });
+  }
+
+  async libraryUpdate(tid, payload) {
+    return performRequest('libraryUpdate', {
+      method: 'PUT',
+      url: `${PROXY_API_BASE_URL}/library/${encodeURIComponent(tid)}`,
+      data: payload,
+      headers: authHeaders({
+        'Content-Type': 'application/json',
+      }),
+    });
+  }
+
+  async libraryDelete(tid) {
+    return performRequest('libraryDelete', {
+      method: 'DELETE',
+      url: `${PROXY_API_BASE_URL}/library/${encodeURIComponent(tid)}`,
+      headers: authHeaders(),
+    });
+  }
 }
 
 export default new JudgementAdminApi();

@@ -123,7 +123,8 @@ function mapIkRowToJudgment(row, qdrantPointCount = 0) {
     courtCode: row.docsource,
     judgmentDate: row.publishdate,
     year: row.year,
-    sourceType: 'ik_pipeline',
+    // Admin uploads live in the same index, tagged source = admin_upload.
+    sourceType: row.source === 'admin_upload' ? 'admin-upload' : 'ik_pipeline',
     status: 'indexed',
     esDocId: row.tid,
     createdAt: row.fetched_at || row.publishdate,
@@ -450,9 +451,11 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
 
     const textPreview = String(ikDocument.text || '');
     const warnings = [];
+    // Admin uploads published into ik_judgments carry their own provenance.
+    const ikSourceType = ikDocument.source === 'admin_upload' ? 'admin-upload' : 'ik_pipeline';
 
     const upload = {
-      documentId: ikDocument.tid,
+      documentId: ikDocument.upload_document_id || ikDocument.tid,
       judgmentUuid: ikDocument.tid,
       canonicalId: ikDocument.tid,
       originalFilename: ikDocument.title || ikDocument.tid,
@@ -502,7 +505,7 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
         court_code: ikDocument.docsource,
         judgment_date: ikDocument.publishdate,
         year: ikDocument.year,
-        source_type: 'ik_pipeline',
+        source_type: ikSourceType,
         status: 'indexed',
         es_doc_id: ikDocument.tid,
         qdrant_collection: COLLECTION_NAME,
@@ -527,7 +530,7 @@ async function getPipelineJudgmentDetail({ judgmentUuid } = {}) {
         },
       },
       warnings,
-      sourceType: 'ik_pipeline',
+      sourceType: ikSourceType,
     };
   }
 

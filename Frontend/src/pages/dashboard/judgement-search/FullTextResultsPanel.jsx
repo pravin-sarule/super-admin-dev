@@ -1,7 +1,24 @@
 import { useState } from 'react';
-import { Eye, FileSearch, Quote } from 'lucide-react';
+import { BookOpen, Eye, FileSearch, Quote } from 'lucide-react';
+import judgementAdminApi from '../../../services/judgementAdminApi';
 import { formatDate } from '../judgement-service/helpers';
 import PdfPreviewModal from './PdfPreviewModal';
+
+/** Admin uploads have no PDF copy; open the stored Indian Kanoon-format HTML instead. */
+async function openLibraryHtml(tid) {
+  const popup = window.open('', '_blank');
+  try {
+    const html = await judgementAdminApi.libraryHtml(tid);
+    if (popup) {
+      popup.document.open();
+      popup.document.write(html);
+      popup.document.close();
+    }
+  } catch (error) {
+    if (popup) popup.close();
+    console.error('[JudgementSearch] Failed to open library HTML', error);
+  }
+}
 
 function sourceBucketClasses(sourceBucket) {
   if (sourceBucket === 'user_generated') {
@@ -57,6 +74,12 @@ const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uplo
                   <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${sourceBucketClasses(item.judgment.sourceBucket)}`}>
                     {sourceBucketLabel(item.judgment.sourceBucket)}
                   </span>
+                  {item.judgment.libraryTid ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                      <BookOpen className="h-3.5 w-3.5" />
+                      Judgment Library
+                    </span>
+                  ) : null}
                 </div>
 
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-500">
@@ -93,9 +116,17 @@ const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uplo
                       <div className="mt-1 text-sm text-slate-700">{item.document.originalFilename || 'Original filename unavailable'}</div>
                     </div>
                     <div>
-                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Document ID</div>
+                      <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                        {item.judgment.libraryTid ? 'Library tid' : 'Document ID'}
+                      </div>
                       <div className="mt-1 text-sm text-slate-700">{item.document.documentId || 'N/A'}</div>
                     </div>
+                    {item.judgment.bench || item.judgment.author ? (
+                      <div>
+                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Bench</div>
+                        <div className="mt-1 text-sm text-slate-700">{item.judgment.bench || item.judgment.author}</div>
+                      </div>
+                    ) : null}
                     <div>
                       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Citation</div>
                       <div className="mt-1 text-sm text-slate-700">{item.judgment.citations?.[0] || 'N/A'}</div>
@@ -114,6 +145,15 @@ const FullTextResultsPanel = ({ results = [], requestedSourceScope = 'admin_uplo
                   >
                     <Eye className="h-4 w-4" />
                     Open Original
+                  </button>
+                ) : item.judgment.libraryTid ? (
+                  <button
+                    type="button"
+                    onClick={() => openLibraryHtml(item.judgment.libraryTid)}
+                    className="mt-4 inline-flex items-center gap-2 rounded-xl border border-indigo-200 bg-white px-3 py-2 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    Open in Library
                   </button>
                 ) : null}
               </div>
