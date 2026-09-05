@@ -3,7 +3,7 @@ import axios from 'axios';
 // Defaults: on localhost use `/api` (Vite dev proxy → backend). On any other host, use deployed API unless VITE_API_BASE_URL is set.
 const DEFAULT_REMOTE_API_BASE =
   'https://super-admin-backend-120280829617.asia-south1.run.app/api';
-const DEFAULT_JUDGEMENT_SERVICE_ORIGIN = 'https://judgement-service-120280829617.asia-south1.run.app';
+const DEFAULT_JUDGEMENT_SERVICE_ORIGIN = 'https://agentic-document-service-120280829617.asia-south1.run.app';
 
 const shouldUseLocalApiByDefault =
   typeof window !== 'undefined' &&
@@ -76,7 +76,7 @@ function isJudgementApiRequest(err) {
   return (
     url.includes('/judgements-admin') ||
     url.includes('/api/judgements') ||
-    url.includes('judgement-service')
+    (Boolean(JUDGEMENT_SERVICE_ORIGIN) && url.startsWith(JUDGEMENT_SERVICE_ORIGIN))
   );
 }
 
